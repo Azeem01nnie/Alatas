@@ -1636,10 +1636,10 @@ input[type='datetime-local']:focus {
   background: var(--bg);
   position: relative;
   padding-right: 9rem;
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.85rem 1rem;
-  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  align-items: flex-start;
 }
 
 .history-photos {
@@ -1934,16 +1934,11 @@ input[type='datetime-local']:focus {
 @media (max-width: 700px) {
   .history-row-btn {
     padding-right: 1rem;
-    grid-template-columns: 1fr;
-  }
-
-  .history-photos {
-    grid-row: auto;
   }
 
   .history-main,
   .history-meta {
-    grid-column: 1;
+    grid-column: auto;
   }
 
   .history-open-hint {

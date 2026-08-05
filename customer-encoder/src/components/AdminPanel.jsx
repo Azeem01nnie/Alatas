@@ -73,24 +73,27 @@ export default function AdminPanel({ onBack }) {
     return base
   }, [vehicles])
 
+  const filteredByStatus = useMemo(() => {
+    return vehicles.filter(
+      (v) => statusFilter === 'All' || v.status === statusFilter,
+    )
+  }, [vehicles, statusFilter])
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return vehicles.filter((v) => {
-      const matchesStatus = statusFilter === 'All' || v.status === statusFilter
-      if (!matchesStatus) return false
       if (!q) return true
       const haystack = `${v.make} ${v.series} ${v.plateNo} ${v.bodyType}`.toLowerCase()
       return haystack.includes(q)
     })
-  }, [vehicles, search, statusFilter])
+  }, [vehicles, search])
 
   const filteredHistory = useMemo(() => {
     const q = historySearch.trim().toLowerCase()
     if (!q) return rentals
     return rentals.filter((r) => {
-      const name = `${r.personal?.firstName || ''} ${r.personal?.lastName || ''}`
-      const vehicle = `${r.vehicle?.make || ''} ${r.vehicle?.series || ''} ${r.vehicle?.plateNo || ''}`
-      return `${name} ${vehicle}`.toLowerCase().includes(q)
+      const name = `${r.personal?.firstName || ''} ${r.personal?.middleName || ''} ${r.personal?.lastName || ''}`
+      return name.toLowerCase().includes(q)
     })
   }, [rentals, historySearch])
 
@@ -272,7 +275,7 @@ export default function AdminPanel({ onBack }) {
           <h1>Admin Panel</h1>
           <div className="header-actions">
             <button type="button" className="btn-outline" onClick={onBack}>
-              Back to Encoder
+              Back to Customer Panel
             </button>
           </div>
         </header>
@@ -307,7 +310,7 @@ export default function AdminPanel({ onBack }) {
 
         <div className="sidebar-footer">
           <button type="button" className="btn-ghost sidebar-btn" onClick={onBack}>
-            Back to Encoder
+            Back to Customer Panel
           </button>
           <button type="button" className="btn-outline sidebar-btn" onClick={requestLogout}>
             Logout
@@ -335,8 +338,6 @@ export default function AdminPanel({ onBack }) {
             <>
           {tab === 'dashboard' && (
             <section className="admin-dashboard">
-              <p className="step-subtitle">Overview of all fleet vehicles by status.</p>
-
               <div className="dashboard-stats">
                 <article className="stat-card">
                   <span className="stat-label">Available</span>
@@ -357,15 +358,6 @@ export default function AdminPanel({ onBack }) {
               </div>
 
               <div className="dashboard-filters">
-                <label className="field search-field">
-                  <span className="field-label">Search vehicle name</span>
-                  <input
-                    type="search"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search by make, series, plate..."
-                  />
-                </label>
                 <div className="chip-group status-filter-chips">
                   {['All', ...VEHICLE_STATUSES].map((s) => (
                     <button
@@ -381,10 +373,10 @@ export default function AdminPanel({ onBack }) {
               </div>
 
               <div className="admin-vehicle-list dashboard-list">
-                {filtered.length === 0 && (
-                  <p className="empty-state">No vehicles match your search.</p>
+                {filteredByStatus.length === 0 && (
+                  <p className="empty-state">No vehicles match your filter.</p>
                 )}
-                {filtered.map((v) => {
+                {filteredByStatus.map((v) => {
                   const scheduled = getScheduledRental(v.id)
                   return (
                   <article key={v.id} className="admin-vehicle-row">
@@ -438,8 +430,6 @@ export default function AdminPanel({ onBack }) {
 
           {tab === 'add' && (
             <section className="admin-form-section">
-              <p className="step-subtitle">Enter vehicle details and a photo.</p>
-
               <form className="form-grid" onSubmit={handleSubmit}>
                 <VehicleFields
                   data={form}
@@ -459,10 +449,6 @@ export default function AdminPanel({ onBack }) {
 
           {tab === 'fleet' && (
             <section className="admin-list-section">
-              <p className="step-subtitle">
-                Search, edit details, change status, or remove vehicles.
-              </p>
-
               <label className="field search-field">
                 <span className="field-label">Search</span>
                 <input
@@ -509,19 +495,17 @@ export default function AdminPanel({ onBack }) {
 
           {tab === 'history' && (
             <section className="admin-history-section">
-              <p className="step-subtitle">Past customer rental encodings.</p>
-
               <label className="field search-field">
                 <span className="field-label">Search history</span>
                 <input
                   type="search"
                   value={historySearch}
                   onChange={(e) => setHistorySearch(e.target.value)}
-                  placeholder="Customer or vehicle name..."
+                  placeholder="Customer name..."
                 />
               </label>
 
-              <div className="history-list">
+              <div className="history-list" style={{ marginTop: '1.25rem' }}>
                 {historyWithImages.length === 0 && (
                   <p className="empty-state">No rental history yet.</p>
                 )}
@@ -541,28 +525,6 @@ export default function AdminPanel({ onBack }) {
                       })
                     }}
                   >
-                    <div className="history-photos">
-                      <div className="history-photo-wrap">
-                        {r.photo ? (
-                          <img src={r.photo} alt="Customer" className="history-photo" />
-                        ) : (
-                          <span className="history-photo-fallback">No photo</span>
-                        )}
-                        <span className="history-photo-label">Customer</span>
-                      </div>
-                      <div className="history-photo-wrap">
-                        {r.vehicle?.image ? (
-                          <img
-                            src={r.vehicle.image}
-                            alt={r.vehicle.make || 'Vehicle'}
-                            className="history-photo"
-                          />
-                        ) : (
-                          <span className="history-photo-fallback">No image</span>
-                        )}
-                        <span className="history-photo-label">Vehicle</span>
-                      </div>
-                    </div>
                     <div className="history-main">
                       <strong>
                         {r.personal?.firstName} {r.personal?.middleName} {r.personal?.lastName}
