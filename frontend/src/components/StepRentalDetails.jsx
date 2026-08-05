@@ -1,6 +1,14 @@
 const DURATIONS = ['5hrs', '12hrs', '24hrs', 'Others']
 const MERIDIEMS = ['AM', 'PM']
 
+function todayDateValue() {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = String(now.getMonth() + 1).padStart(2, '0')
+  const d = String(now.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
 function PeriodFields({
   label,
   dateKey,
@@ -10,6 +18,7 @@ function PeriodFields({
   data,
   onChange,
   errors,
+  minDate,
 }) {
   return (
     <div className="period-block">
@@ -20,6 +29,7 @@ function PeriodFields({
           <input
             type="date"
             value={data[dateKey]}
+            min={minDate}
             onChange={(e) => onChange(dateKey, e.target.value)}
             className={errors[dateKey] ? 'input-error' : ''}
           />
@@ -92,6 +102,9 @@ function PeriodFields({
 }
 
 export default function StepRentalDetails({ data, onChange, errors }) {
+  const minDate = todayDateValue()
+  const toMinDate = data.fromDate && data.fromDate > minDate ? data.fromDate : minDate
+
   return (
     <section className="step-panel">
       <h2 className="step-title">Rental Details</h2>
@@ -160,6 +173,7 @@ export default function StepRentalDetails({ data, onChange, errors }) {
             data={data}
             onChange={onChange}
             errors={errors}
+            minDate={minDate}
           />
           <PeriodFields
             label="To"
@@ -170,6 +184,7 @@ export default function StepRentalDetails({ data, onChange, errors }) {
             data={data}
             onChange={onChange}
             errors={errors}
+            minDate={toMinDate}
           />
         </div>
       </fieldset>

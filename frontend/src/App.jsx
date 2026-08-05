@@ -123,38 +123,12 @@ function App() {
       const toTime = composeTime(rental.toHour, rental.toMinute)
       const fromDt = toPeriodDate(rental.fromDate, fromTime, rental.fromMeridiem)
       const toDt = toPeriodDate(rental.toDate, toTime, rental.toMeridiem)
-      const now = Date.now()
 
-      if (fromDt && fromDt.getTime() < now) {
-        nextErrors.fromDate = 'From date & time cannot be in the past'
-      }
-      if (toDt && toDt.getTime() < now) {
-        nextErrors.toDate = 'To date & time cannot be in the past'
-      }
       if (fromDt && toDt && toDt.getTime() <= fromDt.getTime()) {
         nextErrors.toDate = 'To must be after From'
       }
 
       if (!rental.rentalFee.trim()) nextErrors.rentalFee = 'Rental fee is required'
-    }
-
-    if (currentStep === 6) {
-      const fromTime = composeTime(rental.fromHour, rental.fromMinute)
-      const toTime = composeTime(rental.toHour, rental.toMinute)
-      const fromDt = toPeriodDate(rental.fromDate, fromTime, rental.fromMeridiem)
-      const toDt = toPeriodDate(rental.toDate, toTime, rental.toMeridiem)
-      const now = Date.now()
-      if (fromDt && fromDt.getTime() < now) {
-        nextErrors.fromDate = 'From date & time has already passed. Please update the rental period.'
-      }
-      if (toDt && toDt.getTime() < now) {
-        nextErrors.toDate = 'To date & time has already passed. Please update the rental period.'
-      }
-      if (nextErrors.fromDate || nextErrors.toDate) {
-        setErrors(nextErrors)
-        setStep(3)
-        return false
-      }
     }
 
     if (currentStep === 4) {
@@ -292,7 +266,6 @@ function App() {
       <header className="app-header">
         <h1>Alatas Car Rental Services</h1>
         <div className="header-actions">
-          <p>Lessee / Renter Registration</p>
           <button type="button" className="btn-outline" onClick={() => setView('admin')}>
             Admin Panel
           </button>

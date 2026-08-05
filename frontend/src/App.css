@@ -1477,8 +1477,54 @@ input[type='datetime-local']:focus {
   grid-column: 1 / -1;
 }
 
-.dashboard-list {
-  max-height: 48vh;
+.admin-vehicle-list.dashboard-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+  max-height: none;
+  overflow: visible;
+}
+
+.admin-vehicle-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.85rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: none;
+  min-width: 0;
+}
+
+.dashboard-list .admin-vehicle-thumb {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+}
+
+.dashboard-list .admin-vehicle-meta {
+  flex: 0 0 auto;
+}
+
+.dashboard-list .status-badge {
+  align-self: flex-start;
+}
+
+.admin-vehicle-card-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-top: auto;
+}
+
+.admin-vehicle-card-actions .btn-sm {
+  width: 100%;
+}
+
+.admin-vehicle-card:hover {
+  border-color: #2563eb;
 }
 
 /* Hover accents */

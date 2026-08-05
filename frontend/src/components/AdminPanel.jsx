@@ -21,7 +21,7 @@ const EMPTY = {
 const NAV = [
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'add', label: 'Add Vehicle' },
-  { id: 'fleet', label: 'Fleet Search' },
+  { id: 'fleet', label: 'Current Vehicles' },
   { id: 'history', label: 'Rental History' },
 ]
 
@@ -146,21 +146,12 @@ export default function AdminPanel({ onBack }) {
     setErrors(next)
     if (Object.keys(next).length) return
 
-    addVehicle({
-      make: form.make.trim(),
-      series: form.series.trim(),
-      bodyType: form.bodyType.trim(),
-      plateNo: form.plateNo.trim(),
-      engineNo: form.engineNo.trim(),
-      chassisNo: form.chassisNo.trim(),
-      image: form.image.trim(),
-      status: form.status,
+    setConfirm({
+      type: 'add',
+      title: 'Add vehicle?',
+      message: `Add ${form.make.trim()} — ${form.series.trim()} (${form.plateNo.trim()}) to the fleet?`,
+      confirmLabel: 'Add Vehicle',
     })
-    setForm(EMPTY)
-    setMessage('Vehicle added successfully.')
-    if (fileRef.current) fileRef.current.value = ''
-    setTimeout(() => setMessage(''), 2500)
-    setTab('dashboard')
   }
 
   const openEdit = (vehicle) => {
@@ -245,6 +236,23 @@ export default function AdminPanel({ onBack }) {
     }
     if (confirm.type === 'complete-rental') {
       completeRentalForVehicle(confirm.vehicleId)
+    }
+    if (confirm.type === 'add') {
+      addVehicle({
+        make: form.make.trim(),
+        series: form.series.trim(),
+        bodyType: form.bodyType.trim(),
+        plateNo: form.plateNo.trim(),
+        engineNo: form.engineNo.trim(),
+        chassisNo: form.chassisNo.trim(),
+        image: form.image.trim(),
+        status: form.status,
+      })
+      setForm(EMPTY)
+      setMessage('Vehicle added successfully.')
+      if (fileRef.current) fileRef.current.value = ''
+      setTimeout(() => setMessage(''), 2500)
+      setTab('dashboard')
     }
     if (confirm.type === 'remove') {
       removeVehicle(confirm.vehicleId)
@@ -381,7 +389,7 @@ export default function AdminPanel({ onBack }) {
                 {filteredByStatus.map((v) => {
                   const scheduled = getScheduledRental(v.id)
                   return (
-                  <article key={v.id} className="admin-vehicle-row">
+                  <article key={v.id} className="admin-vehicle-card">
                     <img src={v.image} alt={v.make} className="admin-vehicle-thumb" />
                     <div className="admin-vehicle-meta">
                       <strong>
@@ -407,24 +415,26 @@ export default function AdminPanel({ onBack }) {
                     >
                       {scheduled && v.status === 'Available' ? 'Reserved' : v.status}
                     </span>
-                    {scheduled && v.status !== 'Rented' ? (
-                      <button
-                        type="button"
-                        className="btn-primary btn-sm"
-                        onClick={() => requestStartRental(v, scheduled)}
-                      >
-                        Start Rental
-                      </button>
-                    ) : null}
-                    {v.status === 'Rented' ? (
-                      <button
-                        type="button"
-                        className="btn-outline btn-sm"
-                        onClick={() => requestRentCompleted(v)}
-                      >
-                        Rent Completed
-                      </button>
-                    ) : null}
+                    <div className="admin-vehicle-card-actions">
+                      {scheduled && v.status !== 'Rented' ? (
+                        <button
+                          type="button"
+                          className="btn-primary btn-sm"
+                          onClick={() => requestStartRental(v, scheduled)}
+                        >
+                          Start Rental
+                        </button>
+                      ) : null}
+                      {v.status === 'Rented' ? (
+                        <button
+                          type="button"
+                          className="btn-outline btn-sm"
+                          onClick={() => requestRentCompleted(v)}
+                        >
+                          Rent Completed
+                        </button>
+                      ) : null}
+                    </div>
                   </article>
                   )
                 })}
@@ -441,6 +451,7 @@ export default function AdminPanel({ onBack }) {
                   onChange={update}
                   fileRef={fileRef}
                   onFile={(e) => handleImageFile(e, false)}
+                  statusOptions={EDIT_STATUSES}
                 />
                 <div className="field field-full admin-form-actions">
                   <button type="submit" className="btn-primary">
