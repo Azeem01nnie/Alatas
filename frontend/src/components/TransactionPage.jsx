@@ -14,8 +14,37 @@ function fullName(personal = {}) {
     .join(' ')
 }
 
-function downloadContractPdf(transaction) {
-  const { personal = {}, vehicle = {}, rental = {} } = transaction
+function toGrayscaleDataUrl(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = img.naturalWidth || img.width
+      canvas.height = img.naturalHeight || img.height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        reject(new Error('Canvas unavailable'))
+        return
+      }
+      ctx.drawImage(img, 0, 0)
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+      const pixels = imageData.data
+      for (let i = 0; i < pixels.length; i += 4) {
+        const gray = 0.299 * pixels[i] + 0.587 * pixels[i + 1] + 0.114 * pixels[i + 2]
+        pixels[i] = gray
+        pixels[i + 1] = gray
+        pixels[i + 2] = gray
+      }
+      ctx.putImageData(imageData, 0, 0)
+      resolve(canvas.toDataURL('image/jpeg', 0.9))
+    }
+    img.onerror = () => reject(new Error('Failed to load photo'))
+    img.src = dataUrl
+  })
+}
+
+async function downloadContractPdf(transaction) {
+  const { personal = {}, vehicle = {}, rental = {}, photo } = transaction
   const name = fullName(personal) || 'Lessee'
   const doc = new jsPDF({ unit: 'pt', format: 'a4' })
   const pageWidth = doc.internal.pageSize.getWidth()
@@ -214,6 +243,59 @@ function downloadContractPdf(transaction) {
   doc.text(`Electronically accepted on ${formatDateTime(transaction.encodedAt)}`, margin, y)
   doc.text('Alatas Car Rental Services', margin + half + 10, y)
 
+  // Customer photos — last section: 2 color + 1 mono
+  y += 28
+  ensureSpace(220)
+  doc.setDrawColor(17, 17, 17)
+  doc.setLineWidth(0.8)
+  doc.line(margin, y, pageWidth - margin, y)
+  y += 18
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(10)
+  doc.setTextColor(17, 17, 17)
+  doc.text('CUSTOMER PHOTOS', margin, y)
+  y += 14
+
+  if (photo && typeof photo === 'string' && photo.startsWith('data:image')) {
+    try {
+      const monoPhoto = await toGrayscaleDataUrl(photo)
+      const props = doc.getImageProperties(photo)
+      const photoGap = 12
+      const slotW = (contentWidth - photoGap * 2) / 3
+      const maxH = 150
+      const ratio = Math.min(slotW / props.width, maxH / props.height, 1)
+      const imgW = props.width * ratio
+      const imgH = props.height * ratio
+      const colorFormat = /image\/png/i.test(photo) ? 'PNG' : 'JPEG'
+      const copies = [
+        { src: photo, format: colorFormat },
+        { src: photo, format: colorFormat },
+        { src: monoPhoto, format: 'JPEG' },
+      ]
+
+      ensureSpace(imgH + 12)
+      copies.forEach((copy, index) => {
+        const x = margin + index * (slotW + photoGap) + (slotW - imgW) / 2
+        doc.addImage(copy.src, copy.format, x, y, imgW, imgH)
+        doc.setDrawColor(17, 17, 17)
+        doc.setLineWidth(0.5)
+        doc.rect(x, y, imgW, imgH)
+      })
+      y += imgH + 12
+    } catch {
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(9)
+      doc.setTextColor(100, 100, 100)
+      doc.text('Customer photo could not be embedded in this PDF.', margin, y)
+    }
+  } else {
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    doc.setTextColor(100, 100, 100)
+    doc.text('No customer photo on file.', margin, y)
+  }
+
   const safeName = name.replace(/[^\w\-]+/g, '_').slice(0, 40) || 'contract'
   doc.save(`Alatas_Contract_${safeName}_${transaction.id}.pdf`)
 }
@@ -232,7 +314,9 @@ export default function TransactionPage({ transaction, onBack }) {
           <button
             type="button"
             className="btn-primary"
-            onClick={() => downloadContractPdf(transaction)}
+            onClick={() => {
+              void downloadContractPdf(transaction)
+            }}
           >
             Download Contract PDF
           </button>
@@ -352,7 +436,9 @@ export default function TransactionPage({ transaction, onBack }) {
           <button
             type="button"
             className="btn-outline btn-sm"
-            onClick={() => downloadContractPdf(transaction)}
+            onClick={() => {
+              void downloadContractPdf(transaction)
+            }}
           >
             Download PDF
           </button>
