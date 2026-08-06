@@ -335,6 +335,14 @@ export default function AdminPanel() {
   const [historyDateFrom, setHistoryDateFrom] = useState('')
   const [historyDateTo, setHistoryDateTo] = useState('')
   const [manageStatus, setManageStatus] = useState('All')
+  const [manageLayout, setManageLayout] = useState(() => {
+    try {
+      const saved = localStorage.getItem('alatas-manage-layout')
+      return saved === 'cards' ? 'cards' : 'list'
+    } catch {
+      return 'list'
+    }
+  })
   const [showAddForm, setShowAddForm] = useState(false)
   const [previewVehicle, setPreviewVehicle] = useState(null)
   const [confirm, setConfirm] = useState(null)
@@ -362,6 +370,14 @@ export default function AdminPanel() {
   const editFileRef = useRef(null)
   const profilePhotoRef = useRef(null)
   const notifRef = useRef(null)
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('alatas-manage-layout', manageLayout)
+    } catch {
+      /* ignore */
+    }
+  }, [manageLayout])
 
   useEffect(() => {
     if (tab === 'settings') {
@@ -1299,17 +1315,37 @@ export default function AdminPanel() {
                     placeholder="Brand, model, plate, type..."
                   />
                 </label>
-                <div className="chip-group manage-status-filters" role="group" aria-label="Filter by status">
-                  {MANAGE_STATUS_FILTERS.map((f) => (
+                <div className="manage-toolbar-row">
+                  <div className="chip-group manage-status-filters" role="group" aria-label="Filter by status">
+                    {MANAGE_STATUS_FILTERS.map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        className={`chip${manageStatus === f.id ? ' selected' : ''}`}
+                        onClick={() => setManageStatus(f.id)}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="manage-layout-toggle" role="group" aria-label="Fleet layout">
                     <button
-                      key={f.id}
                       type="button"
-                      className={`chip${manageStatus === f.id ? ' selected' : ''}`}
-                      onClick={() => setManageStatus(f.id)}
+                      className={`manage-layout-btn${manageLayout === 'list' ? ' is-active' : ''}`}
+                      onClick={() => setManageLayout('list')}
+                      aria-pressed={manageLayout === 'list'}
                     >
-                      {f.label}
+                      List
                     </button>
-                  ))}
+                    <button
+                      type="button"
+                      className={`manage-layout-btn${manageLayout === 'cards' ? ' is-active' : ''}`}
+                      onClick={() => setManageLayout('cards')}
+                      aria-pressed={manageLayout === 'cards'}
+                    >
+                      Cards
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1331,65 +1367,129 @@ export default function AdminPanel() {
                 </form>
               )}
 
-              <div className="admin-vehicle-list manage-vehicle-list">
+              <div
+                className={`admin-vehicle-list manage-vehicle-list manage-layout-${manageLayout}`}
+              >
                 {filtered.length === 0 && <p className="empty-state">No vehicles found.</p>}
                 {filteredGrouped.map((group) => (
                   <div key={group.bodyType} className="manage-group">
                     <h3 className="manage-group-title">{group.bodyType}</h3>
-                    {group.items.map((v) => (
-                      <article
-                        key={v.id}
-                        className="admin-vehicle-row manage-vehicle-row is-clickable"
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => setPreviewVehicle(v)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault()
-                            setPreviewVehicle(v)
-                          }
-                        }}
-                      >
-                        <img src={v.image} alt="" className="admin-vehicle-thumb" />
-                        <div className="admin-vehicle-meta">
-                          <strong>
-                            {v.make} — {v.series}
-                          </strong>
-                          <span>
-                            {v.seats} seaters · {v.transmission} · {v.plateNo}
-                          </span>
-                        </div>
-                        <span className={`status-badge ${statusClass(v.status)}`}>
-                          {v.status === 'Rented' ? 'On Rent' : v.status}
-                        </span>
-                        <div className="manage-row-actions">
-                          <button
-                            type="button"
-                            className="icon-btn"
-                            title="Edit"
-                            aria-label={`Edit ${v.make} ${v.series}`}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              openEdit(v)
+                    <div
+                      className={
+                        manageLayout === 'cards' ? 'manage-card-grid' : 'manage-list-stack'
+                      }
+                    >
+                      {group.items.map((v) =>
+                        manageLayout === 'cards' ? (
+                          <article
+                            key={v.id}
+                            className="manage-vehicle-card is-clickable"
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => setPreviewVehicle(v)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault()
+                                setPreviewVehicle(v)
+                              }
                             }}
                           >
-                            <IconEdit />
-                          </button>
-                          <button
-                            type="button"
-                            className="icon-btn icon-btn-danger"
-                            title="Remove"
-                            aria-label={`Remove ${v.make} ${v.series}`}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              requestRemove(v)
+                            <div className="manage-card-media">
+                              <img src={v.image} alt="" />
+                              <span className={`status-badge ${statusClass(v.status)}`}>
+                                {v.status === 'Rented' ? 'On Rent' : v.status}
+                              </span>
+                            </div>
+                            <div className="manage-card-body">
+                              <strong className="manage-card-title">
+                                {v.make} — {v.series}
+                              </strong>
+                              <span className="manage-card-plate">{v.plateNo}</span>
+                              <ul className="manage-card-facts">
+                                <li>{v.seats} seats</li>
+                                <li>{v.transmission}</li>
+                                <li>{v.bodyType}</li>
+                              </ul>
+                            </div>
+                            <div className="manage-card-actions">
+                              <button
+                                type="button"
+                                className="btn-outline btn-sm"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  openEdit(v)
+                                }}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                className="btn-ghost btn-sm manage-card-remove"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  requestRemove(v)
+                                }}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </article>
+                        ) : (
+                          <article
+                            key={v.id}
+                            className="admin-vehicle-row manage-vehicle-row is-clickable"
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => setPreviewVehicle(v)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault()
+                                setPreviewVehicle(v)
+                              }
                             }}
                           >
-                            <IconTrash />
-                          </button>
-                        </div>
-                      </article>
-                    ))}
+                            <img src={v.image} alt="" className="admin-vehicle-thumb" />
+                            <div className="admin-vehicle-meta">
+                              <strong>
+                                {v.make} — {v.series}
+                              </strong>
+                              <span>
+                                {v.seats} seaters · {v.transmission} · {v.plateNo}
+                              </span>
+                            </div>
+                            <span className={`status-badge ${statusClass(v.status)}`}>
+                              {v.status === 'Rented' ? 'On Rent' : v.status}
+                            </span>
+                            <div className="manage-row-actions">
+                              <button
+                                type="button"
+                                className="icon-btn"
+                                title="Edit"
+                                aria-label={`Edit ${v.make} ${v.series}`}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  openEdit(v)
+                                }}
+                              >
+                                <IconEdit />
+                              </button>
+                              <button
+                                type="button"
+                                className="icon-btn icon-btn-danger"
+                                title="Remove"
+                                aria-label={`Remove ${v.make} ${v.series}`}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  requestRemove(v)
+                                }}
+                              >
+                                <IconTrash />
+                              </button>
+                            </div>
+                          </article>
+                        ),
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>

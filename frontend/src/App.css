@@ -152,30 +152,36 @@ html[data-theme='dark'] .chip.selected {
   box-shadow: 0 0 0 1px rgba(245, 196, 0, 0.25);
 }
 
+html[data-theme='dark'] .status-badge {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 1px 3px rgba(0, 0, 0, 0.28);
+}
+
 html[data-theme='dark'] .status-available {
-  background: rgba(61, 214, 140, 0.14);
-  color: #7df0b0;
-  border-color: rgba(61, 214, 140, 0.35);
+  background: linear-gradient(180deg, rgba(61, 214, 140, 0.22) 0%, rgba(61, 214, 140, 0.1) 100%);
+  color: #8af5bc;
+  border-color: rgba(61, 214, 140, 0.38);
 }
 
 html[data-theme='dark'] .status-rented {
-  background: rgba(108, 182, 255, 0.14);
-  color: #9dceff;
-  border-color: rgba(108, 182, 255, 0.35);
+  background: linear-gradient(180deg, rgba(108, 182, 255, 0.22) 0%, rgba(108, 182, 255, 0.1) 100%);
+  color: #a8d4ff;
+  border-color: rgba(108, 182, 255, 0.38);
 }
 
 html[data-theme='dark'] .status-maintenance {
-  background: rgba(245, 185, 68, 0.14);
+  background: linear-gradient(180deg, rgba(245, 185, 68, 0.22) 0%, rgba(245, 185, 68, 0.1) 100%);
   color: #ffd27a;
-  border-color: rgba(245, 185, 68, 0.35);
+  border-color: rgba(245, 185, 68, 0.38);
 }
 
 html[data-theme='dark'] .status-reserved,
 html[data-theme='dark'] .status-badge.cal-chip-scheduled,
 html[data-theme='dark'] .cal-chip-scheduled {
-  background: rgba(245, 196, 0, 0.12);
+  background: linear-gradient(180deg, rgba(245, 196, 0, 0.2) 0%, rgba(245, 196, 0, 0.1) 100%);
   color: #f5d76e;
-  border-color: rgba(245, 196, 0, 0.32);
+  border-color: rgba(245, 196, 0, 0.36);
 }
 
 html[data-theme='dark'] .cal-chip-active {
@@ -270,11 +276,39 @@ html[data-theme='dark'] .cal-fleet-trigger {
 html[data-theme='dark'] .rental-vehicle-chip,
 html[data-theme='dark'] .rental-fee-panel,
 html[data-theme='dark'] .manage-vehicle-row,
+html[data-theme='dark'] .manage-vehicle-card,
 html[data-theme='dark'] .transaction-card,
 html[data-theme='dark'] .transaction-photo-card {
   background: var(--surface);
   border-color: var(--border);
   color: var(--text);
+}
+
+html[data-theme='dark'] .manage-layout-toggle {
+  background: var(--bg);
+  border-color: var(--border);
+}
+
+html[data-theme='dark'] .manage-layout-btn.is-active {
+  background: var(--surface-muted);
+  color: #fff;
+  box-shadow: none;
+}
+
+html[data-theme='dark'] .manage-vehicle-card.is-clickable:hover {
+  border-color: rgba(245, 196, 0, 0.35);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.35);
+}
+
+html[data-theme='dark'] .manage-card-facts li {
+  background: var(--bg);
+  border-color: var(--border);
+  color: #d2c4c4;
+}
+
+html[data-theme='dark'] .manage-card-media,
+html[data-theme='dark'] .manage-card-media img {
+  background: #ffffff;
 }
 
 html[data-theme='dark'] .transaction-photo-card img {
@@ -3050,6 +3084,14 @@ input[type='number']:focus {
   margin-bottom: 1.25rem;
 }
 
+.manage-toolbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+}
+
 .manage-toolbar .search-field,
 .manage-search {
   flex: none;
@@ -3070,6 +3112,44 @@ input[type='number']:focus {
   margin-top: 0;
 }
 
+.manage-layout-toggle {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+  gap: 0.15rem;
+}
+
+.manage-layout-btn {
+  min-height: 2rem;
+  padding: 0.35rem 0.85rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.manage-layout-btn:hover {
+  color: var(--text);
+}
+
+.manage-layout-btn.is-active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(17, 17, 17, 0.08);
+}
+
 .manage-add-form {
   margin-bottom: 1.5rem;
   padding: 1.25rem;
@@ -3086,7 +3166,7 @@ input[type='number']:focus {
 .manage-group {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.65rem;
 }
 
 .manage-group-title {
@@ -3097,6 +3177,126 @@ input[type='number']:focus {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
+}
+
+.manage-list-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.manage-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1rem;
+}
+
+.manage-vehicle-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  overflow: hidden;
+  box-shadow: 0 8px 20px rgba(17, 17, 17, 0.04);
+  transition:
+    border-color 0.18s var(--ease-premium),
+    transform 0.18s var(--ease-premium),
+    box-shadow 0.18s var(--ease-premium);
+}
+
+.manage-vehicle-card.is-clickable {
+  cursor: pointer;
+}
+
+.manage-vehicle-card.is-clickable:hover {
+  border-color: rgba(179, 32, 37, 0.35);
+  transform: translateY(-2px);
+  box-shadow: 0 14px 28px rgba(17, 17, 17, 0.08);
+}
+
+.manage-vehicle-card.is-clickable:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.manage-card-media {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  background: #ffffff;
+  border-bottom: 1px solid var(--border);
+}
+
+.manage-card-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  background: #ffffff;
+  padding: 0.55rem;
+}
+
+.manage-card-media .status-badge {
+  position: absolute;
+  top: 0.65rem;
+  left: 0.65rem;
+}
+
+.manage-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.95rem 1rem 0.55rem;
+}
+
+.manage-card-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.25;
+}
+
+.manage-card-plate {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.manage-card-facts {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.35rem 0 0;
+  padding: 0;
+}
+
+.manage-card-facts li {
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.manage-card-actions {
+  display: flex;
+  gap: 0.45rem;
+  padding: 0.65rem 1rem 1rem;
+  margin-top: auto;
+}
+
+.manage-card-actions .btn-sm {
+  flex: 1;
+  justify-content: center;
+}
+
+.manage-card-remove {
+  color: var(--error);
 }
 
 .manage-vehicle-row {
@@ -4620,45 +4820,51 @@ html[data-theme='dark'] .login-form .field-label {
 }
 
 .status-badge {
-  font-size: 0.65rem;
-  font-weight: 500;
-  letter-spacing: 0.04em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  padding: 0.35rem 0.7rem;
-  border-radius: 8px;
+  padding: 0.4rem 0.78rem;
+  border-radius: 999px;
   white-space: nowrap;
   flex-shrink: 0;
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 1px 2px rgba(17, 17, 17, 0.06);
 }
 
 .status-available {
-  background: #ecfdf3;
-  color: var(--ok);
-  border-color: #abefc6;
+  background: linear-gradient(180deg, #f3fff8 0%, #dff7ea 100%);
+  color: #067647;
+  border-color: rgba(6, 118, 71, 0.18);
 }
 
 .status-rented {
-  background: #eff8ff;
-  color: var(--rented);
-  border-color: #b2ddff;
+  background: linear-gradient(180deg, #f4f9ff 0%, #e4f1ff 100%);
+  color: #175cd3;
+  border-color: rgba(23, 92, 211, 0.2);
 }
 
 .status-maintenance {
-  background: #fffaeb;
-  color: var(--maintenance);
-  border-color: #fedf89;
+  background: linear-gradient(180deg, #fffaf0 0%, #ffefd2 100%);
+  color: #b54708;
+  border-color: rgba(181, 71, 8, 0.2);
 }
 
 .status-reserved {
-  background: #fff8eb;
-  color: #9a6700;
-  border-color: #f5e1a4;
+  background: linear-gradient(180deg, #fffcef 0%, #fff3c4 100%);
+  color: #8a6a00;
+  border-color: rgba(138, 106, 0, 0.22);
 }
 
 .status-badge.cal-chip-scheduled {
-  background: #fff8eb;
-  color: #9a6700;
-  border-color: #f5e1a4;
+  background: linear-gradient(180deg, #fffcef 0%, #fff3c4 100%);
+  color: #8a6a00;
+  border-color: rgba(138, 106, 0, 0.22);
 }
 
 .status-select {
