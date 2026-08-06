@@ -1,31 +1,13 @@
 import express from 'express'
 import cors from 'cors'
-import fs from 'fs'
-import path from 'path'
-import { fileURLToPath } from 'url'
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const dataDir = path.join(__dirname, '..', 'data')
-const vehiclesFile = path.join(dataDir, 'vehicles.json')
-const rentalsFile = path.join(dataDir, 'rentals.json')
-
-if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true })
-
-function readJson(file, fallback) {
-  try {
-    if (!fs.existsSync(file)) return fallback
-    return JSON.parse(fs.readFileSync(file, 'utf8'))
-  } catch {
-    return fallback
-  }
-}
-
-function writeJson(file, value) {
-  fs.writeFileSync(file, JSON.stringify(value, null, 2), 'utf8')
-}
-
-if (!fs.existsSync(vehiclesFile)) writeJson(vehiclesFile, [])
-if (!fs.existsSync(rentalsFile)) writeJson(rentalsFile, [])
+import {
+  getVehicles,
+  replaceVehicles,
+  getRentals,
+  addRental,
+  replaceRentals,
+  deleteVehicle,
+} from './sqlite-db.js'
 
 const app = express()
 const PORT = process.env.PORT || 4000
@@ -38,31 +20,39 @@ app.get('/api/health', (_req, res) => {
 })
 
 app.get('/api/vehicles', (_req, res) => {
-  res.json(readJson(vehiclesFile, []))
+  res.json(getVehicles())
 })
 
 app.put('/api/vehicles', (req, res) => {
   const vehicles = Array.isArray(req.body) ? req.body : []
-  writeJson(vehiclesFile, vehicles)
-  res.json(vehicles)
+  const result = replaceVehicles(vehicles)
+  res.json(result)
 })
 
 app.get('/api/rentals', (_req, res) => {
-  res.json(readJson(rentalsFile, []))
+  res.json(getRentals())
 })
 
 app.post('/api/rentals', (req, res) => {
-  const rentals = readJson(rentalsFile, [])
   const entry = { ...req.body, id: req.body.id || `r-${Date.now()}` }
-  rentals.unshift(entry)
-  writeJson(rentalsFile, rentals)
-  res.status(201).json(entry)
+  const created = addRental(entry)
+  res.status(201).json(created)
+})
+
+app.delete('/api/vehicles/:id', (req, res) => {
+  const id = req.params.id
+  if (!id) {
+    return res.status(400).json({ error: 'Vehicle id is required' })
+  }
+  const remainingVehicles = deleteVehicle(id)
+  const remainingRentals = getRentals()
+  res.json({ ok: true, vehicles: remainingVehicles, rentals: remainingRentals })
 })
 
 app.put('/api/rentals', (req, res) => {
   const rentals = Array.isArray(req.body) ? req.body : []
-  writeJson(rentalsFile, rentals)
-  res.json(rentals)
+  const result = replaceRentals(rentals)
+  res.json(result)
 })
 
 app.listen(PORT, () => {

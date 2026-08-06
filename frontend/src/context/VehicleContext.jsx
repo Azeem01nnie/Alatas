@@ -1,6 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import { loadVehicles, saveVehicles } from '../data/vehicles'
-import { loadRentals, saveRentals } from '../data/rentals'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { loadVehicles, saveVehicles, deleteVehicle as deleteVehicleApi } from '../data/backendVehicles'
+import { loadRentals, saveRentals, addRental as addRentalApi } from '../data/backendRentals'
 
 const VehicleContext = createContext(null)
 
@@ -16,43 +16,62 @@ function isDue(periodFrom) {
 }
 
 export function VehicleProvider({ children }) {
-  const [vehicles, setVehicles] = useState(() => loadVehicles())
-  const [rentals, setRentals] = useState(() => {
-    const loaded = loadRentals().map(normalizeRental)
-    // Proactively slim history so quota errors don't break submit
-    try {
-      saveRentals(loaded)
-    } catch {
-      /* ignore */
-    }
-    return loaded
-  })
+  const [vehicles, setVehicles] = useState([])
+  const [rentals, setRentals] = useState([])
+  const hasLoaded = useRef(false)
 
   useEffect(() => {
-    try {
-      saveVehicles(vehicles)
-    } catch (err) {
-      console.warn('Vehicle save failed', err)
+    let mounted = true
+
+    async function loadInitialData() {
+      const [vehiclesData, rentalsData] = await Promise.all([
+        loadVehicles(),
+        loadRentals(),
+      ])
+
+      if (!mounted) return
+      setVehicles(Array.isArray(vehiclesData) ? vehiclesData : [])
+      setRentals(
+        Array.isArray(rentalsData)
+          ? rentalsData.map(normalizeRental)
+          : [],
+      )
+      hasLoaded.current = true
     }
+
+    loadInitialData()
+
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!hasLoaded.current) return
+    saveVehicles(vehicles).catch((err) => {
+      console.warn('Vehicle save failed', err)
+    })
   }, [vehicles])
 
   useEffect(() => {
-    try {
-      saveRentals(rentals)
-    } catch (err) {
+    if (!hasLoaded.current) return
+    saveRentals(rentals).catch((err) => {
       console.warn('Rental save failed', err)
-    }
+    })
   }, [rentals])
 
   const updateVehicleStatus = useCallback((id, status) => {
+    if (!id) return
+    const key = String(id)
     setVehicles((prev) =>
-      prev.map((v) => (v.id === id ? { ...v, status } : v)),
+      prev.map((v) => (String(v.id) === key ? { ...v, status } : v)),
     )
   }, [])
 
   const completeRentalForVehicle = useCallback((vehicleId) => {
+    if (!vehicleId) return
     setVehicles((prev) =>
-      prev.map((v) => (v.id === vehicleId ? { ...v, status: 'Available' } : v)),
+      prev.map((v) => (String(v.id) === String(vehicleId) ? { ...v, status: 'Available' } : v)),
     )
     setRentals((prev) =>
       prev.map((r) =>
@@ -128,11 +147,35 @@ export function VehicleProvider({ children }) {
     )
   }
 
-  const removeVehicle = (id) => {
-    setVehicles((prev) => prev.filter((v) => v.id !== id))
-  }
+  const removeVehicle = useCallback(async (id) => {
+    if (!id) return null
 
-  const addRental = (record) => {
+    const result = await deleteVehicleApi(id)
+    if (!result || !result.ok) return null
+
+    if (Array.isArray(result.vehicles)) {
+      setVehicles(result.vehicles)
+    } else {
+      setVehicles((prev) => prev.filter((v) => v.id !== id))
+    }
+
+    if (Array.isArray(result.rentals)) {
+      setRentals(
+        result.rentals.map(normalizeRental),
+      )
+    } else {
+      setRentals((prev) =>
+        prev.filter(
+          (r) =>
+            r.vehicle?.id !== id ||
+            r.rentalLifecycle === 'completed',
+        ),
+      )
+    }
+    return result
+  }, [])
+
+  const addRental = async (record) => {
     const shouldStartNow = isDue(record.rental?.periodFrom)
     const entry = {
       ...record,
@@ -140,9 +183,19 @@ export function VehicleProvider({ children }) {
       rentalLifecycle: shouldStartNow ? 'active' : 'scheduled',
       startedAt: shouldStartNow ? new Date().toISOString() : null,
     }
+
+    const created = await addRentalApi(entry)
+    if (created?.id) {
+      setRentals((prev) => [created, ...prev])
+      if (created.vehicleId || created.vehicle?.id) {
+        updateVehicleStatus(created.vehicleId || created.vehicle?.id, 'Rented')
+      }
+      return created
+    }
+
     setRentals((prev) => [entry, ...prev])
-    if (shouldStartNow && record.vehicle?.id) {
-      updateVehicleStatus(record.vehicle.id, 'Rented')
+    if (entry.vehicleId || entry.vehicle?.id) {
+      updateVehicleStatus(entry.vehicleId || entry.vehicle?.id, 'Rented')
     }
     return entry
   }

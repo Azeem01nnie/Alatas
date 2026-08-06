@@ -306,7 +306,7 @@ export default function RentCarForm({ onDirtyChange }) {
         encodedAt: new Date().toISOString(),
       }
 
-      addRental(record)
+      await addRental(record)
       setPhase('loading')
     } catch (err) {
       console.error('Submit failed:', err)

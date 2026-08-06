@@ -1,0 +1,29 @@
+import { fetchRentals, replaceRentals, addRental as postRental } from '../api/backend'
+
+export async function loadRentals() {
+  try {
+    const rentals = await fetchRentals()
+    return Array.isArray(rentals) ? rentals : []
+  } catch {
+    return []
+  }
+}
+
+export async function saveRentals(rentals) {
+  try {
+    await replaceRentals(rentals)
+    return true
+  } catch (err) {
+    console.warn('Unable to persist rentals to backend', err)
+    return false
+  }
+}
+
+export async function addRental(rental) {
+  try {
+    return await postRental(rental)
+  } catch (err) {
+    console.warn('Unable to add rental to backend', err)
+    return null
+  }
+}

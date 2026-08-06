@@ -816,7 +816,7 @@ export default function AdminPanel() {
     })
   }
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (!confirm) return
     if (confirm.type === 'logout') {
       clearAdminSession()
@@ -839,7 +839,7 @@ export default function AdminPanel() {
       setTimeout(() => setMessage(''), 2500)
     }
     if (confirm.type === 'remove') {
-      removeVehicle(confirm.vehicleId)
+      await removeVehicle(confirm.vehicleId)
     }
     if (confirm.type === 'edit' && editForm) {
       const nextStatus = EDIT_STATUSES.includes(editForm.status)
