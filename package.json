@@ -1,0 +1,15 @@
+{
+  "name": "alatas",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "concurrently -k -n frontend,backend -c cyan,magenta \"npm run dev --prefix frontend\" \"npm run dev --prefix backend\"",
+    "dev:app": "npm run dev --prefix frontend",
+    "dev:api": "npm run dev --prefix backend",
+    "install:all": "npm install && npm install --prefix frontend && npm install --prefix backend",
+    "start": "npm run dev"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
