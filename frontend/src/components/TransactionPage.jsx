@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf'
 import { CONTRACT_TERMS, LIABILITY_CLAUSE } from '../data/contract'
+import { formatEmergencyContact } from '../utils/phone'
 
 function formatDateTime(value) {
   if (!value) return '—'
@@ -138,7 +139,7 @@ async function downloadContractPdf(transaction) {
     ['Full Name', name],
     ['Address', personal.address || '—'],
     ['Contact No.', personal.contactNo || '—'],
-    ['Emergency Contact / No.', personal.emergencyContact || '—'],
+    ['Emergency Contact', formatEmergencyContact(personal)],
   ])
 
   const vehicleY = drawColumn(col2X, 'VEHICLE', [
@@ -367,9 +368,29 @@ export default function TransactionPage({ transaction, onBack }) {
               <dd>{personal.contactNo || '—'}</dd>
             </div>
             <div>
-              <dt>Emergency Contact / No.</dt>
-              <dd>{personal.emergencyContact || '—'}</dd>
+              <dt>Emergency Contact</dt>
+              <dd>{formatEmergencyContact(personal)}</dd>
             </div>
+            {personal.emergencyName && (
+              <>
+                <div>
+                  <dt>Emergency Name</dt>
+                  <dd>{personal.emergencyName}</dd>
+                </div>
+                <div>
+                  <dt>Relationship</dt>
+                  <dd>
+                    {personal.emergencyRelation === 'Other'
+                      ? personal.emergencyRelationOther || 'Other'
+                      : personal.emergencyRelation || '—'}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Emergency No.</dt>
+                  <dd>{personal.emergencyPhone || '—'}</dd>
+                </div>
+              </>
+            )}
           </dl>
         </article>
 

@@ -25,7 +25,7 @@ export default function ConfirmModal({
         </h3>
         <p className="confirm-message">{message}</p>
         <div className="modal-actions">
-          <button type="button" className="btn-ghost" onClick={onCancel}>
+          <button type="button" className="btn-outline confirm-cancel-btn" onClick={onCancel}>
             {cancelLabel}
           </button>
           <button

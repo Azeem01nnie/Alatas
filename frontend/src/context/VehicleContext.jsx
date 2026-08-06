@@ -50,32 +50,6 @@ export function VehicleProvider({ children }) {
     )
   }, [])
 
-  const startRental = useCallback((rentalId, auto = false) => {
-    let vehicleId = null
-    setRentals((prev) => {
-      const target = prev.find((r) => r.id === rentalId)
-      if (!target || target.rentalLifecycle !== 'scheduled') return prev
-      vehicleId = target.vehicle?.id || null
-      return prev.map((r) =>
-        r.id === rentalId
-          ? {
-              ...r,
-              rentalLifecycle: 'active',
-              startedAt: new Date().toISOString(),
-              autoStarted: auto,
-            }
-          : r,
-      )
-    })
-    if (vehicleId) {
-      setVehicles((vehiclesPrev) =>
-        vehiclesPrev.map((v) =>
-          v.id === vehicleId ? { ...v, status: 'Rented' } : v,
-        ),
-      )
-    }
-  }, [])
-
   const completeRentalForVehicle = useCallback((vehicleId) => {
     setVehicles((prev) =>
       prev.map((v) => (v.id === vehicleId ? { ...v, status: 'Available' } : v)),
@@ -185,14 +159,6 @@ export function VehicleProvider({ children }) {
     [rentals],
   )
 
-  const getScheduledRental = useCallback(
-    (vehicleId) =>
-      rentals.find(
-        (r) => r.vehicle?.id === vehicleId && r.rentalLifecycle === 'scheduled',
-      ) || null,
-    [rentals],
-  )
-
   return (
     <VehicleContext.Provider
       value={{
@@ -204,9 +170,7 @@ export function VehicleProvider({ children }) {
         removeVehicle,
         updateVehicleStatus,
         addRental,
-        startRental,
         completeRentalForVehicle,
-        getScheduledRental,
       }}
     >
       {children}

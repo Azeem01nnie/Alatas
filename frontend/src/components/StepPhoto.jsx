@@ -2,11 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { compressImageDataUrl } from '../utils/storage'
 
 export default function StepPhoto({ photoPreview, onCapture, onClear, error }) {
-  const fileRef = useRef(null)
   const videoRef = useRef(null)
   const streamRef = useRef(null)
   const [cameraActive, setCameraActive] = useState(false)
   const [cameraError, setCameraError] = useState('')
+  const [capturing, setCapturing] = useState(false)
 
   useEffect(() => {
     return () => {
@@ -24,17 +24,23 @@ export default function StepPhoto({ photoPreview, onCapture, onClear, error }) {
     setCameraError('')
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
-        setCameraError('Camera is not supported in this browser. Please upload a photo instead.')
+        setCameraError('Camera is not supported in this browser. Use Chrome or Edge on a device with a webcam.')
         return
       }
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: {
+          facingMode: 'user',
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
         audio: false,
       })
       streamRef.current = stream
       setCameraActive(true)
     } catch {
-      setCameraError('Unable to access the camera. Check permissions or upload a photo.')
+      setCameraError(
+        'Unable to access the webcam. Allow camera permission in the browser, then try again.',
+      )
     }
   }
 
@@ -48,38 +54,30 @@ export default function StepPhoto({ photoPreview, onCapture, onClear, error }) {
   const captureFromCamera = async () => {
     const video = videoRef.current
     if (!video || !video.videoWidth) {
-      setCameraError('Camera is still loading. Please wait a moment and try again.')
+      setCameraError('Camera is still loading. Wait a moment, then capture again.')
       return
     }
 
-    const canvas = document.createElement('canvas')
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
-    canvas.getContext('2d').drawImage(video, 0, 0)
-    const raw = canvas.toDataURL('image/jpeg', 0.85)
-    const compressed = await compressImageDataUrl(raw)
-    onCapture(compressed)
-    stopCamera()
+    setCapturing(true)
     setCameraError('')
-  }
-
-  const handleFile = (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (!file.type.startsWith('image/')) {
-      setCameraError('Please choose an image file.')
-      return
-    }
-    const reader = new FileReader()
-    reader.onload = async () => {
-      const compressed = await compressImageDataUrl(reader.result)
+    try {
+      const canvas = document.createElement('canvas')
+      canvas.width = video.videoWidth
+      canvas.height = video.videoHeight
+      const ctx = canvas.getContext('2d')
+      // Mirror to match the live preview feel
+      ctx.translate(canvas.width, 0)
+      ctx.scale(-1, 1)
+      ctx.drawImage(video, 0, 0)
+      const raw = canvas.toDataURL('image/jpeg', 0.88)
+      const compressed = await compressImageDataUrl(raw)
       onCapture(compressed)
-      setCameraError('')
       stopCamera()
+    } catch {
+      setCameraError('Could not capture the photo. Please try again.')
+    } finally {
+      setCapturing(false)
     }
-    reader.onerror = () => setCameraError('Failed to read the selected file.')
-    reader.readAsDataURL(file)
-    e.target.value = ''
   }
 
   const handleClear = () => {
@@ -91,25 +89,34 @@ export default function StepPhoto({ photoPreview, onCapture, onClear, error }) {
   return (
     <section className="step-panel">
       <h2 className="step-title">Customer Photo</h2>
-      <p className="step-subtitle">Take a live photo or upload an image of the customer.</p>
+      <p className="step-subtitle">
+        Live webcam capture for identity verification. Uploads are not allowed.
+      </p>
+      <p className="photo-skip-note">Camera not required yet — you can continue without a photo for now.</p>
 
       <div className="photo-area">
         {photoPreview ? (
           <div className="photo-preview-wrap">
-            <img src={photoPreview} alt="Customer" className="photo-preview" />
+            <div className="photo-verified-badge">Verified capture</div>
+            <img src={photoPreview} alt="Customer verification" className="photo-preview" />
             <button type="button" className="btn-ghost" onClick={handleClear}>
-              Retake
+              Retake with camera
             </button>
           </div>
         ) : (
           <>
             <div className={`photo-stage${cameraActive ? ' live' : ''}`}>
               {cameraActive ? (
-                <video ref={videoRef} autoPlay playsInline muted className="photo-video" />
+                <>
+                  <video ref={videoRef} autoPlay playsInline muted className="photo-video mirrored" />
+                  <div className="photo-guide" aria-hidden="true">
+                    <span className="photo-guide-frame" />
+                  </div>
+                </>
               ) : (
                 <div className="photo-placeholder">
-                  <span>No photo yet</span>
-                  <small>Open the camera or upload an image</small>
+                  <span>Webcam verification</span>
+                  <small>Open the camera and capture a live photo of the customer</small>
                 </div>
               )}
             </div>
@@ -121,30 +128,20 @@ export default function StepPhoto({ photoPreview, onCapture, onClear, error }) {
                 </button>
               ) : (
                 <>
-                  <button type="button" className="btn-primary" onClick={captureFromCamera}>
-                    Capture Photo
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={captureFromCamera}
+                    disabled={capturing}
+                  >
+                    {capturing ? 'Capturing…' : 'Capture Photo'}
                   </button>
                   <button type="button" className="btn-ghost" onClick={stopCamera}>
                     Close Camera
                   </button>
                 </>
               )}
-              <button
-                type="button"
-                className="btn-outline"
-                onClick={() => fileRef.current?.click()}
-              >
-                Upload Photo
-              </button>
             </div>
-
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              hidden
-              onChange={handleFile}
-            />
           </>
         )}
       </div>

@@ -1,3 +1,5 @@
+import { formatEmergencyContact } from '../utils/phone'
+
 function formatDateTime(value) {
   if (!value) return '—'
   const d = new Date(value)
@@ -38,64 +40,142 @@ function formatPeriod(rental, which = 'from') {
   )
 }
 
-export default function StepSummary({ personal, vehicle, rental, photo }) {
+export default function StepSummary({ personal, vehicle, rental, photo, termsAccepted }) {
   const fullName = [personal.firstName, personal.middleName, personal.lastName]
     .filter(Boolean)
     .join(' ')
+
+  const durationLabel = rental.duration === 'Others' ? rental.durationOther : rental.duration
 
   return (
     <section className="step-panel">
       <h2 className="step-title">Summary</h2>
       <p className="step-subtitle">Review all details before submitting.</p>
 
-      <div className="summary-grid">
-        <div className="summary-card">
-          <h3>Customer</h3>
-          <p>
-            <strong>{fullName}</strong>
-          </p>
-          <p>{personal.address}</p>
-          <p>Contact: {personal.contactNo}</p>
-          <p>Emergency: {personal.emergencyContact}</p>
-        </div>
+      <div className="summary-shell">
+        <section className="summary-hero">
+          <div className="summary-hero-copy">
+            <span className="summary-kicker">Final Review</span>
+            <h3 className="summary-hero-title">{fullName || 'Customer details'}</h3>
+            <p className="summary-hero-subtitle">
+              {vehicle ? `${vehicle.make} ${vehicle.series}` : 'Vehicle pending'} ·{' '}
+              {durationLabel || 'Duration pending'} · {rental.rentalFee || 'Fee pending'}
+            </p>
+          </div>
 
-        <div className="summary-card">
-          <h3>Vehicle</h3>
-          {vehicle && (
-            <>
-              <img src={vehicle.image} alt={vehicle.make} className="summary-vehicle-img" />
-              <p>
-                <strong>
-                  {vehicle.make} — {vehicle.series}
-                </strong>
-              </p>
-              <p>{vehicle.bodyType}</p>
-              <p>Plate: {vehicle.plateNo}</p>
-              <p>Engine: {vehicle.engineNo}</p>
-              <p>Chassis: {vehicle.chassisNo}</p>
-            </>
-          )}
-        </div>
+          <div className="summary-status-strip">
+            <div className="summary-status-pill">
+              <span className="summary-status-label">Terms</span>
+              <strong>{termsAccepted ? 'Accepted' : 'Pending'}</strong>
+            </div>
+            <div className="summary-status-pill">
+              <span className="summary-status-label">Photo</span>
+              <strong>{photo ? 'Ready' : 'Skipped'}</strong>
+            </div>
+          </div>
+        </section>
 
-        <div className="summary-card">
-          <h3>Rental</h3>
-          <p>
-            Duration:{' '}
-            {rental.duration === 'Others' ? rental.durationOther : rental.duration}
-          </p>
-          <p>Type: {rental.rentalType}</p>
-          <p>From: {formatPeriod(rental, 'from')}</p>
-          <p>To: {formatPeriod(rental, 'to')}</p>
-          <p>Fee: {rental.rentalFee}</p>
-        </div>
+        <div className="summary-main">
+          <section className="summary-details">
+            <article className="summary-section">
+              <div className="summary-section-head">
+                <span className="summary-section-index">01</span>
+                <div>
+                  <h3>Customer</h3>
+                  <p>Lessee and emergency contact information</p>
+                </div>
+              </div>
+              <dl className="summary-list">
+                <div>
+                  <dt>Full name</dt>
+                  <dd>{fullName || '—'}</dd>
+                </div>
+                <div>
+                  <dt>Address</dt>
+                  <dd>{personal.address || '—'}</dd>
+                </div>
+                <div>
+                  <dt>Contact</dt>
+                  <dd>{personal.contactNo || '—'}</dd>
+                </div>
+                <div>
+                  <dt>Emergency</dt>
+                  <dd>{formatEmergencyContact(personal) || '—'}</dd>
+                </div>
+              </dl>
+            </article>
 
-        <div className="summary-card">
-          <h3>Photo</h3>
-          {photo ? (
-            <img src={photo} alt="Customer" className="summary-photo" />
-          ) : (
-            <p>No photo</p>
-          )}
+            <article className="summary-section">
+              <div className="summary-section-head">
+                <span className="summary-section-index">02</span>
+                <div>
+                  <h3>Rental</h3>
+                  <p>Schedule, duration, and rate confirmation</p>
+                </div>
+              </div>
+              <dl className="summary-list">
+                <div>
+                  <dt>Duration</dt>
+                  <dd>{durationLabel || '—'}</dd>
+                </div>
+                <div>
+                  <dt>Rental type</dt>
+                  <dd>{rental.rentalType || '—'}</dd>
+                </div>
+                <div>
+                  <dt>From</dt>
+                  <dd>{formatPeriod(rental, 'from')}</dd>
+                </div>
+                <div>
+                  <dt>To</dt>
+                  <dd>{formatPeriod(rental, 'to')}</dd>
+                </div>
+                <div className="summary-fee-row">
+                  <dt>Rental fee</dt>
+                  <dd>{rental.rentalFee || '—'}</dd>
+                </div>
+              </dl>
+            </article>
+          </section>
+
+          <aside className="summary-side">
+            <article className="summary-media-panel">
+              <div className="summary-media-block">
+                <div className="summary-media-head">
+                  <h3>Vehicle</h3>
+                  {vehicle?.plateNo ? <span>{vehicle.plateNo}</span> : null}
+                </div>
+                {vehicle ? (
+                  <>
+                    <img src={vehicle.image} alt={vehicle.make} className="summary-vehicle-img" />
+                    <div className="summary-vehicle-copy">
+                      <strong>
+                        {vehicle.make} — {vehicle.series}
+                      </strong>
+                      <span>{vehicle.bodyType}</span>
+                      <span>Engine: {vehicle.engineNo}</span>
+                      <span>Chassis: {vehicle.chassisNo}</span>
+                    </div>
+                  </>
+                ) : (
+                  <p className="summary-empty">No vehicle selected.</p>
+                )}
+              </div>
+
+              <div className="summary-media-grid">
+                <div className="summary-media-card">
+                  <div className="summary-media-head">
+                    <h3>Customer Photo</h3>
+                  </div>
+                  {photo ? (
+                    <img src={photo} alt="Customer" className="summary-photo" />
+                  ) : (
+                    <p className="summary-empty">No photo on file.</p>
+                  )}
+                </div>
+              </div>
+            </article>
+          </aside>
         </div>
       </div>
     </section>
