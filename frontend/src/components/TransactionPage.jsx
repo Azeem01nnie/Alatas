@@ -15,37 +15,8 @@ function fullName(personal = {}) {
     .join(' ')
 }
 
-function toGrayscaleDataUrl(dataUrl) {
-  return new Promise((resolve, reject) => {
-    const img = new Image()
-    img.onload = () => {
-      const canvas = document.createElement('canvas')
-      canvas.width = img.naturalWidth || img.width
-      canvas.height = img.naturalHeight || img.height
-      const ctx = canvas.getContext('2d')
-      if (!ctx) {
-        reject(new Error('Canvas unavailable'))
-        return
-      }
-      ctx.drawImage(img, 0, 0)
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-      const pixels = imageData.data
-      for (let i = 0; i < pixels.length; i += 4) {
-        const gray = 0.299 * pixels[i] + 0.587 * pixels[i + 1] + 0.114 * pixels[i + 2]
-        pixels[i] = gray
-        pixels[i + 1] = gray
-        pixels[i + 2] = gray
-      }
-      ctx.putImageData(imageData, 0, 0)
-      resolve(canvas.toDataURL('image/jpeg', 0.9))
-    }
-    img.onerror = () => reject(new Error('Failed to load photo'))
-    img.src = dataUrl
-  })
-}
-
 async function downloadContractPdf(transaction) {
-  const { personal = {}, vehicle = {}, rental = {}, photo } = transaction
+  const { personal = {}, vehicle = {}, rental = {}, photo, licensePhoto } = transaction
   const name = fullName(personal) || 'Lessee'
   const doc = new jsPDF({ unit: 'pt', format: 'a4' })
   const pageWidth = doc.internal.pageSize.getWidth()
@@ -244,7 +215,7 @@ async function downloadContractPdf(transaction) {
   doc.text(`Electronically accepted on ${formatDateTime(transaction.encodedAt)}`, margin, y)
   doc.text('Alatas Car Rental Services', margin + half + 10, y)
 
-  // Customer photos — last section: 2 color + 1 mono
+  // Customer / license photos
   y += 28
   ensureSpace(220)
   doc.setDrawColor(17, 17, 17)
@@ -258,57 +229,70 @@ async function downloadContractPdf(transaction) {
   doc.text('CUSTOMER PHOTOS', margin, y)
   y += 14
 
+  const embedImages = []
   if (photo && typeof photo === 'string' && photo.startsWith('data:image')) {
-    try {
-      const monoPhoto = await toGrayscaleDataUrl(photo)
-      const props = doc.getImageProperties(photo)
-      const photoGap = 12
-      const slotW = (contentWidth - photoGap * 2) / 3
-      const maxH = 150
-      const ratio = Math.min(slotW / props.width, maxH / props.height, 1)
-      const imgW = props.width * ratio
-      const imgH = props.height * ratio
-      const colorFormat = /image\/png/i.test(photo) ? 'PNG' : 'JPEG'
-      const copies = [
-        { src: photo, format: colorFormat },
-        { src: photo, format: colorFormat },
-        { src: monoPhoto, format: 'JPEG' },
-      ]
+    embedImages.push({ src: photo, label: 'Holding license' })
+  }
+  if (licensePhoto && typeof licensePhoto === 'string' && licensePhoto.startsWith('data:image')) {
+    embedImages.push({ src: licensePhoto, label: 'License' })
+  }
 
-      ensureSpace(imgH + 12)
-      copies.forEach((copy, index) => {
+  if (embedImages.length > 0) {
+    try {
+      const photoGap = 14
+      const slotW = (contentWidth - photoGap) / Math.max(embedImages.length, 2)
+      const maxH = 160
+      let rowH = 0
+
+      for (let index = 0; index < embedImages.length; index += 1) {
+        const item = embedImages[index]
+        const props = doc.getImageProperties(item.src)
+        const ratio = Math.min(slotW / props.width, maxH / props.height, 1)
+        const imgW = props.width * ratio
+        const imgH = props.height * ratio
+        const colorFormat = /image\/png/i.test(item.src) ? 'PNG' : 'JPEG'
         const x = margin + index * (slotW + photoGap) + (slotW - imgW) / 2
-        doc.addImage(copy.src, copy.format, x, y, imgW, imgH)
+        ensureSpace(imgH + 24)
+        doc.addImage(item.src, colorFormat, x, y, imgW, imgH)
         doc.setDrawColor(17, 17, 17)
         doc.setLineWidth(0.5)
         doc.rect(x, y, imgW, imgH)
-      })
-      y += imgH + 12
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(8)
+        doc.setTextColor(80, 80, 80)
+        doc.text(item.label, x + imgW / 2, y + imgH + 12, { align: 'center' })
+        rowH = Math.max(rowH, imgH + 18)
+      }
+      y += rowH + 8
     } catch {
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(9)
       doc.setTextColor(100, 100, 100)
-      doc.text('Customer photo could not be embedded in this PDF.', margin, y)
+      doc.text('Customer photos could not be embedded in this PDF.', margin, y)
     }
   } else {
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(9)
     doc.setTextColor(100, 100, 100)
-    doc.text('No customer photo on file.', margin, y)
+    doc.text('No customer photos on file.', margin, y)
   }
 
   const safeName = name.replace(/[^\w\-]+/g, '_').slice(0, 40) || 'contract'
   doc.save(`Alatas_Contract_${safeName}_${transaction.id}.pdf`)
 }
 
-export default function TransactionPage({ transaction, onBack }) {
-  const { personal = {}, vehicle = {}, rental = {}, photo } = transaction
+export default function TransactionPage({
+  transaction,
+  onBack,
+  backLabel = '← Back to History',
+}) {
+  const { personal = {}, vehicle = {}, rental = {}, photo, licensePhoto } = transaction
 
   return (
     <section className="transaction-page">
       <div className="transaction-toolbar">
         <button type="button" className="btn-ghost" onClick={onBack}>
-          ← Back to History
+          {backLabel}
         </button>
         <div className="transaction-toolbar-actions">
           <span className="transaction-id">Transaction ID: {transaction.id}</span>
@@ -335,11 +319,19 @@ export default function TransactionPage({ transaction, onBack }) {
       <div className="transaction-photos">
         <figure className="transaction-photo-card">
           {photo ? (
-            <img src={photo} alt="Customer" />
+            <img src={photo} alt="Customer holding license" />
           ) : (
-            <div className="transaction-photo-empty">No customer photo</div>
+            <div className="transaction-photo-empty">No holding-license photo</div>
           )}
-          <figcaption>Customer Photo</figcaption>
+          <figcaption>Holding License</figcaption>
+        </figure>
+        <figure className="transaction-photo-card">
+          {licensePhoto ? (
+            <img src={licensePhoto} alt="Driver license" />
+          ) : (
+            <div className="transaction-photo-empty">No license photo</div>
+          )}
+          <figcaption>License Photo</figcaption>
         </figure>
         <figure className="transaction-photo-card">
           {vehicle.image ? (

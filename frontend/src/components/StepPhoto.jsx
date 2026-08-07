@@ -1,153 +1,168 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { compressImageDataUrl } from '../utils/storage'
 
-export default function StepPhoto({ photoPreview, onCapture, onClear, error }) {
-  const videoRef = useRef(null)
-  const streamRef = useRef(null)
-  const [cameraActive, setCameraActive] = useState(false)
-  const [cameraError, setCameraError] = useState('')
-  const [capturing, setCapturing] = useState(false)
+const SLOTS = [
+  {
+    key: 'holding',
+    title: 'Holding license',
+    hint: 'Customer holding their driver’s license next to their face.',
+    accept: 'image/*',
+  },
+  {
+    key: 'license',
+    title: 'License photo',
+    hint: 'Clear close-up of the driver’s license (front).',
+    accept: 'image/*',
+  },
+]
 
-  useEffect(() => {
-    return () => {
-      streamRef.current?.getTracks().forEach((t) => t.stop())
-    }
-  }, [])
+async function readAndCompress(file) {
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(new Error('Could not read file'))
+    reader.readAsDataURL(file)
+  })
+  return compressImageDataUrl(dataUrl, 960, 0.8)
+}
 
-  useEffect(() => {
-    if (!cameraActive || !videoRef.current || !streamRef.current) return
-    videoRef.current.srcObject = streamRef.current
-    videoRef.current.play().catch(() => {})
-  }, [cameraActive])
+function UploadSlot({
+  title,
+  hint,
+  preview,
+  error,
+  busy,
+  onPick,
+  onClear,
+  inputRef,
+}) {
+  return (
+    <article className={`photo-upload-card${preview ? ' has-preview' : ''}${error ? ' has-error' : ''}`}>
+      <div className="photo-upload-head">
+        <h3>{title}</h3>
+        <p>{hint}</p>
+      </div>
 
-  const startCamera = async () => {
-    setCameraError('')
-    try {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        setCameraError('Camera is not supported in this browser. Use Chrome or Edge on a device with a webcam.')
-        return
-      }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: 'user',
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-        audio: false,
-      })
-      streamRef.current = stream
-      setCameraActive(true)
-    } catch {
-      setCameraError(
-        'Unable to access the webcam. Allow camera permission in the browser, then try again.',
-      )
-    }
-  }
+      <div className="photo-upload-stage">
+        {preview ? (
+          <img src={preview} alt={title} className="photo-upload-preview" />
+        ) : (
+          <div className="photo-upload-placeholder">
+            <span>No image yet</span>
+            <small>JPG, PNG, or WEBP</small>
+          </div>
+        )}
+      </div>
 
-  const stopCamera = () => {
-    streamRef.current?.getTracks().forEach((t) => t.stop())
-    streamRef.current = null
-    if (videoRef.current) videoRef.current.srcObject = null
-    setCameraActive(false)
-  }
+      <div className="photo-upload-actions">
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          className="sr-only"
+          onChange={onPick}
+        />
+        <button
+          type="button"
+          className="btn-primary"
+          disabled={busy}
+          onClick={() => inputRef.current?.click()}
+        >
+          {busy ? 'Uploading…' : preview ? 'Replace photo' : 'Upload photo'}
+        </button>
+        {preview && (
+          <button type="button" className="btn-ghost" disabled={busy} onClick={onClear}>
+            Remove
+          </button>
+        )}
+      </div>
 
-  const captureFromCamera = async () => {
-    const video = videoRef.current
-    if (!video || !video.videoWidth) {
-      setCameraError('Camera is still loading. Wait a moment, then capture again.')
+      {error && <span className="error-msg">{error}</span>}
+    </article>
+  )
+}
+
+export default function StepPhoto({
+  holdingPreview,
+  licensePreview,
+  onHoldingChange,
+  onLicenseChange,
+  errors = {},
+}) {
+  const holdingRef = useRef(null)
+  const licenseRef = useRef(null)
+  const [busyKey, setBusyKey] = useState('')
+  const [localError, setLocalError] = useState({})
+
+  const handleFile = async (slotKey, file, onChange, inputEl) => {
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setLocalError((prev) => ({ ...prev, [slotKey]: 'Please choose an image file' }))
       return
     }
-
-    setCapturing(true)
-    setCameraError('')
+    setBusyKey(slotKey)
+    setLocalError((prev) => ({ ...prev, [slotKey]: '' }))
     try {
-      const canvas = document.createElement('canvas')
-      canvas.width = video.videoWidth
-      canvas.height = video.videoHeight
-      const ctx = canvas.getContext('2d')
-      // Mirror to match the live preview feel
-      ctx.translate(canvas.width, 0)
-      ctx.scale(-1, 1)
-      ctx.drawImage(video, 0, 0)
-      const raw = canvas.toDataURL('image/jpeg', 0.88)
-      const compressed = await compressImageDataUrl(raw)
-      onCapture(compressed)
-      stopCamera()
+      const compressed = await readAndCompress(file)
+      if (!compressed) {
+        setLocalError((prev) => ({
+          ...prev,
+          [slotKey]: 'Could not process that image. Try another file.',
+        }))
+        return
+      }
+      onChange(compressed)
     } catch {
-      setCameraError('Could not capture the photo. Please try again.')
+      setLocalError((prev) => ({
+        ...prev,
+        [slotKey]: 'Upload failed. Please try again.',
+      }))
     } finally {
-      setCapturing(false)
+      setBusyKey('')
+      if (inputEl) inputEl.value = ''
     }
-  }
-
-  const handleClear = () => {
-    stopCamera()
-    onClear()
-    setCameraError('')
   }
 
   return (
     <section className="step-panel">
-      <h2 className="step-title">Customer Photo</h2>
+      <h2 className="step-title">License Photos</h2>
       <p className="step-subtitle">
-        Live webcam capture for identity verification. Uploads are not allowed.
+        Upload two clear photos for verification — the customer holding their license, and the
+        license itself.
       </p>
-      <p className="photo-skip-note">Camera not required yet — you can continue without a photo for now.</p>
 
-      <div className="photo-area">
-        {photoPreview ? (
-          <div className="photo-preview-wrap">
-            <div className="photo-verified-badge">Verified capture</div>
-            <img src={photoPreview} alt="Customer verification" className="photo-preview" />
-            <button type="button" className="btn-ghost" onClick={handleClear}>
-              Retake with camera
-            </button>
-          </div>
-        ) : (
-          <>
-            <div className={`photo-stage${cameraActive ? ' live' : ''}`}>
-              {cameraActive ? (
-                <>
-                  <video ref={videoRef} autoPlay playsInline muted className="photo-video mirrored" />
-                  <div className="photo-guide" aria-hidden="true">
-                    <span className="photo-guide-frame" />
-                  </div>
-                </>
-              ) : (
-                <div className="photo-placeholder">
-                  <span>Webcam verification</span>
-                  <small>Open the camera and capture a live photo of the customer</small>
-                </div>
-              )}
-            </div>
-
-            <div className="photo-actions">
-              {!cameraActive ? (
-                <button type="button" className="btn-primary" onClick={startCamera}>
-                  Open Camera
-                </button>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    onClick={captureFromCamera}
-                    disabled={capturing}
-                  >
-                    {capturing ? 'Capturing…' : 'Capture Photo'}
-                  </button>
-                  <button type="button" className="btn-ghost" onClick={stopCamera}>
-                    Close Camera
-                  </button>
-                </>
-              )}
-            </div>
-          </>
-        )}
+      <div className="photo-upload-grid">
+        <UploadSlot
+          title={SLOTS[0].title}
+          hint={SLOTS[0].hint}
+          preview={holdingPreview}
+          error={localError.holding || errors.photo}
+          busy={busyKey === 'holding'}
+          inputRef={holdingRef}
+          onPick={(e) =>
+            handleFile('holding', e.target.files?.[0], onHoldingChange, e.target)
+          }
+          onClear={() => {
+            onHoldingChange('')
+            setLocalError((prev) => ({ ...prev, holding: '' }))
+          }}
+        />
+        <UploadSlot
+          title={SLOTS[1].title}
+          hint={SLOTS[1].hint}
+          preview={licensePreview}
+          error={localError.license || errors.licensePhoto}
+          busy={busyKey === 'license'}
+          inputRef={licenseRef}
+          onPick={(e) =>
+            handleFile('license', e.target.files?.[0], onLicenseChange, e.target)
+          }
+          onClear={() => {
+            onLicenseChange('')
+            setLocalError((prev) => ({ ...prev, license: '' }))
+          }}
+        />
       </div>
-
-      {cameraError && <span className="error-msg error-center">{cameraError}</span>}
-      {error && <span className="error-msg error-center">{error}</span>}
     </section>
   )
 }

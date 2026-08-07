@@ -71,6 +71,7 @@ export default function RentCarForm({ onDirtyChange }) {
   const [vehicleId, setVehicleId] = useState('')
   const [rental, setRental] = useState(initialRental)
   const [photo, setPhoto] = useState('')
+  const [licensePhoto, setLicensePhoto] = useState('')
   const [termsAccepted, setTermsAccepted] = useState(false)
   const [errors, setErrors] = useState({})
   const [phase, setPhase] = useState('form') // form | loading
@@ -84,6 +85,7 @@ export default function RentCarForm({ onDirtyChange }) {
     (step > 1 ||
       Boolean(vehicleId) ||
       Boolean(photo) ||
+      Boolean(licensePhoto) ||
       termsAccepted ||
       Object.values(personal).some((v) => String(v || '').trim()) ||
       Boolean(rental.duration) ||
@@ -204,13 +206,19 @@ export default function RentCarForm({ onDirtyChange }) {
         nextErrors.toDate = 'To must be after From'
       }
 
+      if (fromDt && fromDt.getTime() < Date.now()) {
+        nextErrors.fromHour = 'Start time cannot be in the past'
+      }
+
       if (!rental.rentalFee.trim()) nextErrors.rentalFee = 'Rental fee is required'
     }
 
-    // Photo step: webcam required later — skip allowed for now (no camera yet)
-    // if (currentStep === 4) {
-    //   if (!photo) nextErrors.photo = 'Capture a live customer photo with the webcam'
-    // }
+    if (currentStep === 4) {
+      if (!photo) nextErrors.photo = 'Upload a photo of the customer holding their license'
+      if (!licensePhoto) {
+        nextErrors.licensePhoto = 'Upload a clear photo of the driver’s license'
+      }
+    }
 
     if (currentStep === 5) {
       if (!termsAccepted) nextErrors.terms = 'You must accept the terms to continue'
@@ -226,6 +234,7 @@ export default function RentCarForm({ onDirtyChange }) {
     setVehicleId('')
     setRental(initialRental)
     setPhoto('')
+    setLicensePhoto('')
     setTermsAccepted(false)
     setErrors({})
     setSubmitError('')
@@ -247,6 +256,7 @@ export default function RentCarForm({ onDirtyChange }) {
       }
 
       const compressedPhoto = await compressImageDataUrl(photo || '')
+      const compressedLicense = await compressImageDataUrl(licensePhoto || '')
       // Prefer lightweight vehicle image: keep http URLs, skip huge data URLs
       const vehicleImage =
         selectedVehicle.image && /^https?:\/\//i.test(selectedVehicle.image)
@@ -259,6 +269,14 @@ export default function RentCarForm({ onDirtyChange }) {
       const toTime = composeTime(rental.toHour, rental.toMinute)
       const fromDt = toPeriodDate(rental.fromDate, fromTime, rental.fromMeridiem)
       const toDt = toPeriodDate(rental.toDate, toTime, rental.toMeridiem)
+
+      if (fromDt && fromDt.getTime() < Date.now()) {
+        setErrors({ fromHour: 'Start time cannot be in the past' })
+        setStep(3)
+        setSubmitting(false)
+        return
+      }
+
       const periodFromLabel = formatPeriodLabel(
         rental.fromDate,
         fromTime,
@@ -302,6 +320,7 @@ export default function RentCarForm({ onDirtyChange }) {
           periodToLabel,
         },
         photo: compressedPhoto,
+        licensePhoto: compressedLicense,
         termsAccepted,
         encodedAt: new Date().toISOString(),
       }
@@ -373,10 +392,17 @@ export default function RentCarForm({ onDirtyChange }) {
         )}
         {step === 4 && (
           <StepPhoto
-            photoPreview={photo}
-            onCapture={setPhoto}
-            onClear={() => setPhoto('')}
-            error={errors.photo}
+            holdingPreview={photo}
+            licensePreview={licensePhoto}
+            onHoldingChange={(next) => {
+              setPhoto(next)
+              setErrors((prev) => ({ ...prev, photo: '' }))
+            }}
+            onLicenseChange={(next) => {
+              setLicensePhoto(next)
+              setErrors((prev) => ({ ...prev, licensePhoto: '' }))
+            }}
+            errors={errors}
           />
         )}
         {step === 5 && (
@@ -395,6 +421,7 @@ export default function RentCarForm({ onDirtyChange }) {
             vehicle={selectedVehicle}
             rental={rental}
             photo={photo}
+            licensePhoto={licensePhoto}
             termsAccepted={termsAccepted}
           />
         )}
