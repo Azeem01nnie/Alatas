@@ -40,12 +40,20 @@ function formatPeriod(rental, which = 'from') {
   )
 }
 
-export default function StepSummary({ personal, vehicle, rental, photo, termsAccepted }) {
+export default function StepSummary({
+  personal,
+  vehicle,
+  rental,
+  photo,
+  licensePhoto,
+  termsAccepted,
+}) {
   const fullName = [personal.firstName, personal.middleName, personal.lastName]
     .filter(Boolean)
     .join(' ')
 
   const durationLabel = rental.duration === 'Others' ? rental.durationOther : rental.duration
+  const photosReady = Boolean(photo) && Boolean(licensePhoto)
 
   return (
     <section className="step-panel">
@@ -69,8 +77,8 @@ export default function StepSummary({ personal, vehicle, rental, photo, termsAcc
               <strong>{termsAccepted ? 'Accepted' : 'Pending'}</strong>
             </div>
             <div className="summary-status-pill">
-              <span className="summary-status-label">Photo</span>
-              <strong>{photo ? 'Ready' : 'Skipped'}</strong>
+              <span className="summary-status-label">Photos</span>
+              <strong>{photosReady ? 'Ready' : 'Incomplete'}</strong>
             </div>
           </div>
         </section>
@@ -162,15 +170,25 @@ export default function StepSummary({ personal, vehicle, rental, photo, termsAcc
                 )}
               </div>
 
-              <div className="summary-media-grid">
+              <div className="summary-media-grid summary-media-grid-2">
                 <div className="summary-media-card">
                   <div className="summary-media-head">
-                    <h3>Customer Photo</h3>
+                    <h3>Holding license</h3>
                   </div>
                   {photo ? (
-                    <img src={photo} alt="Customer" className="summary-photo" />
+                    <img src={photo} alt="Customer holding license" className="summary-photo" />
                   ) : (
                     <p className="summary-empty">No photo on file.</p>
+                  )}
+                </div>
+                <div className="summary-media-card">
+                  <div className="summary-media-head">
+                    <h3>License</h3>
+                  </div>
+                  {licensePhoto ? (
+                    <img src={licensePhoto} alt="Driver license" className="summary-photo" />
+                  ) : (
+                    <p className="summary-empty">No license photo.</p>
                   )}
                 </div>
               </div>

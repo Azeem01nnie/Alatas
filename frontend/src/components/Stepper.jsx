@@ -2,7 +2,7 @@ const STEPS = [
   'Personal Info',
   'Vehicle',
   'Rental',
-  'Photo',
+  'Photos',
   'Terms',
   'Summary',
 ]

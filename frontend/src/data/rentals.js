@@ -21,6 +21,10 @@ export function saveRentals(rentals) {
     items.map((r) => ({
       ...r,
       photo: typeof r.photo === 'string' && r.photo.length > 350_000 ? '' : r.photo,
+      licensePhoto:
+        typeof r.licensePhoto === 'string' && r.licensePhoto.length > 350_000
+          ? ''
+          : r.licensePhoto,
       vehicle: r.vehicle
         ? {
             ...r.vehicle,

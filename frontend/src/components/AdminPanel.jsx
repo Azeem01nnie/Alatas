@@ -1,4 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 import logo from '../assets/logonobg.png'
 import { useVehicles } from '../context/VehicleContext'
 import { BODY_TYPES, VEHICLE_STATUSES } from '../data/vehicles'
@@ -309,8 +318,150 @@ function startOfWeek(date) {
   return d
 }
 
+function startOfDay(date) {
+  const d = new Date(date)
+  d.setHours(0, 0, 0, 0)
+  return d
+}
+
+function endOfDay(date) {
+  const d = new Date(date)
+  d.setHours(23, 59, 59, 999)
+  return d
+}
+
+function toDateKey(date) {
+  const d = new Date(date)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function parseLocalDateKey(key) {
+  if (!key) return null
+  const d = new Date(`${key}T00:00:00`)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
 function formatPesoDash(amount) {
   return `₱${Number(amount || 0).toLocaleString('en-PH')}`
+}
+
+function formatDashDayLabel(date) {
+  return new Date(date).toLocaleDateString('en-PH', {
+    month: 'short',
+    day: 'numeric',
+  })
+}
+
+function formatRangeCaption(from, to) {
+  const sameYear = from.getFullYear() === to.getFullYear()
+  const fromLabel = from.toLocaleDateString('en-PH', {
+    month: 'short',
+    day: 'numeric',
+    year: sameYear ? undefined : 'numeric',
+  })
+  const toLabel = to.toLocaleDateString('en-PH', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+  return `${fromLabel} – ${toLabel}`
+}
+
+function getRevenueRange(preset, customFrom, customTo) {
+  const now = new Date()
+
+  if (preset === 'week') {
+    const from = startOfWeek(now)
+    const to = new Date(from)
+    to.setDate(to.getDate() + 6)
+    return { from: startOfDay(from), to: endOfDay(to) }
+  }
+
+  if (preset === 'month') {
+    const from = new Date(now.getFullYear(), now.getMonth(), 1)
+    const to = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+    return { from: startOfDay(from), to: endOfDay(to) }
+  }
+
+  if (preset === 'year') {
+    const from = new Date(now.getFullYear(), 0, 1)
+    const to = new Date(now.getFullYear(), 11, 31)
+    return { from: startOfDay(from), to: endOfDay(to) }
+  }
+
+  const fromParsed = parseLocalDateKey(customFrom)
+  const toParsed = parseLocalDateKey(customTo)
+
+  if (fromParsed && toParsed) {
+    const from = startOfDay(fromParsed)
+    const to = endOfDay(toParsed)
+    return from.getTime() <= to.getTime()
+      ? { from, to }
+      : { from: startOfDay(toParsed), to: endOfDay(fromParsed) }
+  }
+  if (fromParsed && !toParsed) {
+    return { from: startOfDay(fromParsed), to: endOfDay(now) }
+  }
+  if (!fromParsed && toParsed) {
+    return { from: startOfDay(toParsed), to: endOfDay(toParsed) }
+  }
+
+  const from = startOfWeek(now)
+  const to = new Date(from)
+  to.setDate(to.getDate() + 6)
+  return { from: startOfDay(from), to: endOfDay(to) }
+}
+
+function buildDailyRevenueSeries(rentals, from, to) {
+  const fromMs = from.getTime()
+  const toMs = to.getTime()
+  const byDay = new Map()
+
+  for (const r of rentals) {
+    const encoded = new Date(r.encodedAt || 0).getTime()
+    if (!Number.isFinite(encoded) || encoded < fromMs || encoded > toMs) continue
+    const key = toDateKey(encoded)
+    const prev = byDay.get(key) || { revenue: 0, count: 0 }
+    prev.revenue += parseFee(r.rental?.rentalFee)
+    prev.count += 1
+    byDay.set(key, prev)
+  }
+
+  const series = []
+  const cursor = startOfDay(from)
+  const last = startOfDay(to)
+  while (cursor.getTime() <= last.getTime()) {
+    const key = toDateKey(cursor)
+    const bucket = byDay.get(key) || { revenue: 0, count: 0 }
+    series.push({
+      date: key,
+      shortLabel: formatDashDayLabel(cursor),
+      revenue: bucket.revenue,
+      count: bucket.count,
+    })
+    cursor.setDate(cursor.getDate() + 1)
+  }
+
+  const count = series.reduce((sum, d) => sum + d.count, 0)
+  const revenue = series.reduce((sum, d) => sum + d.revenue, 0)
+  return { series, count, revenue, from, to }
+}
+
+function RevenueTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null
+  const point = payload[0]?.payload
+  return (
+    <div className="dash-rev-tooltip">
+      <span className="dash-rev-tooltip-date">{point?.shortLabel || label}</span>
+      <strong className="dash-rev-tooltip-value">{formatPesoDash(payload[0].value)}</strong>
+      <span className="dash-rev-tooltip-meta">
+        {point?.count || 0} rental{(point?.count || 0) === 1 ? '' : 's'}
+      </span>
+    </div>
+  )
 }
 
 export default function AdminPanel() {
@@ -334,6 +485,9 @@ export default function AdminPanel() {
   const [historySearch, setHistorySearch] = useState('')
   const [historyDateFrom, setHistoryDateFrom] = useState('')
   const [historyDateTo, setHistoryDateTo] = useState('')
+  const [revenuePreset, setRevenuePreset] = useState('week')
+  const [revenueDateFrom, setRevenueDateFrom] = useState('')
+  const [revenueDateTo, setRevenueDateTo] = useState('')
   const [manageStatus, setManageStatus] = useState('All')
   const [manageLayout, setManageLayout] = useState(() => {
     try {
@@ -347,6 +501,7 @@ export default function AdminPanel() {
   const [previewVehicle, setPreviewVehicle] = useState(null)
   const [confirm, setConfirm] = useState(null)
   const [selectedTransaction, setSelectedTransaction] = useState(null)
+  const [transactionReturnTab, setTransactionReturnTab] = useState('history')
   const [rentDirty, setRentDirty] = useState(false)
   const [rentFormKey, setRentFormKey] = useState(0)
   const [pendingTab, setPendingTab] = useState(null)
@@ -533,7 +688,7 @@ export default function AdminPanel() {
       return
     }
     setTab(nextTab)
-    if (nextTab !== 'history') setSelectedTransaction(null)
+    setSelectedTransaction(null)
   }
 
   const counts = useMemo(() => {
@@ -590,17 +745,32 @@ export default function AdminPanel() {
     [vehicles],
   )
 
-  const weekSnapshot = useMemo(() => {
-    const weekStart = startOfWeek(new Date())
-    const weekEnd = new Date(weekStart)
-    weekEnd.setDate(weekEnd.getDate() + 7)
-    const weekRentals = rentals.filter((r) => {
-      const encoded = new Date(r.encodedAt || 0).getTime()
-      return encoded >= weekStart.getTime() && encoded < weekEnd.getTime()
-    })
-    const revenue = weekRentals.reduce((sum, r) => sum + parseFee(r.rental?.rentalFee), 0)
-    return { count: weekRentals.length, revenue }
-  }, [rentals])
+  const revenueSnapshot = useMemo(() => {
+    const { from, to } = getRevenueRange(revenuePreset, revenueDateFrom, revenueDateTo)
+    return buildDailyRevenueSeries(rentals, from, to)
+  }, [rentals, revenuePreset, revenueDateFrom, revenueDateTo])
+
+  const revenueCaption = useMemo(
+    () => formatRangeCaption(revenueSnapshot.from, revenueSnapshot.to),
+    [revenueSnapshot.from, revenueSnapshot.to],
+  )
+
+  const revenueXAxisInterval = useMemo(() => {
+    const n = revenueSnapshot.series.length
+    if (n <= 8) return 0
+    if (n <= 31) return 3
+    if (n <= 92) return 13
+    return Math.max(0, Math.floor(n / 12) - 1)
+  }, [revenueSnapshot.series.length])
+
+  const applyRevenuePreset = (preset) => {
+    setRevenuePreset(preset)
+    if (preset === 'custom' && (!revenueDateFrom || !revenueDateTo)) {
+      const { from, to } = getRevenueRange('week', '', '')
+      setRevenueDateFrom(toDateKey(from))
+      setRevenueDateTo(toDateKey(to))
+    }
+  }
 
   const recentRentals = useMemo(() => {
     return [...rentals]
@@ -783,7 +953,7 @@ export default function AdminPanel() {
     })
   }
 
-  const openTransaction = (r) => {
+  const openTransaction = (r, returnTab = 'history') => {
     const fleetMatch = vehicles.find((v) => v.id === r.vehicle?.id)
     setSelectedTransaction({
       ...r,
@@ -792,7 +962,13 @@ export default function AdminPanel() {
         image: r.vehicle?.image || fleetMatch?.image || '',
       },
     })
-    setTab('history')
+    setTransactionReturnTab(returnTab)
+  }
+
+  const closeTransaction = () => {
+    const returnTab = transactionReturnTab || 'history'
+    setSelectedTransaction(null)
+    setTab(returnTab)
   }
 
   const requestRemove = (vehicle) => {
@@ -858,7 +1034,7 @@ export default function AdminPanel() {
       setRentFormKey((k) => k + 1)
       setRentDirty(false)
       setTab(next)
-      if (next !== 'history') setSelectedTransaction(null)
+      setSelectedTransaction(null)
       setPendingTab(null)
     }
     setConfirm(null)
@@ -937,7 +1113,7 @@ export default function AdminPanel() {
       <div className="admin-content">
         <header className="admin-content-header">
           <h2>
-            {selectedTransaction && tab === 'history'
+            {selectedTransaction
               ? 'Transaction'
               : tab === 'settings'
                 ? 'Settings'
@@ -1028,10 +1204,17 @@ export default function AdminPanel() {
         </header>
 
         <main className="admin-main-panel">
-          {tab === 'history' && selectedTransaction ? (
+          {selectedTransaction ? (
             <TransactionPage
               transaction={selectedTransaction}
-              onBack={() => setSelectedTransaction(null)}
+              backLabel={
+                transactionReturnTab === 'calendar'
+                  ? '← Back to Calendar'
+                  : transactionReturnTab === 'dashboard'
+                    ? '← Back to Dashboard'
+                    : '← Back to History'
+              }
+              onBack={closeTransaction}
             />
           ) : (
             <>
@@ -1211,20 +1394,135 @@ export default function AdminPanel() {
                 </div>
 
                 <div className="dashboard-side">
-                  <section className="dash-panel">
-                    <h3 className="dash-panel-title">This week</h3>
+                  <section className="dash-panel dash-revenue-panel">
+                    <div className="dash-panel-head dash-rev-head">
+                      <div>
+                        <h3 className="dash-panel-title">Revenue</h3>
+                        <p className="dash-rev-caption">{revenueCaption}</p>
+                      </div>
+                    </div>
+
+                    <div className="dash-rev-presets" role="group" aria-label="Revenue date range">
+                      {[
+                        { id: 'week', label: 'Week' },
+                        { id: 'month', label: 'Month' },
+                        { id: 'year', label: 'Year' },
+                        { id: 'custom', label: 'Custom' },
+                      ].map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          className={`dash-rev-preset${revenuePreset === opt.id ? ' is-active' : ''}`}
+                          aria-pressed={revenuePreset === opt.id}
+                          onClick={() => applyRevenuePreset(opt.id)}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {revenuePreset === 'custom' && (
+                      <div className="dash-rev-custom-dates">
+                        <div className="field history-date-field">
+                          <span className="field-label">From</span>
+                          <PremiumDatePicker
+                            value={revenueDateFrom}
+                            maxDate={revenueDateTo || undefined}
+                            title="From date"
+                            onChange={(next) => {
+                              setRevenueDateFrom(next)
+                              if (revenueDateTo && next > revenueDateTo) setRevenueDateTo('')
+                            }}
+                          />
+                        </div>
+                        <div className="field history-date-field">
+                          <span className="field-label">To</span>
+                          <PremiumDatePicker
+                            value={revenueDateTo}
+                            minDate={revenueDateFrom || undefined}
+                            title="To date"
+                            onChange={setRevenueDateTo}
+                          />
+                        </div>
+                      </div>
+                    )}
+
                     <div className="dash-week-stats">
                       <div>
                         <span className="stat-label">Rentals encoded</span>
-                        <strong className="dash-week-value">{weekSnapshot.count}</strong>
+                        <strong className="dash-week-value">{revenueSnapshot.count}</strong>
                       </div>
                       <div>
                         <span className="stat-label">Est. revenue</span>
                         <strong className="dash-week-value">
-                          {formatPesoDash(weekSnapshot.revenue)}
+                          {formatPesoDash(revenueSnapshot.revenue)}
                         </strong>
                       </div>
                     </div>
+
+                    <div className="dash-rev-chart" aria-label="Daily estimated revenue">
+                      <ResponsiveContainer width="100%" height={200}>
+                        <AreaChart
+                          data={revenueSnapshot.series}
+                          margin={{ top: 8, right: 6, left: 0, bottom: 0 }}
+                        >
+                          <defs>
+                            <linearGradient id="dashRevFill" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#b32025" stopOpacity={0.28} />
+                              <stop offset="100%" stopColor="#b32025" stopOpacity={0.02} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid
+                            stroke="var(--border)"
+                            strokeDasharray="3 6"
+                            vertical={false}
+                          />
+                          <XAxis
+                            dataKey="shortLabel"
+                            interval={revenueXAxisInterval}
+                            tick={{ fill: 'var(--muted)', fontSize: 11, fontFamily: 'var(--font-ui)' }}
+                            tickLine={false}
+                            axisLine={{ stroke: 'var(--border)' }}
+                            minTickGap={8}
+                          />
+                          <YAxis
+                            width={48}
+                            tick={{ fill: 'var(--muted)', fontSize: 11, fontFamily: 'var(--font-ui)' }}
+                            tickLine={false}
+                            axisLine={false}
+                            tickFormatter={(v) =>
+                              v >= 1000 ? `₱${Math.round(v / 1000)}k` : `₱${v}`
+                            }
+                          />
+                          <Tooltip
+                            content={<RevenueTooltip />}
+                            cursor={{ stroke: '#b32025', strokeWidth: 1, strokeDasharray: '4 4' }}
+                          />
+                          <Area
+                            type="monotone"
+                            dataKey="revenue"
+                            stroke="#b32025"
+                            strokeWidth={2.25}
+                            fill="url(#dashRevFill)"
+                            activeDot={{
+                              r: 5,
+                              fill: '#b32025',
+                              stroke: 'var(--surface)',
+                              strokeWidth: 2,
+                            }}
+                            dot={
+                              revenueSnapshot.series.length <= 14
+                                ? { r: 3, fill: '#b32025', strokeWidth: 0 }
+                                : false
+                            }
+                            isAnimationActive
+                            animationDuration={650}
+                            animationEasing="ease-out"
+                          />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+
                     <div className="dash-util">
                       <div className="dash-util-head">
                         <span className="stat-label">Fleet utilization</span>
@@ -1259,7 +1557,7 @@ export default function AdminPanel() {
                           <button
                             type="button"
                             className="dash-recent-btn"
-                            onClick={() => openTransaction(r)}
+                            onClick={() => openTransaction(r, 'dashboard')}
                           >
                             <span className="dash-recent-main">
                               <strong>{customerName(r)}</strong>
@@ -1299,7 +1597,7 @@ export default function AdminPanel() {
             <RentalCalendar
               rentals={rentals}
               vehicles={vehicles}
-              onOpenRental={openTransaction}
+              onOpenRental={(r) => openTransaction(r, 'calendar')}
             />
           )}
 
@@ -1568,16 +1866,7 @@ export default function AdminPanel() {
                     key={r.id}
                     type="button"
                     className="history-row history-row-btn"
-                    onClick={() => {
-                      const fleetMatch = vehicles.find((v) => v.id === r.vehicle?.id)
-                      setSelectedTransaction({
-                        ...r,
-                        vehicle: {
-                          ...r.vehicle,
-                          image: r.vehicle?.image || fleetMatch?.image || '',
-                        },
-                      })
-                    }}
+                    onClick={() => openTransaction(r, 'history')}
                   >
                     <div className="history-thumb" aria-hidden="true">
                       {r.vehicle?.image ? (
@@ -1653,7 +1942,7 @@ export default function AdminPanel() {
                 {profileMessage && <span className="admin-success settings-toast">{profileMessage}</span>}
               </div>
 
-              <div className="settings-stack">
+              <div className="settings-layout">
                 <article className="settings-card settings-profile-card">
                   <div className="settings-card-head">
                     <span className="settings-eyebrow">Account</span>
@@ -1663,68 +1952,72 @@ export default function AdminPanel() {
                     </p>
                   </div>
 
-                  <div className="settings-avatar-wrap">
-                    <div className="settings-avatar" aria-hidden="true">
-                      {profileDraft.photo ? (
-                        <img src={profileDraft.photo} alt="" />
-                      ) : (
-                        <span>{profileInitials(profileDraft.displayName)}</span>
-                      )}
-                    </div>
-                    <div className="settings-avatar-actions">
-                      <input
-                        ref={profilePhotoRef}
-                        type="file"
-                        accept="image/*"
-                        className="sr-only"
-                        onChange={onProfilePhotoChange}
-                      />
-                      <button
-                        type="button"
-                        className="btn-outline settings-photo-btn"
-                        onClick={() => profilePhotoRef.current?.click()}
-                      >
-                        <IconCamera />
-                        {profileDraft.photo ? 'Change photo' : 'Upload photo'}
-                      </button>
-                      {profileDraft.photo && (
+                  <div className="settings-profile-body">
+                    <div className="settings-avatar-wrap">
+                      <div className="settings-avatar" aria-hidden="true">
+                        {profileDraft.photo ? (
+                          <img src={profileDraft.photo} alt="" />
+                        ) : (
+                          <span>{profileInitials(profileDraft.displayName)}</span>
+                        )}
+                      </div>
+                      <div className="settings-avatar-actions">
+                        <input
+                          ref={profilePhotoRef}
+                          type="file"
+                          accept="image/*"
+                          className="sr-only"
+                          onChange={onProfilePhotoChange}
+                        />
                         <button
                           type="button"
-                          className="btn-ghost settings-remove-photo"
-                          onClick={() => setProfileDraft((prev) => ({ ...prev, photo: '' }))}
+                          className="btn-outline settings-photo-btn"
+                          onClick={() => profilePhotoRef.current?.click()}
                         >
-                          Remove
+                          <IconCamera />
+                          {profileDraft.photo ? 'Change photo' : 'Upload photo'}
                         </button>
-                      )}
+                        {profileDraft.photo && (
+                          <button
+                            type="button"
+                            className="btn-ghost settings-remove-photo"
+                            onClick={() => setProfileDraft((prev) => ({ ...prev, photo: '' }))}
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
 
-                  <label className="field settings-name-field">
-                    <span className="field-label">Display name</span>
-                    <input
-                      type="text"
-                      value={profileDraft.displayName}
-                      onChange={(e) =>
-                        setProfileDraft((prev) => ({ ...prev, displayName: e.target.value }))
-                      }
-                      maxLength={40}
-                      placeholder="Your name"
-                    />
-                  </label>
+                    <div className="settings-profile-fields">
+                      <label className="field settings-name-field">
+                        <span className="field-label">Display name</span>
+                        <input
+                          type="text"
+                          value={profileDraft.displayName}
+                          onChange={(e) =>
+                            setProfileDraft((prev) => ({ ...prev, displayName: e.target.value }))
+                          }
+                          maxLength={40}
+                          placeholder="Your name"
+                        />
+                      </label>
 
-                  <div className="settings-role-row">
-                    <span className="settings-role-label">Role</span>
-                    <span className="settings-role-badge">Admin</span>
-                  </div>
+                      <div className="settings-role-row">
+                        <span className="settings-role-label">Role</span>
+                        <span className="settings-role-badge">Admin</span>
+                      </div>
 
-                  <div className="settings-card-actions">
-                    <button type="button" className="btn-primary" onClick={saveProfileChanges}>
-                      Save profile
-                    </button>
+                      <div className="settings-card-actions">
+                        <button type="button" className="btn-primary" onClick={saveProfileChanges}>
+                          Save profile
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </article>
 
-                <article className="settings-card">
+                <article className="settings-card settings-appearance-card">
                   <div className="settings-card-head">
                     <span className="settings-eyebrow">System</span>
                     <h4 className="settings-card-title">Appearance</h4>
@@ -1758,7 +2051,7 @@ export default function AdminPanel() {
                   </div>
                 </article>
 
-                <article className="settings-card">
+                <article className="settings-card settings-notifications-card">
                   <div className="settings-card-head">
                     <span className="settings-eyebrow">System</span>
                     <h4 className="settings-card-title">Notifications</h4>
@@ -1767,7 +2060,7 @@ export default function AdminPanel() {
                     </p>
                   </div>
 
-                  <div className="settings-toggle-list">
+                  <div className="settings-toggle-list settings-toggle-grid">
                     <label className="settings-toggle-row">
                       <span className="settings-toggle-copy">
                         <strong>Overdue returns</strong>
