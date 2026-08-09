@@ -1,5 +1,7 @@
 import express from 'express'
 import cors from 'cors'
+import fs from 'fs'
+import path from 'path'
 import {
   getVehicles,
   replaceVehicles,
@@ -10,7 +12,11 @@ import {
 } from './sqlite-db.js'
 
 const app = express()
-const PORT = process.env.PORT || 4000
+const PORT = Number(process.env.PORT || 4000)
+const serveFrontend = process.env.SERVE_FRONTEND === '1'
+const frontendDist = process.env.FRONTEND_DIST
+  ? path.resolve(process.env.FRONTEND_DIST)
+  : null
 
 app.use(cors())
 app.use(express.json({ limit: '15mb' }))
@@ -55,6 +61,18 @@ app.put('/api/rentals', (req, res) => {
   res.json(result)
 })
 
-app.listen(PORT, () => {
-  console.log(`Alatas backend running on http://localhost:${PORT}`)
+if (serveFrontend && frontendDist && fs.existsSync(frontendDist)) {
+  app.use(express.static(frontendDist))
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next()
+    if (req.path.startsWith('/api')) return next()
+    res.sendFile(path.join(frontendDist, 'index.html'))
+  })
+}
+
+app.listen(PORT, '127.0.0.1', () => {
+  console.log(`Alatas backend running on http://127.0.0.1:${PORT}`)
+  if (serveFrontend) {
+    console.log(`Serving frontend from ${frontendDist}`)
+  }
 })

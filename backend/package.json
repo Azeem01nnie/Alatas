@@ -8,6 +8,7 @@
     "start": "node src/server.js"
   },
   "dependencies": {
+    "alatas": "file:..",
     "better-sqlite3": "^13.0.3",
     "cors": "^2.8.5",
     "express": "^5.1.0"

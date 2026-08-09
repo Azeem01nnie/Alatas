@@ -1,15 +1,28 @@
 {
   "name": "alatas",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
+  "description": "Alatas Car Rental Services desktop and web app",
+  "main": "electron/main.cjs",
+  "author": "Alatas Car Rental Services",
   "scripts": {
     "dev": "concurrently -k -n frontend,backend -c cyan,magenta \"npm run dev --prefix frontend\" \"npm run dev --prefix backend\"",
     "dev:app": "npm run dev --prefix frontend",
     "dev:api": "npm run dev --prefix backend",
     "install:all": "npm install && npm install --prefix frontend && npm install --prefix backend",
-    "start": "npm run dev"
+    "start": "npm run dev",
+    "electron:dev": "concurrently -k -n frontend,electron -c cyan,green \"npm run dev --prefix frontend\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "icons": "node electron/make-icons.cjs",
+    "electron:build": "npm run icons && npm run build --prefix frontend && npm run rebuild:native && electron-builder --win",
+    "rebuild:native": "electron-rebuild -f -w better-sqlite3 --module-dir backend"
   },
   "devDependencies": {
-    "concurrently": "^9.2.1"
+    "@electron/rebuild": "^4.0.1",
+    "concurrently": "^9.2.1",
+    "electron": "^37.2.0",
+    "electron-builder": "^26.0.12",
+    "jimp": "^1.6.1",
+    "png-to-ico": "^3.0.2",
+    "wait-on": "^8.0.3"
   }
 }

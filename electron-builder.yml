@@ -1,0 +1,38 @@
+appId: com.alatas.carrental
+productName: Alatas Car Rental
+copyright: Copyright © Alatas Car Rental Services
+directories:
+  output: release
+  buildResources: electron/build
+files:
+  - electron/**/*
+  - package.json
+extraResources:
+  - from: backend/src
+    to: backend/src
+  - from: backend/package.json
+    to: backend/package.json
+  - from: frontend/dist
+    to: frontend-dist
+  - from: electron/build/icon.png
+    to: icon.png
+asar: true
+asarUnpack:
+  - "**/*.node"
+npmRebuild: false
+afterPack: electron/afterPack.cjs
+win:
+  icon: electron/build/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: ${productName}-Setup-${version}.${ext}
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  installerIcon: electron/build/icon.ico
+  uninstallerIcon: electron/build/icon.ico
+  installerHeaderIcon: electron/build/icon.ico

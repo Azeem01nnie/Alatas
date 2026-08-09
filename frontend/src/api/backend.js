@@ -1,4 +1,8 @@
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000'
+// Dev: Vite on :5173 talks to API on :4000
+// Packaged Electron: UI is served by the same Express host, so relative /api works
+const BASE_URL =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.DEV ? 'http://127.0.0.1:4000' : '')
 
 async function request(path, options = {}) {
   const url = `${BASE_URL}${path}`

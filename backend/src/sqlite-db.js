@@ -4,7 +4,10 @@ import Database from 'better-sqlite3'
 import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const sqliteDir = path.join(__dirname, '..', 'sqlite')
+// Electron sets ALATAS_DATA_DIR to a writable userData path; dev falls back to backend/sqlite
+const sqliteDir = process.env.ALATAS_DATA_DIR
+  ? path.resolve(process.env.ALATAS_DATA_DIR)
+  : path.join(__dirname, '..', 'sqlite')
 const sqlitePath = path.join(sqliteDir, 'alatas.db')
 
 function ensureSqliteDir() {
