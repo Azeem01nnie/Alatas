@@ -2,8 +2,8 @@ import { useState } from 'react'
 import logoLight from '../assets/logo.jpg'
 
 const AUTH_KEY = 'customer-encoder-admin-auth'
-const ADMIN_USER = 'admin'
-const ADMIN_PASS = 'admin123'
+const ADMIN_USER = 'alatas'
+const ADMIN_PASS = 'Alatas@2026'
 
 export function isAdminLoggedIn() {
   return sessionStorage.getItem(AUTH_KEY) === '1'
@@ -133,8 +133,6 @@ export default function AdminLogin({ onSuccess }) {
           </button>
         </form>
       )}
-
-      {!loading && <p className="login-hint">Demo credentials: admin / admin123</p>}
     </main>
   )
 }
