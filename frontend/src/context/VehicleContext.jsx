@@ -74,6 +74,37 @@ export function VehicleProvider({ children }) {
     })
   }, [rentals])
 
+  const reloadData = useCallback(async () => {
+    const [vehiclesData, rentalsData] = await Promise.all([loadVehicles(), loadRentals()])
+    setVehicles(Array.isArray(vehiclesData) ? vehiclesData : [])
+    setRentals(
+      Array.isArray(rentalsData) ? rentalsData.map(normalizeRental) : [],
+    )
+    hasLoaded.current = true
+    return {
+      vehicles: Array.isArray(vehiclesData) ? vehiclesData : [],
+      rentals: Array.isArray(rentalsData) ? rentalsData.map(normalizeRental) : [],
+    }
+  }, [])
+
+  const replaceAllData = useCallback(async ({ vehicles: nextVehicles, rentals: nextRentals }) => {
+    const vehiclesPayload = Array.isArray(nextVehicles) ? nextVehicles : []
+    const rentalsPayload = Array.isArray(nextRentals)
+      ? nextRentals.map(normalizeRental)
+      : []
+
+    const savedVehicles = await saveVehicles(vehiclesPayload)
+    const savedRentals = await saveRentals(rentalsPayload)
+    if (!savedVehicles || !savedRentals) {
+      throw new Error('Could not save imported data to the backend.')
+    }
+
+    setVehicles(vehiclesPayload)
+    setRentals(rentalsPayload)
+    hasLoaded.current = true
+    return { vehicles: vehiclesPayload, rentals: rentalsPayload }
+  }, [])
+
   const updateVehicleStatus = useCallback((id, status) => {
     if (!id) return
     const key = String(id)
@@ -244,6 +275,8 @@ export function VehicleProvider({ children }) {
         updateVehicleStatus,
         addRental,
         completeRentalForVehicle,
+        reloadData,
+        replaceAllData,
       }}
     >
       {children}

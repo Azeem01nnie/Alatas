@@ -214,9 +214,9 @@ export default function RentCarForm({ onDirtyChange }) {
     }
 
     if (currentStep === 4) {
-      if (!photo) nextErrors.photo = 'Upload a photo of the customer holding their license'
+      if (!photo) nextErrors.photo = 'Add a photo of the customer holding their license'
       if (!licensePhoto) {
-        nextErrors.licensePhoto = 'Upload a clear photo of the driver’s license'
+        nextErrors.licensePhoto = 'Add a clear photo of the customer'
       }
     }
 

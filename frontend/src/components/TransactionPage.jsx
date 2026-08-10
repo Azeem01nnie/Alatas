@@ -215,7 +215,7 @@ async function downloadContractPdf(transaction) {
   doc.text(`Electronically accepted on ${formatDateTime(transaction.encodedAt)}`, margin, y)
   doc.text('Alatas Car Rental Services', margin + half + 10, y)
 
-  // Customer / license photos
+  // Customer photos — holding license + customer photo only
   y += 28
   ensureSpace(220)
   doc.setDrawColor(17, 17, 17)
@@ -234,14 +234,14 @@ async function downloadContractPdf(transaction) {
     embedImages.push({ src: photo, label: 'Holding license' })
   }
   if (licensePhoto && typeof licensePhoto === 'string' && licensePhoto.startsWith('data:image')) {
-    embedImages.push({ src: licensePhoto, label: 'License' })
+    embedImages.push({ src: licensePhoto, label: 'Customer photo' })
   }
 
   if (embedImages.length > 0) {
     try {
-      const photoGap = 14
-      const slotW = (contentWidth - photoGap) / Math.max(embedImages.length, 2)
-      const maxH = 160
+      const photoGap = 16
+      const slotW = (contentWidth - photoGap) / 2
+      const maxH = 170
       let rowH = 0
 
       for (let index = 0; index < embedImages.length; index += 1) {
@@ -327,11 +327,11 @@ export default function TransactionPage({
         </figure>
         <figure className="transaction-photo-card">
           {licensePhoto ? (
-            <img src={licensePhoto} alt="Driver license" />
+            <img src={licensePhoto} alt="Customer" />
           ) : (
-            <div className="transaction-photo-empty">No license photo</div>
+            <div className="transaction-photo-empty">No customer photo</div>
           )}
-          <figcaption>License Photo</figcaption>
+          <figcaption>Customer Photo</figcaption>
         </figure>
         <figure className="transaction-photo-card">
           {vehicle.image ? (

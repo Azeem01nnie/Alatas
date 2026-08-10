@@ -183,12 +183,12 @@ export default function StepSummary({
                 </div>
                 <div className="summary-media-card">
                   <div className="summary-media-head">
-                    <h3>License</h3>
+                    <h3>Customer photo</h3>
                   </div>
                   {licensePhoto ? (
-                    <img src={licensePhoto} alt="Driver license" className="summary-photo" />
+                    <img src={licensePhoto} alt="Customer" className="summary-photo" />
                   ) : (
-                    <p className="summary-empty">No license photo.</p>
+                    <p className="summary-empty">No customer photo.</p>
                   )}
                 </div>
               </div>

@@ -505,6 +505,7 @@ export default function AdminPanel() {
     removeVehicle,
     updateVehicleStatus,
     completeRentalForVehicle,
+    replaceAllData,
   } = useVehicles()
   const [authed, setAuthed] = useState(() => isAdminLoggedIn())
   const [tab, setTab] = useState('dashboard')
@@ -559,6 +560,9 @@ export default function AdminPanel() {
   const editFileRef = useRef(null)
   const profilePhotoRef = useRef(null)
   const notifRef = useRef(null)
+  const importDataRef = useRef(null)
+  const [dataMessage, setDataMessage] = useState('')
+  const [dataBusy, setDataBusy] = useState(false)
 
   useEffect(() => {
     try {
@@ -692,6 +696,103 @@ export default function AdminPanel() {
     setProfileDraft(next)
     setProfileMessage('Profile saved.')
     window.setTimeout(() => setProfileMessage(''), 2200)
+  }
+
+  const downloadAppData = () => {
+    try {
+      const payload = {
+        version: 1,
+        app: 'alatas-car-rental',
+        exportedAt: new Date().toISOString(),
+        vehicles,
+        rentals,
+        systemSettings,
+        adminProfile: profile,
+      }
+      const blob = new Blob([JSON.stringify(payload, null, 2)], {
+        type: 'application/json',
+      })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      const stamp = new Date().toISOString().slice(0, 10)
+      a.href = url
+      a.download = `alatas-backup-${stamp}.json`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      setDataMessage('Backup downloaded.')
+      window.setTimeout(() => setDataMessage(''), 2500)
+    } catch {
+      setDataMessage('Could not download backup.')
+    }
+  }
+
+  const importAppData = async (file) => {
+    if (!file) return
+    setDataBusy(true)
+    setDataMessage('')
+    try {
+      const text = await file.text()
+      const parsed = JSON.parse(text)
+      if (!parsed || typeof parsed !== 'object') {
+        throw new Error('Invalid backup file')
+      }
+      if (!Array.isArray(parsed.vehicles) || !Array.isArray(parsed.rentals)) {
+        throw new Error('Backup must include vehicles and rentals arrays')
+      }
+
+      await replaceAllData({
+        vehicles: parsed.vehicles,
+        rentals: parsed.rentals,
+      })
+
+      if (parsed.systemSettings && typeof parsed.systemSettings === 'object') {
+        const nextSettings = {
+          ...DEFAULT_SYSTEM_SETTINGS,
+          ...parsed.systemSettings,
+        }
+        saveSystemSettings(nextSettings)
+        applyTheme(nextSettings.theme)
+        setSystemSettings(nextSettings)
+      }
+
+      if (parsed.adminProfile && typeof parsed.adminProfile === 'object') {
+        const nextProfile = {
+          displayName:
+            String(parsed.adminProfile.displayName || '').trim() ||
+            DEFAULT_PROFILE.displayName,
+          photo:
+            typeof parsed.adminProfile.photo === 'string'
+              ? parsed.adminProfile.photo
+              : '',
+        }
+        saveAdminProfile(nextProfile)
+        setProfile(nextProfile)
+        setProfileDraft(nextProfile)
+      }
+
+      setDataMessage(
+        `Imported ${parsed.vehicles.length} vehicles and ${parsed.rentals.length} rentals.`,
+      )
+      setMessage('Data import completed.')
+      window.setTimeout(() => setMessage(''), 2500)
+    } catch (err) {
+      setDataMessage(err?.message || 'Import failed. Check the backup file.')
+    } finally {
+      setDataBusy(false)
+    }
+  }
+
+  const requestImportData = () => {
+    setConfirm({
+      type: 'import-data',
+      title: 'Import / migrate data?',
+      message:
+        'This will replace the current vehicles and rental history with the selected backup file. Continue only if you trust this file.',
+      confirmLabel: 'Choose backup file',
+      danger: true,
+    })
   }
 
   const onProfilePhotoChange = async (e) => {
@@ -1136,6 +1237,11 @@ export default function AdminPanel() {
       setTab(next)
       setSelectedTransaction(null)
       setPendingTab(null)
+    }
+    if (confirm.type === 'import-data') {
+      setConfirm(null)
+      window.setTimeout(() => importDataRef.current?.click(), 50)
+      return
     }
     setConfirm(null)
   }
@@ -2312,6 +2418,52 @@ export default function AdminPanel() {
                         ))}
                       </ul>
                     </div>
+                  )}
+                </article>
+
+                <article className="settings-card settings-data-card">
+                  <div className="settings-card-head">
+                    <span className="settings-eyebrow">Backup</span>
+                    <h4 className="settings-card-title">Data</h4>
+                    <p className="settings-card-copy">
+                      Download a full backup, or import / migrate data from another Alatas
+                      installation.
+                    </p>
+                  </div>
+
+                  <div className="settings-data-actions">
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      disabled={dataBusy}
+                      onClick={downloadAppData}
+                    >
+                      Download data
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-outline"
+                      disabled={dataBusy}
+                      onClick={requestImportData}
+                    >
+                      {dataBusy ? 'Importing…' : 'Import / migrate'}
+                    </button>
+                    <input
+                      ref={importDataRef}
+                      type="file"
+                      accept="application/json,.json"
+                      className="sr-only"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        e.target.value = ''
+                        void importAppData(file)
+                      }}
+                    />
+                  </div>
+                  {dataMessage && (
+                    <p className="settings-data-message" role="status">
+                      {dataMessage}
+                    </p>
                   )}
                 </article>
 
