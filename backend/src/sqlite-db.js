@@ -29,10 +29,20 @@ function serializeJson(value) {
   return value == null ? null : JSON.stringify(value)
 }
 
+function ensureColumn(db, table, column, typeSql) {
+  const info = db.prepare(`PRAGMA table_info('${table}')`).all()
+  const hasColumn = info.some((col) => col.name === column)
+  if (!hasColumn) {
+    db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${typeSql}`).run()
+  }
+}
+
 function createDb() {
   ensureSqliteDir()
   const db = new Database(sqlitePath, { verbose: null })
   db.pragma('journal_mode = WAL')
+  db.pragma('foreign_keys = ON')
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS vehicles (
       id TEXT PRIMARY KEY,
@@ -62,6 +72,8 @@ function createDb() {
       personal TEXT,
       rental TEXT,
       photo TEXT,
+      licensePhoto TEXT,
+      termsAccepted INTEGER,
       rentalLifecycle TEXT,
       startedAt TEXT,
       completedAt TEXT,
@@ -70,16 +82,12 @@ function createDb() {
     );
   `)
 
-  ensureEncodedAtColumn(db)
-  return db
-}
+  // Migrations for databases created before these columns existed
+  ensureColumn(db, 'rentals', 'encodedAt', 'TEXT')
+  ensureColumn(db, 'rentals', 'licensePhoto', 'TEXT')
+  ensureColumn(db, 'rentals', 'termsAccepted', 'INTEGER')
 
-function ensureEncodedAtColumn(db) {
-  const info = db.prepare("PRAGMA table_info('rentals')").all()
-  const hasEncodedAt = info.some((col) => col.name === 'encodedAt')
-  if (!hasEncodedAt) {
-    db.prepare('ALTER TABLE rentals ADD COLUMN encodedAt TEXT').run()
-  }
+  return db
 }
 
 const db = createDb()
@@ -100,10 +108,10 @@ const getRentalRows = db.prepare('SELECT * FROM rentals ORDER BY createdAt DESC'
 const deleteRentalsStmt = db.prepare('DELETE FROM rentals')
 const insertRentalStmt = db.prepare(
   `INSERT INTO rentals (
-      id, vehicleId, vehicle, personal, rental, photo,
+      id, vehicleId, vehicle, personal, rental, photo, licensePhoto, termsAccepted,
       rentalLifecycle, startedAt, completedAt, encodedAt, createdAt
     ) VALUES (
-      @id, @vehicleId, @vehicle, @personal, @rental, @photo,
+      @id, @vehicleId, @vehicle, @personal, @rental, @photo, @licensePhoto, @termsAccepted,
       @rentalLifecycle, @startedAt, @completedAt, @encodedAt, @createdAt
     )`,
 )
@@ -112,8 +120,14 @@ const deleteVehicleStmt = db.prepare('DELETE FROM vehicles WHERE id = ?')
 const deleteRentalsByVehicleIdStmt = db.prepare('DELETE FROM rentals WHERE vehicleId = ?')
 
 function deleteVehicle(id) {
-  deleteVehicleStmt.run(String(id))
-  deleteRentalsByVehicleIdStmt.run(String(id))
+  const key = String(id || '').trim()
+  if (!key) return getVehicles()
+
+  const tx = db.transaction(() => {
+    deleteVehicleStmt.run(key)
+    deleteRentalsByVehicleIdStmt.run(key)
+  })
+  tx()
   return getVehicles()
 }
 
@@ -139,6 +153,24 @@ function mapVehicle(row) {
   }
 }
 
+function mapRental(row) {
+  return {
+    id: row.id,
+    vehicleId: row.vehicleId,
+    vehicle: parseJson(row.vehicle),
+    personal: parseJson(row.personal),
+    rental: parseJson(row.rental),
+    photo: row.photo,
+    licensePhoto: row.licensePhoto,
+    termsAccepted: Boolean(row.termsAccepted),
+    rentalLifecycle: row.rentalLifecycle,
+    startedAt: row.startedAt,
+    completedAt: row.completedAt,
+    encodedAt: row.encodedAt,
+    createdAt: row.createdAt,
+  }
+}
+
 function getVehicles() {
   return getVehicleRows.all().map(mapVehicle)
 }
@@ -147,12 +179,15 @@ function replaceVehicles(vehicles) {
   const items = Array.isArray(vehicles) ? vehicles : []
   const now = new Date().toISOString()
 
-  return db.transaction(() => {
+  const run = db.transaction(() => {
     deleteVehiclesStmt.run()
 
     for (const vehicle of items) {
+      const id = String(vehicle?.id || '').trim()
+      if (!id) continue
+
       insertVehicleStmt.run({
-        id: String(vehicle.id || ''),
+        id,
         make: vehicle.make ?? null,
         series: vehicle.series ?? null,
         bodyType: vehicle.bodyType ?? null,
@@ -167,75 +202,61 @@ function replaceVehicles(vehicles) {
         hrs12: vehicle.rates?.hrs12 == null ? null : Number(vehicle.rates.hrs12),
         hrs24: vehicle.rates?.hrs24 == null ? null : Number(vehicle.rates.hrs24),
         exceedHour: vehicle.rates?.exceedHour == null ? null : Number(vehicle.rates.exceedHour),
-        createdAt: now,
+        createdAt: vehicle.createdAt || now,
       })
     }
-  })(), getVehicles()
+  })
+
+  run()
+  return getVehicles()
 }
 
 function getRentals() {
-  return getRentalRows.all().map((row) => ({
-    id: row.id,
-    vehicleId: row.vehicleId,
-    vehicle: parseJson(row.vehicle),
-    personal: parseJson(row.personal),
-    rental: parseJson(row.rental),
-    photo: row.photo,
-    rentalLifecycle: row.rentalLifecycle,
-    startedAt: row.startedAt,
-    completedAt: row.completedAt,
-    encodedAt: row.encodedAt,
-    createdAt: row.createdAt,
-  }))
+  return getRentalRows.all().map(mapRental)
 }
 
-function addRental(rental) {
-  const entry = {
-    id: String(rental.id || `r-${Date.now()}`),
-    vehicleId: rental.vehicle?.id ?? null,
+function toRentalRow(rental, fallbackNow) {
+  const id = String(rental?.id || `r-${Date.now()}`).trim()
+  return {
+    id,
+    vehicleId: rental.vehicle?.id ?? rental.vehicleId ?? null,
     vehicle: serializeJson(rental.vehicle),
     personal: serializeJson(rental.personal),
     rental: serializeJson(rental.rental),
     photo: rental.photo ?? null,
+    licensePhoto: rental.licensePhoto ?? null,
+    termsAccepted: rental.termsAccepted ? 1 : 0,
     rentalLifecycle: rental.rentalLifecycle ?? null,
     startedAt: rental.startedAt ?? null,
     completedAt: rental.completedAt ?? null,
-    encodedAt: rental.encodedAt ?? new Date().toISOString(),
-    createdAt: new Date().toISOString(),
+    encodedAt: rental.encodedAt ?? fallbackNow,
+    createdAt: rental.createdAt ?? fallbackNow,
   }
+}
 
+function addRental(rental) {
+  const now = new Date().toISOString()
+  const entry = toRentalRow(rental, now)
   insertRentalStmt.run(entry)
-  return {
-    ...entry,
-    vehicle: parseJson(entry.vehicle),
-    personal: parseJson(entry.personal),
-    rental: parseJson(entry.rental),
-  }
+  return mapRental(entry)
 }
 
 function replaceRentals(rentals) {
   const items = Array.isArray(rentals) ? rentals : []
   const now = new Date().toISOString()
 
-  return db.transaction(() => {
+  const run = db.transaction(() => {
     deleteRentalsStmt.run()
 
     for (const rental of items) {
-      insertRentalStmt.run({
-        id: String(rental.id || `r-${Date.now()}`),
-        vehicleId: rental.vehicle?.id ?? null,
-        vehicle: serializeJson(rental.vehicle),
-        personal: serializeJson(rental.personal),
-        rental: serializeJson(rental.rental),
-        photo: rental.photo ?? null,
-        rentalLifecycle: rental.rentalLifecycle ?? null,
-        startedAt: rental.startedAt ?? null,
-        completedAt: rental.completedAt ?? null,
-        encodedAt: rental.encodedAt ?? now,
-        createdAt: now,
-      })
+      const row = toRentalRow(rental, now)
+      if (!row.id) continue
+      insertRentalStmt.run(row)
     }
-  })(), getRentals()
+  })
+
+  run()
+  return getRentals()
 }
 
 export { getVehicles, replaceVehicles, getRentals, addRental, replaceRentals, deleteVehicle }
