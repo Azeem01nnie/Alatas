@@ -4,6 +4,7 @@ export default function ConfirmModal({
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
   danger = false,
+  hideCancel = false,
   onConfirm,
   onCancel,
 }) {
@@ -25,9 +26,11 @@ export default function ConfirmModal({
         </h3>
         <p className="confirm-message">{message}</p>
         <div className="modal-actions">
-          <button type="button" className="btn-outline confirm-cancel-btn" onClick={onCancel}>
-            {cancelLabel}
-          </button>
+          {!hideCancel && (
+            <button type="button" className="btn-outline confirm-cancel-btn" onClick={onCancel}>
+              {cancelLabel}
+            </button>
+          )}
           <button
             type="button"
             className={danger ? 'btn-primary btn-danger-solid' : 'btn-primary'}

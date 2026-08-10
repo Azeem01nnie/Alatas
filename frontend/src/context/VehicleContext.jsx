@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { loadVehicles, saveVehicles, deleteVehicle as deleteVehicleApi } from '../data/backendVehicles'
 import { loadRentals, saveRentals, addRental as addRentalApi } from '../data/backendRentals'
+import { getArchivedIdSet, ARCHIVE_EVENT } from '../utils/archivedVehicles'
+import { isScheduledWindow } from '../utils/vehicleDisplayStatus'
 
 const VehicleContext = createContext(null)
 
@@ -18,7 +20,19 @@ function isDue(periodFrom) {
 export function VehicleProvider({ children }) {
   const [vehicles, setVehicles] = useState([])
   const [rentals, setRentals] = useState([])
+  const [tick, setTick] = useState(0)
   const hasLoaded = useRef(false)
+
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((t) => t + 1), 60_000)
+    return () => window.clearInterval(id)
+  }, [])
+
+  useEffect(() => {
+    const onArchive = () => setTick((t) => t + 1)
+    window.addEventListener(ARCHIVE_EVENT, onArchive)
+    return () => window.removeEventListener(ARCHIVE_EVENT, onArchive)
+  }, [])
 
   useEffect(() => {
     let mounted = true
@@ -187,30 +201,36 @@ export function VehicleProvider({ children }) {
     const created = await addRentalApi(entry)
     if (created?.id) {
       setRentals((prev) => [created, ...prev])
-      if (created.vehicleId || created.vehicle?.id) {
-        updateVehicleStatus(created.vehicleId || created.vehicle?.id, 'Rented')
+      const vid = created.vehicleId || created.vehicle?.id
+      if (vid && (created.rentalLifecycle === 'active' || shouldStartNow)) {
+        updateVehicleStatus(vid, 'Rented')
       }
       return created
     }
 
     setRentals((prev) => [entry, ...prev])
-    if (entry.vehicleId || entry.vehicle?.id) {
+    if (shouldStartNow && (entry.vehicleId || entry.vehicle?.id)) {
       updateVehicleStatus(entry.vehicleId || entry.vehicle?.id, 'Rented')
     }
     return entry
   }
 
-  const bookedVehicleIds = useMemo(
-    () =>
-      rentals
-        .filter(
-          (r) =>
-            r.rentalLifecycle === 'scheduled' || r.rentalLifecycle === 'active',
-        )
-        .map((r) => r.vehicle?.id)
-        .filter(Boolean),
-    [rentals],
-  )
+  const bookedVehicleIds = useMemo(() => {
+    const archived = getArchivedIdSet()
+    const now = Date.now()
+    return rentals
+      .filter((r) => {
+        const vid = r.vehicle?.id
+        if (!vid || archived.has(String(vid))) return false
+        if (r.rentalLifecycle === 'active') return true
+        if (r.rentalLifecycle === 'scheduled') {
+          return isScheduledWindow(r.rental?.periodFrom, now)
+        }
+        return false
+      })
+      .map((r) => r.vehicle?.id)
+      .filter(Boolean)
+  }, [rentals, tick])
 
   return (
     <VehicleContext.Provider

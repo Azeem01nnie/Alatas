@@ -170,6 +170,12 @@ html[data-theme='dark'] .status-rented {
   border-color: rgba(108, 182, 255, 0.38);
 }
 
+html[data-theme='dark'] .status-scheduled {
+  background: linear-gradient(180deg, rgba(245, 196, 0, 0.2) 0%, rgba(245, 196, 0, 0.1) 100%);
+  color: #f5d76e;
+  border-color: rgba(245, 196, 0, 0.36);
+}
+
 html[data-theme='dark'] .status-maintenance {
   background: linear-gradient(180deg, rgba(245, 185, 68, 0.22) 0%, rgba(245, 185, 68, 0.1) 100%);
   color: #ffd27a;
@@ -3226,6 +3232,24 @@ input[type='number']:focus {
   gap: 0.15rem;
 }
 
+.manage-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+  gap: 0.15rem;
+}
+
+.manage-archive-note {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.4;
+  max-width: 28rem;
+}
+
 .manage-layout-btn {
   min-height: 2rem;
   padding: 0.35rem 0.85rem;
@@ -3403,6 +3427,10 @@ input[type='number']:focus {
   color: var(--error);
 }
 
+.manage-card-archive {
+  color: var(--metal);
+}
+
 .manage-vehicle-row {
   flex-wrap: wrap;
   transition: border-color 0.18s var(--ease-premium), background 0.18s var(--ease-premium);
@@ -3476,6 +3504,15 @@ input[type='number']:focus {
 .icon-btn-danger:hover {
   background: rgba(179, 32, 37, 0.1);
   color: var(--brand);
+}
+
+.icon-btn-archive {
+  color: var(--muted);
+}
+
+.icon-btn-archive:hover {
+  background: rgba(90, 78, 68, 0.1);
+  color: var(--metal);
 }
 
 .rate-fields-heading {
@@ -3764,6 +3801,53 @@ html[data-theme='dark'] .login-form .field-label {
   border-color: rgba(245, 196, 0, 0.55);
   outline: none;
   box-shadow: 0 0 0 3px rgba(245, 196, 0, 0.12);
+}
+
+.login-password-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.login-password-wrap input {
+  width: 100%;
+  padding-right: 2.75rem;
+}
+
+.login-password-toggle {
+  position: absolute;
+  right: 0.45rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #6b6b6b;
+  cursor: pointer;
+}
+
+.login-password-toggle:hover {
+  color: #1a1a1a;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.login-password-toggle svg {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+html[data-theme='dark'] .login-password-toggle {
+  color: #b8b0b0;
+}
+
+html[data-theme='dark'] .login-password-toggle:hover {
+  color: #f0eaea;
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .login-submit {
@@ -5069,6 +5153,12 @@ html[data-theme='dark'] .login-form .field-label {
   background: linear-gradient(180deg, #f4f9ff 0%, #e4f1ff 100%);
   color: #175cd3;
   border-color: rgba(23, 92, 211, 0.2);
+}
+
+.status-scheduled {
+  background: linear-gradient(180deg, #fffcef 0%, #fff3c4 100%);
+  color: #8a6a00;
+  border-color: rgba(138, 106, 0, 0.22);
 }
 
 .status-maintenance {
@@ -6633,12 +6723,60 @@ html[data-theme='dark'] .login-form .field-label {
 .edit-image-default {
   position: relative;
   border: 1px dashed var(--border);
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse at 30% 25%, rgba(196, 170, 130, 0.025), transparent 55%),
+    radial-gradient(ellipse at 75% 80%, rgba(180, 150, 110, 0.02), transparent 50%),
+    #faf9f8;
+}
+
+.edit-image-default::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.28;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0.55 0 0 0 0 0.5 0 0 0 0 0.45 0 0 0 0.28 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
+}
+
+.edit-image-default::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.12;
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(90, 70, 40, 0.035) 2px,
+    rgba(90, 70, 40, 0.035) 3px
+  );
+}
+
+.edit-image-default img {
+  width: 100%;
+  height: 100%;
+  min-height: 11.5rem;
+  object-fit: contain;
+  object-position: center;
+  background: transparent !important;
+  opacity: 0.26;
+  transform: scale(0.62);
+  transform-origin: center center;
+  position: relative;
+  z-index: 0;
 }
 
 .edit-image-default-label {
   position: absolute;
   left: 0.65rem;
   bottom: 0.65rem;
+  z-index: 2;
   font-size: 0.68rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;

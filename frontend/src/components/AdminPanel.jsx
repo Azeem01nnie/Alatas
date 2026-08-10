@@ -9,9 +9,22 @@ import {
   YAxis,
 } from 'recharts'
 import logo from '../assets/logonobg.png'
+import addVehiclePlaceholder from '../assets/addvehicle.png'
 import { useVehicles } from '../context/VehicleContext'
 import { BODY_TYPES, VEHICLE_STATUSES } from '../data/vehicles'
 import { compressImageDataUrl } from '../utils/storage'
+import {
+  archiveVehicleSnapshot,
+  loadArchivedVehicles,
+  removeFromArchiveStore,
+  restoreArchivedVehicle,
+} from '../utils/archivedVehicles'
+import {
+  displayStatusLabel,
+  getBlockingRental,
+  getDisplayStatus,
+  statusClassForDisplay,
+} from '../utils/vehicleDisplayStatus'
 import AdminLogin, { clearAdminSession, isAdminLoggedIn } from './AdminLogin'
 import ConfirmModal from './ConfirmModal'
 import PremiumDatePicker from './PremiumDatePicker'
@@ -22,6 +35,14 @@ import VehicleModal from './VehicleModal'
 
 const PROFILE_KEY = 'alatas-admin-profile'
 const SYSTEM_SETTINGS_KEY = 'alatas-admin-system-settings'
+const PLATE_MAX = 10
+
+function sanitizePlateNo(value) {
+  return String(value || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+    .slice(0, PLATE_MAX)
+}
 
 const DEFAULT_PROFILE = {
   displayName: 'Alatas Admin',
@@ -215,13 +236,12 @@ function IconEdit() {
   )
 }
 
-function IconTrash() {
+function IconArchive() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M3 6h18" />
-      <path d="M8 6V4.5A1.5 1.5 0 0 1 9.5 3h5A1.5 1.5 0 0 1 16 4.5V6" />
-      <path d="M19 6v13.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 19.5V6" />
-      <path d="M10 11v6M14 11v6" />
+      <rect x="3" y="4" width="18" height="4" rx="1" />
+      <path d="M5 8v10.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V8" />
+      <path d="M10 12h4" />
     </svg>
   )
 }
@@ -229,6 +249,7 @@ function IconTrash() {
 const MANAGE_STATUS_FILTERS = [
   { id: 'All', label: 'All' },
   { id: 'Available', label: 'Available' },
+  { id: 'Scheduled', label: 'Scheduled' },
   { id: 'Rented', label: 'On Rent' },
   { id: 'Under Maintenance', label: 'Maintenance' },
 ]
@@ -242,9 +263,11 @@ const NAV = [
 ]
 
 function statusClass(status) {
-  if (status === 'Available') return 'status-available'
-  if (status === 'Rented') return 'status-rented'
-  return 'status-maintenance'
+  return statusClassForDisplay(status)
+}
+
+function formatStatusLabel(status) {
+  return displayStatusLabel(status)
 }
 
 function formatDateTime(value) {
@@ -264,10 +287,11 @@ function DashAttentionCard({
   emptyLabel,
   expanded,
   onToggleExpand,
+  onSeeMore,
   renderItem,
 }) {
   const total = items.length
-  const visible = expanded ? items : items.slice(0, DASH_QUEUE_PREVIEW)
+  const visible = onSeeMore || !expanded ? items.slice(0, DASH_QUEUE_PREVIEW) : items
   const hiddenCount = Math.max(0, total - DASH_QUEUE_PREVIEW)
 
   return (
@@ -291,8 +315,16 @@ function DashAttentionCard({
       )}
 
       {hiddenCount > 0 && (
-        <button type="button" className="dash-attn-more" onClick={onToggleExpand}>
-          {expanded ? 'Show less' : `See more (${hiddenCount})`}
+        <button
+          type="button"
+          className="dash-attn-more"
+          onClick={onSeeMore || onToggleExpand}
+        >
+          {onSeeMore
+            ? `See more (${hiddenCount})`
+            : expanded
+              ? 'Show less'
+              : `See more (${hiddenCount})`}
         </button>
       )}
     </article>
@@ -489,6 +521,8 @@ export default function AdminPanel() {
   const [revenueDateFrom, setRevenueDateFrom] = useState('')
   const [revenueDateTo, setRevenueDateTo] = useState('')
   const [manageStatus, setManageStatus] = useState('All')
+  const [manageView, setManageView] = useState('fleet') // fleet | archive
+  const [archivedVehicles, setArchivedVehicles] = useState(() => loadArchivedVehicles())
   const [manageLayout, setManageLayout] = useState(() => {
     try {
       const saved = localStorage.getItem('alatas-manage-layout')
@@ -692,12 +726,20 @@ export default function AdminPanel() {
   }
 
   const counts = useMemo(() => {
-    const base = { Available: 0, Rented: 0, 'Under Maintenance': 0 }
+    const archivedIds = new Set(archivedVehicles.map((v) => String(v.id)))
+    const base = { Available: 0, Rented: 0, Scheduled: 0, 'Under Maintenance': 0 }
     vehicles.forEach((v) => {
-      if (base[v.status] !== undefined) base[v.status] += 1
+      if (archivedIds.has(String(v.id))) return
+      const status = getDisplayStatus(v, rentals)
+      if (base[status] !== undefined) base[status] += 1
     })
     return base
-  }, [vehicles])
+  }, [vehicles, rentals, archivedVehicles, alertTick])
+
+  const fleetVehicles = useMemo(() => {
+    const archivedIds = new Set(archivedVehicles.map((v) => String(v.id)))
+    return vehicles.filter((v) => !archivedIds.has(String(v.id)))
+  }, [vehicles, archivedVehicles])
 
   const scheduledRentals = useMemo(
     () => rentals.filter((r) => r.rentalLifecycle === 'scheduled'),
@@ -741,8 +783,8 @@ export default function AdminPanel() {
   }, [activeRentals, vehicles])
 
   const maintenanceVehicles = useMemo(
-    () => vehicles.filter((v) => v.status === 'Under Maintenance'),
-    [vehicles],
+    () => fleetVehicles.filter((v) => getDisplayStatus(v, rentals) === 'Under Maintenance'),
+    [fleetVehicles, rentals, alertTick],
   )
 
   const revenueSnapshot = useMemo(() => {
@@ -780,14 +822,18 @@ export default function AdminPanel() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return vehicles.filter((v) => {
-      if (manageStatus !== 'All' && v.status !== manageStatus) return false
+    const source = manageView === 'archive' ? archivedVehicles : fleetVehicles
+    return source.filter((v) => {
+      if (manageView === 'fleet') {
+        const display = getDisplayStatus(v, rentals)
+        if (manageStatus !== 'All' && display !== manageStatus) return false
+      }
       if (!q) return true
       const haystack =
         `${v.make} ${v.series} ${v.plateNo} ${v.bodyType} ${v.transmission}`.toLowerCase()
       return haystack.includes(q)
     })
-  }, [vehicles, search, manageStatus])
+  }, [fleetVehicles, archivedVehicles, search, manageStatus, manageView, rentals, alertTick])
 
   const filteredGrouped = useMemo(() => {
     const groups = {}
@@ -861,16 +907,20 @@ export default function AdminPanel() {
 
   const validateFields = (data) => {
     const next = {}
-    ;['make', 'series', 'bodyType', 'plateNo', 'engineNo', 'chassisNo'].forEach((key) => {
+    ;['make', 'series', 'bodyType', 'engineNo', 'chassisNo'].forEach((key) => {
       if (!String(data[key] || '').trim()) next[key] = 'Required'
     })
+    const plate = sanitizePlateNo(data.plateNo)
+    if (!plate) next.plateNo = 'Required'
+    else if (plate.length > PLATE_MAX) next.plateNo = `Max ${PLATE_MAX} characters`
     if (!String(data.seats || '').trim() || Number(data.seats) <= 0) {
       next.seats = 'Required'
     }
     if (!String(data.transmission || '').trim()) next.transmission = 'Required'
     ;['hrs5', 'hrs12', 'hrs24', 'exceedHour'].forEach((key) => {
-      const n = Number(data[key])
-      if (data[key] === '' || data[key] == null || Number.isNaN(n) || n < 0) {
+      const raw = String(data[key] ?? '').replace(/[^\d.]/g, '')
+      const n = Number(raw)
+      if (raw === '' || Number.isNaN(n) || n < 0) {
         next[key] = 'Required'
       }
     })
@@ -883,16 +933,16 @@ export default function AdminPanel() {
     bodyType: data.bodyType.trim(),
     seats: Number(data.seats) || 5,
     transmission: data.transmission.trim(),
-    plateNo: data.plateNo.trim(),
+    plateNo: sanitizePlateNo(data.plateNo),
     engineNo: data.engineNo.trim(),
     chassisNo: data.chassisNo.trim(),
     image: data.image.trim() || logo,
     status: data.status,
     rates: {
-      hrs5: Number(data.hrs5) || 0,
-      hrs12: Number(data.hrs12) || 0,
-      hrs24: Number(data.hrs24) || 0,
-      exceedHour: Number(data.exceedHour) || 0,
+      hrs5: Number(String(data.hrs5 ?? '').replace(/[^\d.]/g, '')) || 0,
+      hrs12: Number(String(data.hrs12 ?? '').replace(/[^\d.]/g, '')) || 0,
+      hrs24: Number(String(data.hrs24 ?? '').replace(/[^\d.]/g, '')) || 0,
+      exceedHour: Number(String(data.exceedHour ?? '').replace(/[^\d.]/g, '')) || 0,
     },
   })
 
@@ -919,6 +969,7 @@ export default function AdminPanel() {
       status,
       seats: vehicle.seats ?? 5,
       transmission: vehicle.transmission || 'Automatic',
+      plateNo: sanitizePlateNo(vehicle.plateNo),
       hrs5: vehicle.rates?.hrs5 ?? '',
       hrs12: vehicle.rates?.hrs12 ?? '',
       hrs24: vehicle.rates?.hrs24 ?? '',
@@ -969,12 +1020,50 @@ export default function AdminPanel() {
     setTab(returnTab)
   }
 
-  const requestRemove = (vehicle) => {
+  const requestArchive = (vehicle) => {
+    const blocking = getBlockingRental(vehicle.id, rentals)
+    if (blocking) {
+      const when = blocking.rental?.periodFrom
+        ? new Date(blocking.rental.periodFrom).toLocaleString()
+        : 'the scheduled date'
+      const life = blocking.rentalLifecycle === 'active' ? 'currently on rent' : 'scheduled to be rented'
+      setConfirm({
+        type: 'archive-blocked',
+        title: 'Cannot archive vehicle',
+        message: `You cannot archive ${vehicle.make} — ${vehicle.series} (${vehicle.plateNo}) because it is ${life} on ${when}. Complete or wait until the rental is finished first.`,
+        confirmLabel: 'OK',
+        hideCancel: true,
+        danger: false,
+      })
+      return
+    }
+
     setConfirm({
-      type: 'remove',
-      title: 'Remove vehicle?',
-      message: `Permanently remove ${vehicle.make} — ${vehicle.series} (${vehicle.plateNo}) from the fleet?`,
-      confirmLabel: 'Remove',
+      type: 'archive',
+      title: 'Archive vehicle?',
+      message: `Move ${vehicle.make} — ${vehicle.series} (${vehicle.plateNo}) to the archive? You can restore it later from the Archive view.`,
+      confirmLabel: 'Archive',
+      danger: true,
+      vehicle,
+    })
+  }
+
+  const requestRestore = (vehicle) => {
+    setConfirm({
+      type: 'restore',
+      title: 'Restore vehicle?',
+      message: `Restore ${vehicle.make} — ${vehicle.series} (${vehicle.plateNo}) to the active fleet?`,
+      confirmLabel: 'Restore',
+      vehicleId: vehicle.id,
+    })
+  }
+
+  const requestPermanentDelete = (vehicle) => {
+    setConfirm({
+      type: 'permanent-delete',
+      title: 'Delete permanently?',
+      message: `Permanently delete ${vehicle.make} — ${vehicle.series} (${vehicle.plateNo})? This cannot be undone.`,
+      confirmLabel: 'Delete permanently',
       danger: true,
       vehicleId: vehicle.id,
     })
@@ -1012,8 +1101,21 @@ export default function AdminPanel() {
       if (fileRef.current) fileRef.current.value = ''
       setTimeout(() => setMessage(''), 2500)
     }
-    if (confirm.type === 'remove') {
+    if (confirm.type === 'archive' && confirm.vehicle) {
+      setArchivedVehicles(archiveVehicleSnapshot(confirm.vehicle))
+      setMessage('Vehicle archived.')
+      setTimeout(() => setMessage(''), 2500)
+    }
+    if (confirm.type === 'restore' && confirm.vehicleId) {
+      setArchivedVehicles(restoreArchivedVehicle(confirm.vehicleId))
+      setMessage('Vehicle restored to fleet.')
+      setTimeout(() => setMessage(''), 2500)
+    }
+    if (confirm.type === 'permanent-delete' && confirm.vehicleId) {
       await removeVehicle(confirm.vehicleId)
+      setArchivedVehicles(removeFromArchiveStore(confirm.vehicleId))
+      setMessage('Vehicle permanently deleted.')
+      setTimeout(() => setMessage(''), 2500)
     }
     if (confirm.type === 'edit' && editForm) {
       const nextStatus = EDIT_STATUSES.includes(editForm.status)
@@ -1187,16 +1289,41 @@ export default function AdminPanel() {
               )}
             </div>
             {tab === 'manage' && (
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={() => {
-                  setShowAddForm((prev) => !prev)
-                  setErrors({})
-                }}
-              >
-                {showAddForm ? 'Cancel' : 'Add Vehicle'}
-              </button>
+              <>
+                <div className="manage-view-toggle" role="group" aria-label="Manage vehicle view">
+                  <button
+                    type="button"
+                    className={`manage-layout-btn${manageView === 'fleet' ? ' is-active' : ''}`}
+                    onClick={() => setManageView('fleet')}
+                    aria-pressed={manageView === 'fleet'}
+                  >
+                    Fleet
+                  </button>
+                  <button
+                    type="button"
+                    className={`manage-layout-btn${manageView === 'archive' ? ' is-active' : ''}`}
+                    onClick={() => {
+                      setManageView('archive')
+                      setShowAddForm(false)
+                    }}
+                    aria-pressed={manageView === 'archive'}
+                  >
+                    Archive
+                  </button>
+                </div>
+                {manageView === 'fleet' && (
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={() => {
+                      setShowAddForm((prev) => !prev)
+                      setErrors({})
+                    }}
+                  >
+                    {showAddForm ? 'Cancel' : 'Add Vehicle'}
+                  </button>
+                )}
+              </>
             )}
           </div>
         </header>
@@ -1262,12 +1389,7 @@ export default function AdminPanel() {
                         emptyLabel="No upcoming rentals."
                         items={upcomingScheduled}
                         expanded={dashQueueExpanded.upcoming}
-                        onToggleExpand={() =>
-                          setDashQueueExpanded((prev) => ({
-                            ...prev,
-                            upcoming: !prev.upcoming,
-                          }))
-                        }
+                        onSeeMore={() => requestTabChange('history')}
                         renderItem={({ rental, vehicle, isPastDue }) => (
                           <article key={rental.id} className="dash-attn-row">
                             <div className="dash-attn-thumb" aria-hidden="true">
@@ -1601,6 +1723,7 @@ export default function AdminPanel() {
 
           {tab === 'manage' && (
             <section className="admin-list-section manage-vehicle-section">
+              {!(showAddForm && manageView === 'fleet') && (
               <div className="manage-toolbar">
                 <label className="field search-field manage-search">
                   <span className="field-label">Search</span>
@@ -1612,18 +1735,24 @@ export default function AdminPanel() {
                   />
                 </label>
                 <div className="manage-toolbar-row">
-                  <div className="chip-group manage-status-filters" role="group" aria-label="Filter by status">
-                    {MANAGE_STATUS_FILTERS.map((f) => (
-                      <button
-                        key={f.id}
-                        type="button"
-                        className={`chip${manageStatus === f.id ? ' selected' : ''}`}
-                        onClick={() => setManageStatus(f.id)}
-                      >
-                        {f.label}
-                      </button>
-                    ))}
-                  </div>
+                  {manageView === 'fleet' ? (
+                    <div className="chip-group manage-status-filters" role="group" aria-label="Filter by status">
+                      {MANAGE_STATUS_FILTERS.map((f) => (
+                        <button
+                          key={f.id}
+                          type="button"
+                          className={`chip${manageStatus === f.id ? ' selected' : ''}`}
+                          onClick={() => setManageStatus(f.id)}
+                        >
+                          {f.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="manage-archive-note">
+                      Archived vehicles are hidden from the fleet. Restore them anytime, or delete permanently.
+                    </p>
+                  )}
                   <div className="manage-layout-toggle" role="group" aria-label="Fleet layout">
                     <button
                       type="button"
@@ -1644,8 +1773,9 @@ export default function AdminPanel() {
                   </div>
                 </div>
               </div>
+              )}
 
-              {showAddForm && (
+              {showAddForm && manageView === 'fleet' && (
                 <form className="form-grid manage-add-form" onSubmit={handleSubmit}>
                   <VehicleFields
                     data={form}
@@ -1663,10 +1793,15 @@ export default function AdminPanel() {
                 </form>
               )}
 
+              {!(showAddForm && manageView === 'fleet') && (
               <div
                 className={`admin-vehicle-list manage-vehicle-list manage-layout-${manageLayout}`}
               >
-                {filtered.length === 0 && <p className="empty-state">No vehicles found.</p>}
+                {filtered.length === 0 && (
+                  <p className="empty-state">
+                    {manageView === 'archive' ? 'No archived vehicles.' : 'No vehicles found.'}
+                  </p>
+                )}
                 {filteredGrouped.map((group) => (
                   <div key={group.bodyType} className="manage-group">
                     <h3 className="manage-group-title">{group.bodyType}</h3>
@@ -1675,15 +1810,20 @@ export default function AdminPanel() {
                         manageLayout === 'cards' ? 'manage-card-grid' : 'manage-list-stack'
                       }
                     >
-                      {group.items.map((v) =>
-                        manageLayout === 'cards' ? (
+                      {group.items.map((v) => {
+                        const display =
+                          manageView === 'archive' ? 'Archived' : getDisplayStatus(v, rentals)
+                        const badgeClass =
+                          manageView === 'archive' ? 'status-reserved' : statusClass(display)
+                        return manageLayout === 'cards' ? (
                           <article
                             key={v.id}
                             className="manage-vehicle-card is-clickable"
                             role="button"
                             tabIndex={0}
-                            onClick={() => setPreviewVehicle(v)}
+                            onClick={() => manageView === 'fleet' && setPreviewVehicle(v)}
                             onKeyDown={(e) => {
+                              if (manageView !== 'fleet') return
                               if (e.key === 'Enter' || e.key === ' ') {
                                 e.preventDefault()
                                 setPreviewVehicle(v)
@@ -1692,8 +1832,8 @@ export default function AdminPanel() {
                           >
                             <div className="manage-card-media">
                               <img src={v.image} alt="" />
-                              <span className={`status-badge ${statusClass(v.status)}`}>
-                                {v.status === 'Rented' ? 'On Rent' : v.status}
+                              <span className={`status-badge ${badgeClass}`}>
+                                {manageView === 'archive' ? 'Archived' : formatStatusLabel(display)}
                               </span>
                             </div>
                             <div className="manage-card-body">
@@ -1708,26 +1848,53 @@ export default function AdminPanel() {
                               </ul>
                             </div>
                             <div className="manage-card-actions">
-                              <button
-                                type="button"
-                                className="btn-outline btn-sm"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  openEdit(v)
-                                }}
-                              >
-                                Edit
-                              </button>
-                              <button
-                                type="button"
-                                className="btn-ghost btn-sm manage-card-remove"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  requestRemove(v)
-                                }}
-                              >
-                                Remove
-                              </button>
+                              {manageView === 'fleet' ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="btn-outline btn-sm"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      openEdit(v)
+                                    }}
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn-ghost btn-sm manage-card-archive"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      requestArchive(v)
+                                    }}
+                                  >
+                                    Archive
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="btn-outline btn-sm"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      requestRestore(v)
+                                    }}
+                                  >
+                                    Restore
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn-ghost btn-sm manage-card-remove"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      requestPermanentDelete(v)
+                                    }}
+                                  >
+                                    Delete
+                                  </button>
+                                </>
+                              )}
                             </div>
                           </article>
                         ) : (
@@ -1736,8 +1903,9 @@ export default function AdminPanel() {
                             className="admin-vehicle-row manage-vehicle-row is-clickable"
                             role="button"
                             tabIndex={0}
-                            onClick={() => setPreviewVehicle(v)}
+                            onClick={() => manageView === 'fleet' && setPreviewVehicle(v)}
                             onKeyDown={(e) => {
+                              if (manageView !== 'fleet') return
                               if (e.key === 'Enter' || e.key === ' ') {
                                 e.preventDefault()
                                 setPreviewVehicle(v)
@@ -1753,42 +1921,70 @@ export default function AdminPanel() {
                                 {v.seats} seaters · {v.transmission} · {v.plateNo}
                               </span>
                             </div>
-                            <span className={`status-badge ${statusClass(v.status)}`}>
-                              {v.status === 'Rented' ? 'On Rent' : v.status}
+                            <span className={`status-badge ${badgeClass}`}>
+                              {manageView === 'archive' ? 'Archived' : formatStatusLabel(display)}
                             </span>
                             <div className="manage-row-actions">
-                              <button
-                                type="button"
-                                className="icon-btn"
-                                title="Edit"
-                                aria-label={`Edit ${v.make} ${v.series}`}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  openEdit(v)
-                                }}
-                              >
-                                <IconEdit />
-                              </button>
-                              <button
-                                type="button"
-                                className="icon-btn icon-btn-danger"
-                                title="Remove"
-                                aria-label={`Remove ${v.make} ${v.series}`}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  requestRemove(v)
-                                }}
-                              >
-                                <IconTrash />
-                              </button>
+                              {manageView === 'fleet' ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="icon-btn"
+                                    title="Edit"
+                                    aria-label={`Edit ${v.make} ${v.series}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      openEdit(v)
+                                    }}
+                                  >
+                                    <IconEdit />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="icon-btn icon-btn-archive"
+                                    title="Archive"
+                                    aria-label={`Archive ${v.make} ${v.series}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      requestArchive(v)
+                                    }}
+                                  >
+                                    <IconArchive />
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="btn-outline btn-sm"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      requestRestore(v)
+                                    }}
+                                  >
+                                    Restore
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn-ghost btn-sm manage-card-remove"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      requestPermanentDelete(v)
+                                    }}
+                                  >
+                                    Delete
+                                  </button>
+                                </>
+                              )}
                             </div>
                           </article>
-                        ),
-                      )}
+                        )
+                      })}
                     </div>
                   </div>
                 ))}
               </div>
+              )}
             </section>
           )}
 
@@ -2142,9 +2338,7 @@ export default function AdminPanel() {
       {previewVehicle && (
         <VehicleModal
           vehicle={previewVehicle}
-          eyebrow={
-            previewVehicle.status === 'Rented' ? 'On Rent' : previewVehicle.status
-          }
+          eyebrow={formatStatusLabel(getDisplayStatus(previewVehicle, rentals))}
           cancelLabel="Close"
           confirmLabel="Edit"
           onClose={() => setPreviewVehicle(null)}
@@ -2216,6 +2410,7 @@ export default function AdminPanel() {
           confirmLabel={confirm.confirmLabel}
           cancelLabel={confirm.cancelLabel || 'Cancel'}
           danger={confirm.danger}
+          hideCancel={Boolean(confirm.hideCancel)}
           onCancel={() => {
             setPendingTab(null)
             setConfirm(null)
@@ -2224,6 +2419,33 @@ export default function AdminPanel() {
         />
       )}
     </div>
+  )
+}
+
+function RatePesoInput({ value, onChange, className, id }) {
+  const [focused, setFocused] = useState(false)
+  const digits = String(value ?? '').replace(/[^\d.]/g, '')
+
+  const display = focused
+    ? digits
+    : digits === ''
+      ? ''
+      : `₱${digits}`
+
+  return (
+    <input
+      id={id}
+      type="text"
+      inputMode="decimal"
+      value={display}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      onChange={(e) => {
+        const next = e.target.value.replace(/[^\d.]/g, '')
+        onChange(next)
+      }}
+      className={className}
+    />
   )
 }
 
@@ -2301,9 +2523,13 @@ function VehicleFields({
         <input
           type="text"
           value={data.plateNo}
-          onChange={(e) => onChange('plateNo', e.target.value)}
+          maxLength={PLATE_MAX}
+          onChange={(e) => onChange('plateNo', sanitizePlateNo(e.target.value))}
           className={errors.plateNo ? 'input-error' : ''}
+          autoCapitalize="characters"
+          placeholder="Max 10 letters/digits"
         />
+        {errors.plateNo && <span className="error-msg">{errors.plateNo}</span>}
       </label>
       <label className="field">
         <span className="field-label">Engine No. *</span>
@@ -2344,41 +2570,33 @@ function VehicleFields({
       </div>
       <label className="field">
         <span className="field-label">5 hours *</span>
-        <input
-          type="number"
-          min="0"
+        <RatePesoInput
           value={data.hrs5}
-          onChange={(e) => onChange('hrs5', e.target.value)}
+          onChange={(v) => onChange('hrs5', v)}
           className={errors.hrs5 ? 'input-error' : ''}
         />
       </label>
       <label className="field">
         <span className="field-label">12 hours *</span>
-        <input
-          type="number"
-          min="0"
+        <RatePesoInput
           value={data.hrs12}
-          onChange={(e) => onChange('hrs12', e.target.value)}
+          onChange={(v) => onChange('hrs12', v)}
           className={errors.hrs12 ? 'input-error' : ''}
         />
       </label>
       <label className="field">
         <span className="field-label">24 hours *</span>
-        <input
-          type="number"
-          min="0"
+        <RatePesoInput
           value={data.hrs24}
-          onChange={(e) => onChange('hrs24', e.target.value)}
+          onChange={(v) => onChange('hrs24', v)}
           className={errors.hrs24 ? 'input-error' : ''}
         />
       </label>
       <label className="field">
         <span className="field-label">Exceeding / hour *</span>
-        <input
-          type="number"
-          min="0"
+        <RatePesoInput
           value={data.exceedHour}
-          onChange={(e) => onChange('exceedHour', e.target.value)}
+          onChange={(v) => onChange('exceedHour', v)}
           className={errors.exceedHour ? 'input-error' : ''}
         />
       </label>
@@ -2386,7 +2604,7 @@ function VehicleFields({
       <div className="field field-full edit-section-heading">
         <span className="field-label">Vehicle Image (optional)</span>
         <p className="edit-section-copy">
-          Upload a vehicle photo, or leave blank to use the Alatas logo as the default.
+          Upload a vehicle photo, or leave blank — the fleet will use the Alatas logo as the default.
         </p>
       </div>
 
@@ -2399,7 +2617,7 @@ function VehicleFields({
             <p className="edit-image-source">
               {data.image
                 ? 'Upload a cleaner image to replace the current one.'
-                : 'No photo selected — the company logo will be used.'}
+                : 'No photo selected yet — add one when ready.'}
             </p>
           )}
           <label className="edit-upload-btn">
@@ -2421,8 +2639,8 @@ function VehicleFields({
             </div>
           ) : (
             <div className="admin-image-preview edit-image-preview edit-image-default">
-              <img src={logo} alt="Default Alatas logo" />
-              <span className="edit-image-default-label">Default logo</span>
+              <img src={addVehiclePlaceholder} alt="Add vehicle photo placeholder" />
+              <span className="edit-image-default-label">Add vehicle photo</span>
             </div>
           )}
         </div>

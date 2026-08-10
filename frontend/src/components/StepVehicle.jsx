@@ -1,16 +1,30 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { BODY_TYPES } from '../data/vehicles'
 import { useVehicles } from '../context/VehicleContext'
+import { ARCHIVE_EVENT, getArchivedIdSet } from '../utils/archivedVehicles'
+import { getDisplayStatus } from '../utils/vehicleDisplayStatus'
 import VehicleModal from './VehicleModal'
 
 export default function StepVehicle({ selectedId, onSelect, error }) {
-  const { vehicles, bookedVehicleIds } = useVehicles()
+  const { vehicles, bookedVehicleIds, rentals } = useVehicles()
   const [previewId, setPreviewId] = useState(null)
+  const [archiveTick, setArchiveTick] = useState(0)
+
+  useEffect(() => {
+    const onArchive = () => setArchiveTick((t) => t + 1)
+    window.addEventListener(ARCHIVE_EVENT, onArchive)
+    return () => window.removeEventListener(ARCHIVE_EVENT, onArchive)
+  }, [])
 
   const available = useMemo(() => {
     const booked = new Set(bookedVehicleIds)
-    return vehicles.filter((v) => v.status === 'Available' && !booked.has(v.id))
-  }, [vehicles, bookedVehicleIds])
+    const archived = getArchivedIdSet()
+    return vehicles.filter((v) => {
+      if (archived.has(String(v.id))) return false
+      if (booked.has(v.id)) return false
+      return getDisplayStatus(v, rentals) === 'Available'
+    })
+  }, [vehicles, bookedVehicleIds, rentals, archiveTick])
 
   const grouped = useMemo(() => {
     const groups = {}
