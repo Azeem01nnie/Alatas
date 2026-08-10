@@ -861,11 +861,9 @@ export default function AdminPanel() {
 
   const validateFields = (data) => {
     const next = {}
-    ;['make', 'series', 'bodyType', 'plateNo', 'engineNo', 'chassisNo', 'image'].forEach(
-      (key) => {
-        if (!String(data[key] || '').trim()) next[key] = 'Required'
-      },
-    )
+    ;['make', 'series', 'bodyType', 'plateNo', 'engineNo', 'chassisNo'].forEach((key) => {
+      if (!String(data[key] || '').trim()) next[key] = 'Required'
+    })
     if (!String(data.seats || '').trim() || Number(data.seats) <= 0) {
       next.seats = 'Required'
     }
@@ -888,7 +886,7 @@ export default function AdminPanel() {
     plateNo: data.plateNo.trim(),
     engineNo: data.engineNo.trim(),
     chassisNo: data.chassisNo.trim(),
-    image: data.image.trim(),
+    image: data.image.trim() || logo,
     status: data.status,
     rates: {
       hrs5: Number(data.hrs5) || 0,
@@ -2386,17 +2384,23 @@ function VehicleFields({
       </label>
 
       <div className="field field-full edit-section-heading">
-        <span className="field-label">Vehicle Image</span>
-        <p className="edit-section-copy">Use a direct asset path or upload a cleaner replacement.</p>
+        <span className="field-label">Vehicle Image (optional)</span>
+        <p className="edit-section-copy">
+          Upload a vehicle photo, or leave blank to use the Alatas logo as the default.
+        </p>
       </div>
 
       <div className="field field-full edit-image-panel">
         <div className="edit-image-upload">
-          <span className="field-label">Upload Image *</span>
+          <span className="field-label">Upload Image</span>
           {!String(data.image || '').startsWith('data:') && data.image ? (
             <p className="edit-image-source">Current asset: {data.image}</p>
           ) : (
-            <p className="edit-image-source">Upload a cleaner image to replace the current one.</p>
+            <p className="edit-image-source">
+              {data.image
+                ? 'Upload a cleaner image to replace the current one.'
+                : 'No photo selected — the company logo will be used.'}
+            </p>
           )}
           <label className="edit-upload-btn">
             <input
@@ -2416,7 +2420,10 @@ function VehicleFields({
               <img src={data.image} alt="Preview" />
             </div>
           ) : (
-            <div className="edit-image-empty">No preview yet</div>
+            <div className="admin-image-preview edit-image-preview edit-image-default">
+              <img src={logo} alt="Default Alatas logo" />
+              <span className="edit-image-default-label">Default logo</span>
+            </div>
           )}
         </div>
 

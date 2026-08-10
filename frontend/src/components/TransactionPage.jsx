@@ -1,5 +1,5 @@
 import { jsPDF } from 'jspdf'
-import { CONTRACT_TERMS, LIABILITY_CLAUSE } from '../data/contract'
+import { CONTRACT_TERMS, LIABILITY_CLAUSE, formatContractTerm } from '../data/contract'
 import { formatEmergencyContact } from '../utils/phone'
 
 function formatDateTime(value) {
@@ -154,7 +154,7 @@ async function downloadContractPdf(transaction) {
   y += 8
 
   CONTRACT_TERMS.forEach((term, index) => {
-    const block = writeBlock(`${index + 1}. ${term}`, margin, contentWidth, {
+    const block = writeBlock(formatContractTerm(term, index), margin, contentWidth, {
       size: 8.5,
       lineHeight: 11,
     })
@@ -466,8 +466,17 @@ export default function TransactionPage({
         </p>
 
         <ol className="contract-terms">
-          {CONTRACT_TERMS.map((item) => (
-            <li key={item}>{item}</li>
+          {CONTRACT_TERMS.map((item, index) => (
+            <li key={typeof item === 'string' ? item : item.title || index}>
+              {typeof item === 'string' ? (
+                item
+              ) : (
+                <>
+                  <strong>{item.title}</strong>
+                  <p className="terms-item-body">{item.body}</p>
+                </>
+              )}
+            </li>
           ))}
         </ol>
 

@@ -2187,6 +2187,13 @@ input[type='number']:focus {
   font-weight: 400;
 }
 
+.terms-item-body {
+  margin: 0.4rem 0 0;
+  white-space: pre-line;
+  font-weight: 400;
+  color: var(--text);
+}
+
 .terms-box ul {
   list-style: none;
   display: flex;
@@ -6623,6 +6630,23 @@ html[data-theme='dark'] .login-form .field-label {
   font-size: 0.82rem;
 }
 
+.edit-image-default {
+  position: relative;
+  border: 1px dashed var(--border);
+}
+
+.edit-image-default-label {
+  position: absolute;
+  left: 0.65rem;
+  bottom: 0.65rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.9);
+  padding: 0.2rem 0.45rem;
+}
+
 .edit-modal-actions {
   margin-top: 0;
   padding: 1rem 1.25rem 1.15rem;
@@ -7082,6 +7106,11 @@ html[data-theme='dark'] .login-form .field-label {
   font-size: 0.875rem;
   line-height: 1.55;
   color: var(--text);
+}
+
+.contract-terms .terms-item-body {
+  margin: 0.35rem 0 0;
+  white-space: pre-line;
 }
 
 .contract-liability {

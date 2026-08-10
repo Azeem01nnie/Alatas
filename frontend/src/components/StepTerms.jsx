@@ -78,8 +78,17 @@ export default function StepTerms({ accepted, onAcceptedChange, error }) {
           >
             <h3>Rental Agreement</h3>
             <ol>
-              {CONTRACT_TERMS.map((item) => (
-                <li key={item}>{item}</li>
+              {CONTRACT_TERMS.map((item, index) => (
+                <li key={typeof item === 'string' ? item : item.title || index}>
+                  {typeof item === 'string' ? (
+                    item
+                  ) : (
+                    <>
+                      <strong>{item.title}</strong>
+                      <p className="terms-item-body">{item.body}</p>
+                    </>
+                  )}
+                </li>
               ))}
             </ol>
             {!scrolledToEnd && (
