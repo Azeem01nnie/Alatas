@@ -11,7 +11,7 @@ import {
 import logo from '../assets/logonobg.png'
 import addVehiclePlaceholder from '../assets/addvehicle.png'
 import { useVehicles } from '../context/VehicleContext'
-import { BODY_TYPES, VEHICLE_STATUSES } from '../data/vehicles'
+import { BODY_TYPES } from '../data/vehicles'
 import { compressImageDataUrl } from '../utils/storage'
 import {
   archiveVehicleSnapshot,
@@ -27,11 +27,15 @@ import {
 } from '../utils/vehicleDisplayStatus'
 import AdminLogin, { clearAdminSession, isAdminLoggedIn } from './AdminLogin'
 import ConfirmModal from './ConfirmModal'
+import AddOwnerModal from './AddOwnerModal'
 import PremiumDatePicker from './PremiumDatePicker'
 import RentCarForm from './RentCarForm'
 import RentalCalendar from './RentalCalendar'
 import TransactionPage from './TransactionPage'
 import VehicleModal from './VehicleModal'
+import VehicleReports from './VehicleReports'
+import { addOwner, autoCapitalizeWords, loadOwners, purgeOrphanOwners, updateOwner } from '../utils/owners'
+import { scanOrcrImage, mergeScanFields } from '../utils/orcrOcr'
 
 const PROFILE_KEY = 'alatas-admin-profile'
 const SYSTEM_SETTINGS_KEY = 'alatas-admin-system-settings'
@@ -127,8 +131,6 @@ function vehicleLabel(r) {
   return name || v.plateNo || 'Vehicle'
 }
 
-const EDIT_STATUSES = ['Available', 'Under Maintenance']
-
 const EMPTY = {
   make: '',
   series: '',
@@ -140,6 +142,11 @@ const EMPTY = {
   chassisNo: '',
   image: '',
   status: 'Available',
+  ownerId: '',
+  ownerName: '',
+  ownershipType: 'company',
+  orcrImage: '',
+  orImage: '',
   hrs5: '',
   hrs12: '',
   hrs24: '',
@@ -246,6 +253,17 @@ function IconArchive() {
   )
 }
 
+function IconReports() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 20V9" />
+      <path d="M10 20V4" />
+      <path d="M16 20v-7" />
+      <path d="M22 20H2" />
+    </svg>
+  )
+}
+
 const MANAGE_STATUS_FILTERS = [
   { id: 'All', label: 'All' },
   { id: 'Available', label: 'Available' },
@@ -259,6 +277,7 @@ const NAV = [
   { id: 'calendar', label: 'Calendar', icon: <IconCalendar /> },
   { id: 'rent', label: 'Rent Car', icon: <IconRent /> },
   { id: 'manage', label: 'Manage Vehicle', icon: <IconManage /> },
+  { id: 'reports', label: 'Vehicle Reports', icon: <IconReports /> },
   { id: 'history', label: 'Rental History', icon: <IconHistory /> },
 ]
 
@@ -533,7 +552,19 @@ export default function AdminPanel() {
     }
   })
   const [showAddForm, setShowAddForm] = useState(false)
+  const [owners, setOwners] = useState(() => loadOwners())
+  const [fieldsLocked, setFieldsLocked] = useState(false)
+  const [editFieldsLocked, setEditFieldsLocked] = useState(false)
+  const [orcrBusy, setOrcrBusy] = useState(false)
+  const [orcrProgress, setOrcrProgress] = useState(0)
+  const [orcrTarget, setOrcrTarget] = useState(null) // 'add' | 'edit' | null
+  const [orcrDocHint, setOrcrDocHint] = useState(null) // 'cr' | 'or' | null
+  const crFileRef = useRef(null)
+  const orFileRef = useRef(null)
+  const crEditFileRef = useRef(null)
+  const orEditFileRef = useRef(null)
   const [previewVehicle, setPreviewVehicle] = useState(null)
+  const [addOwnerModal, setAddOwnerModal] = useState(null) // null | { forEdit: boolean }
   const [confirm, setConfirm] = useState(null)
   const [selectedTransaction, setSelectedTransaction] = useState(null)
   const [transactionReturnTab, setTransactionReturnTab] = useState('history')
@@ -571,6 +602,12 @@ export default function AdminPanel() {
       /* ignore */
     }
   }, [manageLayout])
+
+  // Remove OCR junk owners that were never linked to a saved vehicle
+  useEffect(() => {
+    const linkedIds = vehicles.map((v) => v.ownerId).filter(Boolean)
+    setOwners(purgeOrphanOwners(linkedIds))
+  }, [vehicles])
 
   useEffect(() => {
     if (tab === 'settings') {
@@ -985,13 +1022,17 @@ export default function AdminPanel() {
     })
   }, [filteredHistory, vehicles])
 
+  const TEXT_CAP_KEYS = new Set(['make', 'series', 'engineNo', 'chassisNo', 'ownerName'])
+
   const update = (key, value) => {
-    setForm((prev) => ({ ...prev, [key]: value }))
+    const nextValue = TEXT_CAP_KEYS.has(key) ? autoCapitalizeWords(value) : value
+    setForm((prev) => ({ ...prev, [key]: nextValue }))
     setErrors((prev) => ({ ...prev, [key]: '' }))
   }
 
   const updateEdit = (key, value) => {
-    setEditForm((prev) => ({ ...prev, [key]: value }))
+    const nextValue = TEXT_CAP_KEYS.has(key) ? autoCapitalizeWords(value) : value
+    setEditForm((prev) => ({ ...prev, [key]: nextValue }))
     setEditErrors((prev) => ({ ...prev, [key]: '' }))
   }
 
@@ -1006,6 +1047,167 @@ export default function AdminPanel() {
     reader.readAsDataURL(file)
   }
 
+  const applyOwnerSelection = (ownerId, forEdit = false) => {
+    if (ownerId === '__new__') {
+      setAddOwnerModal({ forEdit })
+      return
+    }
+
+    const owner = owners.find((o) => o.id === ownerId)
+    const patch = {
+      ownerId: ownerId || '',
+      ownerName: owner?.name || '',
+      ownershipType: owner?.ownershipType || (forEdit ? editForm?.ownershipType : form.ownershipType) || 'company',
+    }
+    if (forEdit) {
+      setEditForm((prev) => ({ ...prev, ...patch }))
+      setEditErrors((prev) => ({ ...prev, ownerId: '' }))
+    } else {
+      setForm((prev) => ({ ...prev, ...patch }))
+      setErrors((prev) => ({ ...prev, ownerId: '' }))
+    }
+  }
+
+  const handleOrcrFile = async (e, forEdit = false, docHint = 'auto') => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setConfirm({
+        type: 'orcr-error',
+        title: 'Invalid file',
+        message: 'Please upload a PNG or JPEG image of the LTO OR or CR.',
+        confirmLabel: 'OK',
+        hideCancel: true,
+      })
+      e.target.value = ''
+      return
+    }
+
+    setOrcrBusy(true)
+    setOrcrProgress(0)
+    setOrcrTarget(forEdit ? 'edit' : 'add')
+    setOrcrDocHint(docHint === 'or' ? 'or' : 'cr')
+    try {
+      const raw = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result || ''))
+        reader.onerror = () => reject(new Error('Could not read file'))
+        reader.readAsDataURL(file)
+      })
+      const compressed = (await compressImageDataUrl(raw, 1600, 0.88)) || raw
+      const { fields } = await scanOrcrImage(compressed, setOrcrProgress, docHint)
+
+      const hasAnyField = Boolean(
+        fields.make ||
+          fields.series ||
+          fields.plateNo ||
+          fields.engineNo ||
+          fields.chassisNo ||
+          fields.ownerName ||
+          fields.bodyType ||
+          fields.seats,
+      )
+
+      if (!hasAnyField) {
+        setConfirm({
+          type: 'orcr-error',
+          title: 'No information found',
+          message:
+            'No readable LTO OR/CR fields were found. Upload a clear photo of the Certificate of Registration (CR) and/or Official Receipt (OR), or fill the form manually.',
+          confirmLabel: 'OK',
+          hideCancel: true,
+        })
+        return
+      }
+
+      const applyOwnerFromName = (next, ownerName) => {
+        if (!ownerName) return next
+        const name = autoCapitalizeWords(ownerName)
+        const existing = loadOwners().find((o) => o.name.toLowerCase() === name.toLowerCase())
+        if (existing) {
+          next.ownerId = existing.id
+          next.ownerName = existing.name
+          next.ownershipType = existing.ownershipType || next.ownershipType || 'company'
+          return next
+        }
+        // IMPORTANT: do NOT auto-create an Owner record during OCR scan.
+        // We only fill the detected ownerName as a suggestion; the Owner gets created
+        // later when user clicks "Add Vehicle" / "Save Changes".
+        next.ownerName = name
+        return next
+      }
+
+      const apply = (prev) => {
+        const merged = mergeScanFields(
+          {
+            make: prev.make,
+            series: prev.series,
+            plateNo: prev.plateNo,
+            engineNo: prev.engineNo,
+            chassisNo: prev.chassisNo,
+            ownerName: prev.ownerName,
+            bodyType: prev.bodyType,
+            seats: prev.seats,
+          },
+          fields,
+        )
+
+        const next = { ...prev }
+        if (docHint === 'cr' || fields.docType === 'cr' || fields.docType === 'both') {
+          next.orcrImage = compressed
+        }
+        if (docHint === 'or' || fields.docType === 'or') {
+          next.orImage = compressed
+        }
+        // If auto and unknown, still keep a preview on CR slot
+        if (!next.orcrImage && !next.orImage) next.orcrImage = compressed
+
+        if (merged.make) next.make = autoCapitalizeWords(merged.make)
+        if (merged.series) next.series = autoCapitalizeWords(merged.series)
+        if (merged.plateNo) next.plateNo = sanitizePlateNo(merged.plateNo)
+        if (merged.engineNo) next.engineNo = String(merged.engineNo).toUpperCase()
+        if (merged.chassisNo) next.chassisNo = String(merged.chassisNo).toUpperCase()
+        if (merged.bodyType) next.bodyType = merged.bodyType
+        if (merged.seats) next.seats = String(merged.seats)
+
+        if (merged.ownerName && !prev.ownerId) {
+          applyOwnerFromName(next, merged.ownerName)
+        } else if (merged.ownerName && fields.ownerName) {
+          // Prefer newly scanned owner when re-scanning
+          applyOwnerFromName(next, fields.ownerName)
+        }
+
+        return next
+      }
+
+      if (forEdit) {
+        setEditForm((prev) => apply(prev))
+        setEditFieldsLocked(true)
+        setEditErrors({})
+      } else {
+        setForm((prev) => apply(prev))
+        setFieldsLocked(true)
+        setErrors({})
+      }
+    } catch (err) {
+      console.error(err)
+      setConfirm({
+        type: 'orcr-error',
+        title: 'OR/CR scan failed',
+        message:
+          'The scanner could not read this image. Please try again with a clearer photo of the OR and/or CR, or fill the form manually.',
+        confirmLabel: 'OK',
+        hideCancel: true,
+      })
+    } finally {
+      setOrcrBusy(false)
+      setOrcrProgress(0)
+      setOrcrTarget(null)
+      setOrcrDocHint(null)
+      e.target.value = ''
+    }
+  }
+
   const validateFields = (data) => {
     const next = {}
     ;['make', 'series', 'bodyType', 'engineNo', 'chassisNo'].forEach((key) => {
@@ -1018,6 +1220,10 @@ export default function AdminPanel() {
       next.seats = 'Required'
     }
     if (!String(data.transmission || '').trim()) next.transmission = 'Required'
+    // Allow saving even if ownerId is not selected yet (ownerName may be set by OCR).
+    if (!String(data.ownerId || '').trim() && !String(data.ownerName || '').trim()) {
+      next.ownerId = 'Owner is required'
+    }
     ;['hrs5', 'hrs12', 'hrs24', 'exceedHour'].forEach((key) => {
       const raw = String(data[key] ?? '').replace(/[^\d.]/g, '')
       const n = Number(raw)
@@ -1028,24 +1234,49 @@ export default function AdminPanel() {
     return next
   }
 
-  const toVehiclePayload = (data) => ({
-    make: data.make.trim(),
-    series: data.series.trim(),
-    bodyType: data.bodyType.trim(),
-    seats: Number(data.seats) || 5,
-    transmission: data.transmission.trim(),
-    plateNo: sanitizePlateNo(data.plateNo),
-    engineNo: data.engineNo.trim(),
-    chassisNo: data.chassisNo.trim(),
-    image: data.image.trim() || logo,
-    status: data.status,
-    rates: {
-      hrs5: Number(String(data.hrs5 ?? '').replace(/[^\d.]/g, '')) || 0,
-      hrs12: Number(String(data.hrs12 ?? '').replace(/[^\d.]/g, '')) || 0,
-      hrs24: Number(String(data.hrs24 ?? '').replace(/[^\d.]/g, '')) || 0,
-      exceedHour: Number(String(data.exceedHour ?? '').replace(/[^\d.]/g, '')) || 0,
-    },
-  })
+  const toVehiclePayload = (data) => {
+    const ownershipType = data.ownershipType === 'thirdParty' ? 'thirdParty' : 'company'
+    const ownerName = String(data.ownerName || '').trim()
+    const ownerId = String(data.ownerId || '').trim()
+
+    // Create Owner record only when user confirms "Add Vehicle"/"Save Changes".
+    let resolvedOwnerId = ownerId
+    let resolvedOwnerName = ownerName
+    if (!resolvedOwnerId && resolvedOwnerName) {
+      try {
+        const created = addOwner({ name: resolvedOwnerName, ownershipType })
+        setOwners(loadOwners())
+        resolvedOwnerId = created.id
+        resolvedOwnerName = created.name
+      } catch (err) {
+        console.error('Could not create owner from form:', err)
+      }
+    }
+
+    return {
+      make: data.make.trim(),
+      series: data.series.trim(),
+      bodyType: data.bodyType.trim(),
+      seats: Number(data.seats) || 5,
+      transmission: data.transmission.trim(),
+      plateNo: sanitizePlateNo(data.plateNo),
+      engineNo: data.engineNo.trim(),
+      chassisNo: data.chassisNo.trim(),
+      image: data.image.trim() || logo,
+      status: 'Available',
+      ownerId: resolvedOwnerId || '',
+      ownerName: resolvedOwnerName || '',
+      ownershipType,
+      orcrImage: data.orcrImage || '',
+      orImage: data.orImage || '',
+      rates: {
+        hrs5: Number(String(data.hrs5 ?? '').replace(/[^\d.]/g, '')) || 0,
+        hrs12: Number(String(data.hrs12 ?? '').replace(/[^\d.]/g, '')) || 0,
+        hrs24: Number(String(data.hrs24 ?? '').replace(/[^\d.]/g, '')) || 0,
+        exceedHour: Number(String(data.exceedHour ?? '').replace(/[^\d.]/g, '')) || 0,
+      },
+    }
+  }
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -1062,21 +1293,24 @@ export default function AdminPanel() {
   }
 
   const openEdit = (vehicle) => {
-    const status = EDIT_STATUSES.includes(vehicle.status)
-      ? vehicle.status
-      : 'Available'
     setEditForm({
       ...vehicle,
-      status,
+      status: 'Available',
       seats: vehicle.seats ?? 5,
       transmission: vehicle.transmission || 'Automatic',
       plateNo: sanitizePlateNo(vehicle.plateNo),
+      ownerId: vehicle.ownerId || '',
+      ownerName: vehicle.ownerName || '',
+      ownershipType: vehicle.ownershipType === 'thirdParty' ? 'thirdParty' : 'company',
+      orcrImage: vehicle.orcrImage || '',
+      orImage: vehicle.orImage || '',
       hrs5: vehicle.rates?.hrs5 ?? '',
       hrs12: vehicle.rates?.hrs12 ?? '',
       hrs24: vehicle.rates?.hrs24 ?? '',
       exceedHour: vehicle.rates?.exceedHour ?? '',
     })
     setEditErrors({})
+    setEditFieldsLocked(Boolean(vehicle.orcrImage))
   }
 
   const requestSaveEdit = () => {
@@ -1170,6 +1404,40 @@ export default function AdminPanel() {
     })
   }
 
+  const handleAddOwnerConfirm = ({ name, ownershipType: ownership }) => {
+    const forEdit = addOwnerModal?.forEdit
+    try {
+      const owner = addOwner({ name, ownershipType: ownership })
+      setOwners(loadOwners())
+      if (forEdit) {
+        setEditForm((prev) => ({
+          ...prev,
+          ownerId: owner.id,
+          ownerName: owner.name,
+          ownershipType: owner.ownershipType,
+        }))
+        setEditErrors((prev) => ({ ...prev, ownerId: '' }))
+      } else {
+        setForm((prev) => ({
+          ...prev,
+          ownerId: owner.id,
+          ownerName: owner.name,
+          ownershipType: owner.ownershipType,
+        }))
+        setErrors((prev) => ({ ...prev, ownerId: '' }))
+      }
+      setAddOwnerModal(null)
+    } catch (err) {
+      setConfirm({
+        type: 'orcr-error',
+        title: 'Could not add owner',
+        message: err.message || 'Please try a different name.',
+        confirmLabel: 'OK',
+        hideCancel: true,
+      })
+    }
+  }
+
   const requestLogout = () => {
     setConfirm({
       type: 'logout',
@@ -1195,8 +1463,14 @@ export default function AdminPanel() {
       completeRentalForVehicle(confirm.vehicleId)
     }
     if (confirm.type === 'add') {
-      addVehicle(toVehiclePayload(form))
+      const payload = toVehiclePayload(form)
+      if (payload.ownerId) {
+        updateOwner(payload.ownerId, { ownershipType: payload.ownershipType })
+        setOwners(loadOwners())
+      }
+      addVehicle(payload)
       setForm(EMPTY)
+      setFieldsLocked(false)
       setShowAddForm(false)
       setMessage('Vehicle added successfully.')
       if (fileRef.current) fileRef.current.value = ''
@@ -1219,14 +1493,18 @@ export default function AdminPanel() {
       setTimeout(() => setMessage(''), 2500)
     }
     if (confirm.type === 'edit' && editForm) {
-      const nextStatus = EDIT_STATUSES.includes(editForm.status)
-        ? editForm.status
-        : 'Available'
+      const existing = vehicles.find((v) => v.id === editForm.id)
+      const payload = toVehiclePayload(editForm)
+      if (payload.ownerId) {
+        updateOwner(payload.ownerId, { ownershipType: payload.ownershipType })
+        setOwners(loadOwners())
+      }
       updateVehicle(editForm.id, {
-        ...toVehiclePayload(editForm),
-        status: nextStatus,
+        ...payload,
+        status: existing?.status === 'Rented' ? 'Rented' : 'Available',
       })
       setEditForm(null)
+      setEditFieldsLocked(false)
       setMessage('Vehicle updated.')
       setTimeout(() => setMessage(''), 2500)
     }
@@ -1422,7 +1700,13 @@ export default function AdminPanel() {
                     type="button"
                     className="btn-primary"
                     onClick={() => {
-                      setShowAddForm((prev) => !prev)
+                      setShowAddForm((prev) => {
+                        if (prev) {
+                          setForm(EMPTY)
+                          setFieldsLocked(false)
+                        }
+                        return !prev
+                      })
                       setErrors({})
                     }}
                   >
@@ -1889,10 +2173,20 @@ export default function AdminPanel() {
                     onChange={update}
                     fileRef={fileRef}
                     onFile={(e) => handleImageFile(e, false)}
-                    statusOptions={EDIT_STATUSES}
+                    locked={fieldsLocked}
+                    onToggleLock={() => setFieldsLocked(false)}
+                    owners={owners}
+                    onOwnerSelect={(id) => applyOwnerSelection(id, false)}
+                    crFileRef={crFileRef}
+                    orFileRef={orFileRef}
+                    onCrFile={(e) => handleOrcrFile(e, false, 'cr')}
+                    onOrFile={(e) => handleOrcrFile(e, false, 'or')}
+                    orcrBusy={orcrBusy && orcrTarget === 'add'}
+                    orcrDocHint={orcrTarget === 'add' ? orcrDocHint : null}
+                    orcrProgress={orcrProgress}
                   />
                   <div className="field field-full admin-form-actions">
-                    <button type="submit" className="btn-primary">
+                    <button type="submit" className="btn-primary" disabled={orcrBusy}>
                       Save Vehicle
                     </button>
                   </div>
@@ -2092,6 +2386,10 @@ export default function AdminPanel() {
               </div>
               )}
             </section>
+          )}
+
+          {tab === 'reports' && (
+            <VehicleReports vehicles={vehicles} adminName={profile.displayName} />
           )}
 
           {tab === 'history' && (
@@ -2537,7 +2835,17 @@ export default function AdminPanel() {
                     onChange={updateEdit}
                     fileRef={editFileRef}
                     onFile={(e) => handleImageFile(e, true)}
-                    statusOptions={EDIT_STATUSES}
+                    locked={editFieldsLocked}
+                    onToggleLock={() => setEditFieldsLocked(false)}
+                    owners={owners}
+                    onOwnerSelect={(id) => applyOwnerSelection(id, true)}
+                    crFileRef={crEditFileRef}
+                    orFileRef={orEditFileRef}
+                    onCrFile={(e) => handleOrcrFile(e, true, 'cr')}
+                    onOrFile={(e) => handleOrcrFile(e, true, 'or')}
+                    orcrBusy={orcrBusy && orcrTarget === 'edit'}
+                    orcrDocHint={orcrTarget === 'edit' ? orcrDocHint : null}
+                    orcrProgress={orcrProgress}
                   />
                 </div>
               </div>
@@ -2553,6 +2861,18 @@ export default function AdminPanel() {
             </div>
           </div>
         </div>
+      )}
+
+      {addOwnerModal && (
+        <AddOwnerModal
+          ownershipType={
+            addOwnerModal.forEdit
+              ? editForm?.ownershipType || 'company'
+              : form.ownershipType || 'company'
+          }
+          onCancel={() => setAddOwnerModal(null)}
+          onConfirm={handleAddOwnerConfirm}
+        />
       )}
 
       {confirm && (
@@ -2607,13 +2927,144 @@ function VehicleFields({
   onChange,
   fileRef,
   onFile,
-  statusOptions = VEHICLE_STATUSES,
+  locked = false,
+  onToggleLock,
+  owners = [],
+  onOwnerSelect,
+  crFileRef,
+  orFileRef,
+  onCrFile,
+  onOrFile,
+  orcrBusy = false,
+  orcrDocHint = null, // 'cr' | 'or' | null
+  orcrProgress = 0,
 }) {
+  const disabled = locked || orcrBusy
+  const crScanning = orcrBusy && orcrDocHint === 'cr'
+  const orScanning = orcrBusy && orcrDocHint === 'or'
+
   return (
     <>
+      <div className="field field-full vehicle-form-toolbar">
+        <div>
+          <span className="field-label">LTO OR &amp; CR scan</span>
+          <p className="edit-section-copy">
+            Upload the Certificate of Registration (CR) and Official Receipt (OR). Fields are filled
+            from both documents (owner, plate, make/series, engine, chassis, body type, seats).
+            After a successful scan, fields become read-only — use Edit only to correct mistakes.
+          </p>
+        </div>
+        <div className="vehicle-form-toolbar-actions">
+          <input
+            ref={crFileRef}
+            type="file"
+            accept="image/png,image/jpeg,image/jpg,image/webp"
+            className="sr-only"
+            onChange={onCrFile}
+          />
+          <input
+            ref={orFileRef}
+            type="file"
+            accept="image/png,image/jpeg,image/jpg,image/webp"
+            className="sr-only"
+            onChange={onOrFile}
+          />
+          <button
+            type="button"
+            className="btn-outline"
+            disabled={orcrBusy}
+            onClick={() => crFileRef?.current?.click()}
+          >
+            {crScanning
+              ? `Scanning… ${orcrProgress}%`
+              : data.orcrImage
+                ? 'Re-scan CR'
+                : 'Upload CR'}
+          </button>
+          <button
+            type="button"
+            className="btn-outline"
+            disabled={orcrBusy}
+            onClick={() => orFileRef?.current?.click()}
+          >
+            {orScanning
+              ? `Scanning… ${orcrProgress}%`
+              : data.orImage
+                ? 'Re-scan OR'
+                : 'Upload OR'}
+          </button>
+          {locked && (
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={onToggleLock}
+              disabled={orcrBusy}
+            >
+              Edit
+            </button>
+          )}
+        </div>
+        {(data.orcrImage || data.orImage) && (
+          <div className="orcr-preview-row">
+            {data.orcrImage ? (
+              <div className="orcr-preview">
+                <span className="orcr-preview-label">CR</span>
+                <img src={data.orcrImage} alt="Certificate of Registration" />
+              </div>
+            ) : null}
+            {data.orImage ? (
+              <div className="orcr-preview">
+                <span className="orcr-preview-label">OR</span>
+                <img src={data.orImage} alt="Official Receipt" />
+              </div>
+            ) : null}
+          </div>
+        )}
+      </div>
+
+      <div className="field field-full edit-section-heading">
+        <span className="field-label">Owner &amp; ownership</span>
+        <p className="edit-section-copy">Links this vehicle to Vehicle Reports (Owner → Vehicle).</p>
+      </div>
+
+      <label className="field">
+        <span className="field-label">Owner *</span>
+        <select
+          value={data.ownerId || ''}
+          onChange={(e) => onOwnerSelect?.(e.target.value)}
+          disabled={disabled}
+          className={errors.ownerId ? 'input-error' : ''}
+        >
+          <option value="">Select owner…</option>
+          {owners.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.name}
+              {o.ownershipType === 'thirdParty' ? ' (Third-party)' : ' (Company)'}
+            </option>
+          ))}
+          <option value="__new__">+ Add New Owner</option>
+        </select>
+        {errors.ownerId && <span className="error-msg">{errors.ownerId}</span>}
+      </label>
+
+      <label className="field">
+        <span className="field-label">Ownership type *</span>
+        <select
+          value={data.ownershipType === 'thirdParty' ? 'thirdParty' : 'company'}
+          onChange={(e) => onChange('ownershipType', e.target.value)}
+          disabled={disabled}
+        >
+          <option value="company">Company-owned</option>
+          <option value="thirdParty">Third-party owned</option>
+        </select>
+      </label>
+
       <div className="field field-full edit-section-heading">
         <span className="field-label">Vehicle Details</span>
-        <p className="edit-section-copy">Core fleet information shown across the system.</p>
+        <p className="edit-section-copy">
+          Core fleet information shown across the system.
+          {locked ? ' Read-only after OR/CR scan.' : ''}
+        </p>
       </div>
 
       <label className="field">
@@ -2622,6 +3073,7 @@ function VehicleFields({
           type="text"
           value={data.make}
           onChange={(e) => onChange('make', e.target.value)}
+          disabled={disabled}
           className={errors.make ? 'input-error' : ''}
         />
       </label>
@@ -2631,6 +3083,7 @@ function VehicleFields({
           type="text"
           value={data.series}
           onChange={(e) => onChange('series', e.target.value)}
+          disabled={disabled}
           className={errors.series ? 'input-error' : ''}
         />
       </label>
@@ -2639,6 +3092,7 @@ function VehicleFields({
         <select
           value={data.bodyType}
           onChange={(e) => onChange('bodyType', e.target.value)}
+          disabled={disabled}
           className={errors.bodyType ? 'input-error' : ''}
         >
           {BODY_TYPES.map((t) => (
@@ -2655,6 +3109,7 @@ function VehicleFields({
           min="1"
           value={data.seats}
           onChange={(e) => onChange('seats', e.target.value)}
+          disabled={disabled}
           className={errors.seats ? 'input-error' : ''}
         />
       </label>
@@ -2663,6 +3118,7 @@ function VehicleFields({
         <select
           value={data.transmission}
           onChange={(e) => onChange('transmission', e.target.value)}
+          disabled={disabled}
           className={errors.transmission ? 'input-error' : ''}
         >
           <option value="Automatic">Automatic</option>
@@ -2677,6 +3133,7 @@ function VehicleFields({
           value={data.plateNo}
           maxLength={PLATE_MAX}
           onChange={(e) => onChange('plateNo', sanitizePlateNo(e.target.value))}
+          disabled={disabled}
           className={errors.plateNo ? 'input-error' : ''}
           autoCapitalize="characters"
           placeholder="Max 10 letters/digits"
@@ -2689,6 +3146,7 @@ function VehicleFields({
           type="text"
           value={data.engineNo}
           onChange={(e) => onChange('engineNo', e.target.value)}
+          disabled={disabled}
           className={errors.engineNo ? 'input-error' : ''}
         />
       </label>
@@ -2698,22 +3156,9 @@ function VehicleFields({
           type="text"
           value={data.chassisNo}
           onChange={(e) => onChange('chassisNo', e.target.value)}
+          disabled={disabled}
           className={errors.chassisNo ? 'input-error' : ''}
         />
-      </label>
-      <label className="field">
-        <span className="field-label">Status</span>
-        <select
-          className="status-select full"
-          value={statusOptions.includes(data.status) ? data.status : statusOptions[0]}
-          onChange={(e) => onChange('status', e.target.value)}
-        >
-          {statusOptions.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
       </label>
 
       <div className="field field-full rate-fields-heading">
@@ -2802,3 +3247,4 @@ function VehicleFields({
     </>
   )
 }
+

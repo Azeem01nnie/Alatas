@@ -16,7 +16,15 @@ function fullName(personal = {}) {
 }
 
 async function downloadContractPdf(transaction) {
-  const { personal = {}, vehicle = {}, rental = {}, photo, licensePhoto } = transaction
+  const {
+    personal = {},
+    vehicle = {},
+    rental = {},
+    photo,
+    licensePhoto,
+    signature,
+    carPhotos = {},
+  } = transaction
   const name = fullName(personal) || 'Lessee'
   const doc = new jsPDF({ unit: 'pt', format: 'a4' })
   const pageWidth = doc.internal.pageSize.getWidth()
@@ -191,7 +199,7 @@ async function downloadContractPdf(transaction) {
   })
 
   y += 20
-  ensureSpace(50)
+  ensureSpace(90)
   const half = contentWidth / 2
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(8)
@@ -199,12 +207,39 @@ async function downloadContractPdf(transaction) {
   doc.text('LESSEE ACKNOWLEDGMENT', margin, y)
   doc.text('TRANSACTION REFERENCE', margin + half + 10, y)
   y += 14
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(10)
-  doc.setTextColor(17, 17, 17)
-  doc.text(name, margin, y)
-  doc.text(String(transaction.id), margin + half + 10, y)
-  y += 6
+
+  if (signature && typeof signature === 'string' && signature.startsWith('data:image')) {
+    try {
+      const props = doc.getImageProperties(signature)
+      const maxW = half - 28
+      const maxH = 48
+      const ratio = Math.min(maxW / props.width, maxH / props.height, 1)
+      const imgW = props.width * ratio
+      const imgH = props.height * ratio
+      const colorFormat = /image\/png/i.test(signature) ? 'PNG' : 'JPEG'
+      doc.addImage(signature, colorFormat, margin, y, imgW, imgH)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(10)
+      doc.setTextColor(17, 17, 17)
+      doc.text(String(transaction.id), margin + half + 10, y + Math.max(14, imgH / 2))
+      y += Math.max(imgH, 20) + 4
+    } catch {
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(10)
+      doc.setTextColor(17, 17, 17)
+      doc.text(name, margin, y)
+      doc.text(String(transaction.id), margin + half + 10, y)
+      y += 6
+    }
+  } else {
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(10)
+    doc.setTextColor(17, 17, 17)
+    doc.text(name, margin, y)
+    doc.text(String(transaction.id), margin + half + 10, y)
+    y += 6
+  }
+
   doc.setLineWidth(0.6)
   doc.line(margin, y, margin + half - 20, y)
   doc.line(margin + half + 10, y, pageWidth - margin, y)
@@ -215,44 +250,49 @@ async function downloadContractPdf(transaction) {
   doc.text(`Electronically accepted on ${formatDateTime(transaction.encodedAt)}`, margin, y)
   doc.text('Alatas Car Rental Services', margin + half + 10, y)
 
-  // Customer photos — holding license + customer photo only
-  y += 28
-  ensureSpace(220)
-  doc.setDrawColor(17, 17, 17)
-  doc.setLineWidth(0.8)
-  doc.line(margin, y, pageWidth - margin, y)
-  y += 18
+  const drawImageRow = (title, items) => {
+    y += 28
+    ensureSpace(220)
+    doc.setDrawColor(17, 17, 17)
+    doc.setLineWidth(0.8)
+    doc.line(margin, y, pageWidth - margin, y)
+    y += 18
 
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(10)
-  doc.setTextColor(17, 17, 17)
-  doc.text('CUSTOMER PHOTOS', margin, y)
-  y += 14
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(10)
+    doc.setTextColor(17, 17, 17)
+    doc.text(title, margin, y)
+    y += 14
 
-  const embedImages = []
-  if (photo && typeof photo === 'string' && photo.startsWith('data:image')) {
-    embedImages.push({ src: photo, label: 'Holding license' })
-  }
-  if (licensePhoto && typeof licensePhoto === 'string' && licensePhoto.startsWith('data:image')) {
-    embedImages.push({ src: licensePhoto, label: 'Customer photo' })
-  }
+    if (!items.length) {
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(9)
+      doc.setTextColor(100, 100, 100)
+      doc.text('No images on file.', margin, y)
+      return
+    }
 
-  if (embedImages.length > 0) {
     try {
-      const photoGap = 16
-      const slotW = (contentWidth - photoGap) / 2
-      const maxH = 170
+      const photoGap = 12
+      const cols = Math.min(items.length, 2)
+      const slotW = (contentWidth - photoGap * (cols - 1)) / cols
+      const maxH = 150
       let rowH = 0
+      let col = 0
 
-      for (let index = 0; index < embedImages.length; index += 1) {
-        const item = embedImages[index]
+      for (let index = 0; index < items.length; index += 1) {
+        const item = items[index]
+        if (col === 0 && index > 0) {
+          y += rowH + 10
+          rowH = 0
+          ensureSpace(maxH + 30)
+        }
         const props = doc.getImageProperties(item.src)
         const ratio = Math.min(slotW / props.width, maxH / props.height, 1)
         const imgW = props.width * ratio
         const imgH = props.height * ratio
         const colorFormat = /image\/png/i.test(item.src) ? 'PNG' : 'JPEG'
-        const x = margin + index * (slotW + photoGap) + (slotW - imgW) / 2
-        ensureSpace(imgH + 24)
+        const x = margin + col * (slotW + photoGap) + (slotW - imgW) / 2
         doc.addImage(item.src, colorFormat, x, y, imgW, imgH)
         doc.setDrawColor(17, 17, 17)
         doc.setLineWidth(0.5)
@@ -262,20 +302,35 @@ async function downloadContractPdf(transaction) {
         doc.setTextColor(80, 80, 80)
         doc.text(item.label, x + imgW / 2, y + imgH + 12, { align: 'center' })
         rowH = Math.max(rowH, imgH + 18)
+        col = (col + 1) % cols
       }
       y += rowH + 8
     } catch {
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(9)
       doc.setTextColor(100, 100, 100)
-      doc.text('Customer photos could not be embedded in this PDF.', margin, y)
+      doc.text('Images could not be embedded in this PDF.', margin, y)
     }
-  } else {
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(9)
-    doc.setTextColor(100, 100, 100)
-    doc.text('No customer photos on file.', margin, y)
   }
+
+  const customerImages = []
+  if (photo && typeof photo === 'string' && photo.startsWith('data:image')) {
+    customerImages.push({ src: photo, label: 'Holding license' })
+  }
+  if (licensePhoto && typeof licensePhoto === 'string' && licensePhoto.startsWith('data:image')) {
+    customerImages.push({ src: licensePhoto, label: 'Customer photo' })
+  }
+  drawImageRow('CUSTOMER PHOTOS', customerImages)
+
+  const carImageItems = [
+    ['front', 'Front'],
+    ['rear', 'Rear'],
+    ['left', 'Left side'],
+    ['right', 'Right side'],
+  ]
+    .filter(([key]) => carPhotos?.[key] && String(carPhotos[key]).startsWith('data:image'))
+    .map(([key, label]) => ({ src: carPhotos[key], label }))
+  drawImageRow('PRE-RENTAL CAR PHOTOS', carImageItems)
 
   const safeName = name.replace(/[^\w\-]+/g, '_').slice(0, 40) || 'contract'
   doc.save(`Alatas_Contract_${safeName}_${transaction.id}.pdf`)
@@ -286,7 +341,22 @@ export default function TransactionPage({
   onBack,
   backLabel = '← Back to History',
 }) {
-  const { personal = {}, vehicle = {}, rental = {}, photo, licensePhoto } = transaction
+  const {
+    personal = {},
+    vehicle = {},
+    rental = {},
+    photo,
+    licensePhoto,
+    signature,
+    carPhotos = {},
+  } = transaction
+
+  const carSlots = [
+    { key: 'front', label: 'Front' },
+    { key: 'rear', label: 'Rear' },
+    { key: 'left', label: 'Left side' },
+    { key: 'right', label: 'Right side' },
+  ]
 
   return (
     <section className="transaction-page">
@@ -313,6 +383,7 @@ export default function TransactionPage({
         <p className="step-subtitle">
           Encoded {formatDateTime(transaction.encodedAt)} · Contract accepted:{' '}
           {transaction.termsAccepted ? 'Yes' : 'No'}
+          {signature ? ' · Signed' : ''}
         </p>
       </header>
 
@@ -341,6 +412,19 @@ export default function TransactionPage({
           )}
           <figcaption>Vehicle Photo</figcaption>
         </figure>
+      </div>
+
+      <div className="transaction-photos transaction-car-photos">
+        {carSlots.map((slot) => (
+          <figure key={slot.key} className="transaction-photo-card">
+            {carPhotos?.[slot.key] ? (
+              <img src={carPhotos[slot.key]} alt={`Car ${slot.label}`} />
+            ) : (
+              <div className="transaction-photo-empty">No {slot.label.toLowerCase()} photo</div>
+            )}
+            <figcaption>{slot.label}</figcaption>
+          </figure>
+        ))}
       </div>
 
       <div className="transaction-grid">
@@ -488,7 +572,11 @@ export default function TransactionPage({
         <div className="contract-signature">
           <div>
             <span className="field-label">Lessee Acknowledgment</span>
-            <p className="signature-line">{fullName(personal)}</p>
+            {signature ? (
+              <img src={signature} alt="Customer signature" className="summary-signature" />
+            ) : (
+              <p className="signature-line">{fullName(personal)}</p>
+            )}
             <small>Electronically accepted on {formatDateTime(transaction.encodedAt)}</small>
           </div>
           <div>

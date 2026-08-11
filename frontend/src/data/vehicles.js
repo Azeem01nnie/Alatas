@@ -32,6 +32,7 @@ export const BODY_TYPES = [
   'SUV',
   'Pick-up',
   'Van',
+  'Motorcycle',
 ]
 
 function rates(hrs5, hrs12, hrs24, exceedHour) {

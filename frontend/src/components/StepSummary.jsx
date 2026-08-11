@@ -1,4 +1,5 @@
 import { formatEmergencyContact } from '../utils/phone'
+import { CAR_PHOTO_SLOTS } from './StepCarCondition'
 
 function formatDateTime(value) {
   if (!value) return '—'
@@ -46,6 +47,8 @@ export default function StepSummary({
   rental,
   photo,
   licensePhoto,
+  signature,
+  carPhotos = {},
   termsAccepted,
 }) {
   const fullName = [personal.firstName, personal.middleName, personal.lastName]
@@ -54,6 +57,7 @@ export default function StepSummary({
 
   const durationLabel = rental.duration === 'Others' ? rental.durationOther : rental.duration
   const photosReady = Boolean(photo) && Boolean(licensePhoto)
+  const carPhotosReady = CAR_PHOTO_SLOTS.every((s) => Boolean(carPhotos?.[s.key]))
 
   return (
     <section className="step-panel">
@@ -77,8 +81,12 @@ export default function StepSummary({
               <strong>{termsAccepted ? 'Accepted' : 'Pending'}</strong>
             </div>
             <div className="summary-status-pill">
+              <span className="summary-status-label">Signature</span>
+              <strong>{signature ? 'Signed' : 'Missing'}</strong>
+            </div>
+            <div className="summary-status-pill">
               <span className="summary-status-label">Photos</span>
-              <strong>{photosReady ? 'Ready' : 'Incomplete'}</strong>
+              <strong>{photosReady && carPhotosReady ? 'Ready' : 'Incomplete'}</strong>
             </div>
           </div>
         </section>
@@ -109,6 +117,19 @@ export default function StepSummary({
                 <div>
                   <dt>Emergency</dt>
                   <dd>{formatEmergencyContact(personal) || '—'}</dd>
+                </div>
+                <div>
+                  <dt>Signature</dt>
+                  <dd>
+                    {signature ? (
+                      <>
+                        <span className="summary-signed-status">Signed</span>
+                        <img src={signature} alt="Customer signature" className="summary-signature" />
+                      </>
+                    ) : (
+                      '—'
+                    )}
+                  </dd>
                 </div>
               </dl>
             </article>
@@ -190,6 +211,30 @@ export default function StepSummary({
                   ) : (
                     <p className="summary-empty">No customer photo.</p>
                   )}
+                </div>
+              </div>
+
+              <div className="summary-media-block summary-car-condition">
+                <div className="summary-media-head">
+                  <h3>Pre-rental car photos</h3>
+                </div>
+                <div className="summary-media-grid summary-media-grid-4">
+                  {CAR_PHOTO_SLOTS.map((slot) => (
+                    <div key={slot.key} className="summary-media-card">
+                      <div className="summary-media-head">
+                        <h3>{slot.title}</h3>
+                      </div>
+                      {carPhotos?.[slot.key] ? (
+                        <img
+                          src={carPhotos[slot.key]}
+                          alt={`Car ${slot.title}`}
+                          className="summary-photo"
+                        />
+                      ) : (
+                        <p className="summary-empty">Missing</p>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
             </article>

@@ -5,6 +5,7 @@ import StepVehicle from './StepVehicle'
 import StepRentalDetails from './StepRentalDetails'
 import StepPhoto from './StepPhoto'
 import StepTerms from './StepTerms'
+import StepCarCondition from './StepCarCondition'
 import StepSummary from './StepSummary'
 import LoadingScreen from './LoadingScreen'
 import { useVehicles } from '../context/VehicleContext'
@@ -20,7 +21,7 @@ import {
 } from '../utils/rentalPeriod'
 import { parseDurationDays, formatDurationDaysLabel, buildRentalAutoPatch } from '../utils/rentalFee'
 
-const TOTAL_STEPS = 6
+const TOTAL_STEPS = 7
 
 const initialPersonal = {
   firstName: '',
@@ -51,6 +52,13 @@ const initialRental = {
   feeHours: null,
 }
 
+const initialCarPhotos = {
+  front: '',
+  rear: '',
+  left: '',
+  right: '',
+}
+
 const AUTO_CAPITALIZE_KEYS = new Set([
   'firstName',
   'middleName',
@@ -72,7 +80,9 @@ export default function RentCarForm({ onDirtyChange }) {
   const [rental, setRental] = useState(initialRental)
   const [photo, setPhoto] = useState('')
   const [licensePhoto, setLicensePhoto] = useState('')
+  const [signature, setSignature] = useState('')
   const [termsAccepted, setTermsAccepted] = useState(false)
+  const [carPhotos, setCarPhotos] = useState(initialCarPhotos)
   const [errors, setErrors] = useState({})
   const [phase, setPhase] = useState('form') // form | loading
   const [submitError, setSubmitError] = useState('')
@@ -86,7 +96,9 @@ export default function RentCarForm({ onDirtyChange }) {
       Boolean(vehicleId) ||
       Boolean(photo) ||
       Boolean(licensePhoto) ||
+      Boolean(signature) ||
       termsAccepted ||
+      Object.values(carPhotos).some(Boolean) ||
       Object.values(personal).some((v) => String(v || '').trim()) ||
       Boolean(rental.duration) ||
       Boolean(rental.rentalType) ||
@@ -138,6 +150,11 @@ export default function RentCarForm({ onDirtyChange }) {
     const nextValue = sanitizeKey(key, value)
     setRental((prev) => ({ ...prev, [key]: nextValue }))
     setErrors((prev) => ({ ...prev, [key]: '' }))
+  }
+
+  const updateCarPhoto = (key, value) => {
+    setCarPhotos((prev) => ({ ...prev, [key]: value }))
+    setErrors((prev) => ({ ...prev, [key]: '', carPhotos: '' }))
   }
 
   const validateStep = (currentStep) => {
@@ -221,7 +238,17 @@ export default function RentCarForm({ onDirtyChange }) {
     }
 
     if (currentStep === 5) {
+      if (!signature) nextErrors.signature = 'Customer signature is required'
       if (!termsAccepted) nextErrors.terms = 'You must accept the terms to continue'
+    }
+
+    if (currentStep === 6) {
+      ;['front', 'rear', 'left', 'right'].forEach((key) => {
+        if (!carPhotos[key]) nextErrors[key] = 'Photo required'
+      })
+      if (Object.keys(nextErrors).some((k) => ['front', 'rear', 'left', 'right'].includes(k))) {
+        nextErrors.carPhotos = 'Add all 4 pre-rental car photos'
+      }
     }
 
     setErrors(nextErrors)
@@ -235,7 +262,9 @@ export default function RentCarForm({ onDirtyChange }) {
     setRental(initialRental)
     setPhoto('')
     setLicensePhoto('')
+    setSignature('')
     setTermsAccepted(false)
+    setCarPhotos(initialCarPhotos)
     setErrors({})
     setSubmitError('')
     setSubmitting(false)
@@ -257,7 +286,16 @@ export default function RentCarForm({ onDirtyChange }) {
 
       const compressedPhoto = await compressImageDataUrl(photo || '')
       const compressedLicense = await compressImageDataUrl(licensePhoto || '')
-      // Prefer lightweight vehicle image: keep http URLs, skip huge data URLs
+      const compressedSignature = signature
+        ? (await compressImageDataUrl(signature, 640, 0.85)) || signature
+        : ''
+      const compressedCarPhotos = {
+        front: (await compressImageDataUrl(carPhotos.front || '')) || '',
+        rear: (await compressImageDataUrl(carPhotos.rear || '')) || '',
+        left: (await compressImageDataUrl(carPhotos.left || '')) || '',
+        right: (await compressImageDataUrl(carPhotos.right || '')) || '',
+      }
+
       const vehicleImage =
         selectedVehicle.image && /^https?:\/\//i.test(selectedVehicle.image)
           ? selectedVehicle.image
@@ -321,6 +359,8 @@ export default function RentCarForm({ onDirtyChange }) {
         },
         photo: compressedPhoto,
         licensePhoto: compressedLicense,
+        signature: compressedSignature,
+        carPhotos: compressedCarPhotos,
         termsAccepted,
         encodedAt: new Date().toISOString(),
       }
@@ -362,7 +402,9 @@ export default function RentCarForm({ onDirtyChange }) {
     return <LoadingScreen onDone={handleReset} />
   }
 
-  const nextDisabled = step === 5 && !termsAccepted
+  const nextDisabled =
+    (step === 5 && (!termsAccepted || !signature)) ||
+    (step === 6 && !Object.values(carPhotos).every(Boolean))
 
   return (
     <div className="encoder-card rent-car-panel">
@@ -412,16 +454,27 @@ export default function RentCarForm({ onDirtyChange }) {
               setTermsAccepted(val)
               setErrors((prev) => ({ ...prev, terms: '' }))
             }}
+            signature={signature}
+            onSignatureChange={(val) => {
+              setSignature(val)
+              setErrors((prev) => ({ ...prev, signature: '', terms: '' }))
+            }}
             error={errors.terms}
+            signatureError={errors.signature}
           />
         )}
         {step === 6 && (
+          <StepCarCondition photos={carPhotos} onChange={updateCarPhoto} errors={errors} />
+        )}
+        {step === 7 && (
           <StepSummary
             personal={personal}
             vehicle={selectedVehicle}
             rental={rental}
             photo={photo}
             licensePhoto={licensePhoto}
+            signature={signature}
+            carPhotos={carPhotos}
             termsAccepted={termsAccepted}
           />
         )}
