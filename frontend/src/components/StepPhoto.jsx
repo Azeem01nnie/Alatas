@@ -79,7 +79,7 @@ function PhotoSlot({
 
         {cameraActive ? (
           <>
-            {videoDevices && videoDevices.length > 1 && (
+            {videoDevices && videoDevices.length > 0 && (
               <select
                 value={selectedDeviceId}
                 onChange={(e) => onDeviceChange(e.target.value)}
