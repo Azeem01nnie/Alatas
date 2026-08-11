@@ -18,6 +18,7 @@ import {
   loadArchivedVehicles,
   removeFromArchiveStore,
   restoreArchivedVehicle,
+  saveArchivedVehicles,
 } from '../utils/archivedVehicles'
 import {
   displayStatusLabel,
@@ -35,6 +36,7 @@ import TransactionPage from './TransactionPage'
 import VehicleModal from './VehicleModal'
 import VehicleReports from './VehicleReports'
 import { addOwner, autoCapitalizeWords, loadOwners, purgeOrphanOwners, updateOwner } from '../utils/owners'
+import { loadReportStore } from '../utils/vehicleReports'
 import { scanOrcrImage, mergeScanFields } from '../utils/orcrOcr'
 
 const PROFILE_KEY = 'alatas-admin-profile'
@@ -519,6 +521,7 @@ export default function AdminPanel() {
   const {
     vehicles,
     rentals,
+    ready,
     addVehicle,
     updateVehicle,
     removeVehicle,
@@ -604,10 +607,15 @@ export default function AdminPanel() {
   }, [manageLayout])
 
   // Remove OCR junk owners that were never linked to a saved vehicle
+  // Wait until fleet data has loaded — empty [] at boot must not wipe owners.
   useEffect(() => {
-    const linkedIds = vehicles.map((v) => v.ownerId).filter(Boolean)
+    if (!ready) return
+    const linkedIds = [
+      ...vehicles.map((v) => v.ownerId),
+      ...archivedVehicles.map((v) => v.ownerId),
+    ].filter(Boolean)
     setOwners(purgeOrphanOwners(linkedIds))
-  }, [vehicles])
+  }, [ready, vehicles, archivedVehicles])
 
   useEffect(() => {
     if (tab === 'settings') {
@@ -738,11 +746,14 @@ export default function AdminPanel() {
   const downloadAppData = () => {
     try {
       const payload = {
-        version: 1,
+        version: 2,
         app: 'alatas-car-rental',
         exportedAt: new Date().toISOString(),
         vehicles,
         rentals,
+        owners: loadOwners(),
+        archivedVehicles: loadArchivedVehicles(),
+        vehicleReports: loadReportStore(),
         systemSettings,
         adminProfile: profile,
       }
@@ -783,6 +794,38 @@ export default function AdminPanel() {
         vehicles: parsed.vehicles,
         rentals: parsed.rentals,
       })
+
+      if (Array.isArray(parsed.owners)) {
+        try {
+          localStorage.setItem('alatas-owners', JSON.stringify(parsed.owners))
+        } catch {
+          /* ignore quota */
+        }
+        setOwners(parsed.owners)
+      }
+
+      if (Array.isArray(parsed.archivedVehicles)) {
+        saveArchivedVehicles(parsed.archivedVehicles)
+        setArchivedVehicles(parsed.archivedVehicles)
+      }
+
+      if (parsed.vehicleReports && typeof parsed.vehicleReports === 'object') {
+        try {
+          localStorage.setItem(
+            'alatas-vehicle-reports',
+            JSON.stringify({
+              entries: Array.isArray(parsed.vehicleReports.entries)
+                ? parsed.vehicleReports.entries
+                : [],
+              submissions: Array.isArray(parsed.vehicleReports.submissions)
+                ? parsed.vehicleReports.submissions
+                : [],
+            }),
+          )
+        } catch {
+          /* ignore quota */
+        }
+      }
 
       if (parsed.systemSettings && typeof parsed.systemSettings === 'object') {
         const nextSettings = {
@@ -826,7 +869,7 @@ export default function AdminPanel() {
       type: 'import-data',
       title: 'Import / migrate data?',
       message:
-        'This will replace the current vehicles and rental history with the selected backup file. Continue only if you trust this file.',
+        'This will replace the current vehicles, rental history, owners, archives, and reports with the selected backup file. Continue only if you trust this file.',
       confirmLabel: 'Choose backup file',
       danger: true,
     })
@@ -993,7 +1036,13 @@ export default function AdminPanel() {
 
     return rentals.filter((r) => {
       if (q) {
-        const name = `${r.personal?.firstName || ''} ${r.personal?.middleName || ''} ${r.personal?.lastName || ''}`
+        const name = [
+          r.personal?.firstName,
+          r.personal?.middleName,
+          r.personal?.lastName,
+        ]
+          .filter(Boolean)
+          .join(' ')
         const plate = r.vehicle?.plateNo || ''
         const haystack = `${name} ${plate}`.toLowerCase()
         if (!haystack.includes(q)) return false
@@ -2389,7 +2438,11 @@ export default function AdminPanel() {
           )}
 
           {tab === 'reports' && (
-            <VehicleReports vehicles={vehicles} adminName={profile.displayName} />
+            <VehicleReports
+              vehicles={vehicles}
+              adminName={profile.displayName}
+              dataReady={ready}
+            />
           )}
 
           {tab === 'history' && (

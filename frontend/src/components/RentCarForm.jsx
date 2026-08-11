@@ -9,7 +9,7 @@ import StepCarCondition from './StepCarCondition'
 import StepSummary from './StepSummary'
 import LoadingScreen from './LoadingScreen'
 import { useVehicles } from '../context/VehicleContext'
-import { compressImageDataUrl } from '../utils/storage'
+import { compressImageDataUrl, compressSignatureDataUrl } from '../utils/storage'
 import { formatEmergencyContact, isCompletePhMobile } from '../utils/phone'
 import {
   composeTime,
@@ -287,7 +287,7 @@ export default function RentCarForm({ onDirtyChange }) {
       const compressedPhoto = await compressImageDataUrl(photo || '')
       const compressedLicense = await compressImageDataUrl(licensePhoto || '')
       const compressedSignature = signature
-        ? (await compressImageDataUrl(signature, 640, 0.85)) || signature
+        ? (await compressSignatureDataUrl(signature, 640, 0.92)) || signature
         : ''
       const compressedCarPhotos = {
         front: (await compressImageDataUrl(carPhotos.front || '')) || '',
@@ -370,7 +370,8 @@ export default function RentCarForm({ onDirtyChange }) {
     } catch (err) {
       console.error('Submit failed:', err)
       setSubmitError(
-        'Could not save this registration. Storage may be full — try a smaller photo or clear old history in Admin.',
+        err?.message ||
+          'Could not save this registration. Storage may be full — try a smaller photo or clear old history in Admin.',
       )
     } finally {
       setSubmitting(false)

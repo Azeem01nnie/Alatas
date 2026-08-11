@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { jsPDF } from 'jspdf'
 import * as XLSX from 'xlsx'
-import { loadOwners, purgeOrphanOwners } from '../utils/owners'
+import { loadOwners } from '../utils/owners'
 import {
   REPORT_CATEGORIES,
   REPORT_STATUSES,
@@ -235,7 +235,7 @@ function DeleteConfirmModal({ onConfirm, onCancel }) {
 }
 
 // ── Main component ────────────────────────────────────────────────
-export default function VehicleReports({ vehicles = [], adminName = 'Admin' }) {
+export default function VehicleReports({ vehicles = [], adminName = 'Admin', dataReady = true }) {
   const [owners, setOwners] = useState(() => loadOwners())
   const [storeVersion, setStoreVersion] = useState(0)
   const store = useMemo(() => loadReportStore(), [storeVersion])
@@ -256,10 +256,9 @@ export default function VehicleReports({ vehicles = [], adminName = 'Admin' }) {
   const downloadMenuRef = useRef(null)
 
   useEffect(() => {
-    const linkedIds = vehicles.map((v) => v.ownerId).filter(Boolean)
-    const cleaned = purgeOrphanOwners(linkedIds)
-    setOwners(cleaned)
-  }, [vehicles])
+    if (!dataReady) return
+    setOwners(loadOwners())
+  }, [dataReady, vehicles])
 
   useEffect(() => {
     if (!downloadMenuOpen) return
