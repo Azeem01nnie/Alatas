@@ -33,6 +33,9 @@ function PhotoSlot({
   cameraActive,
   videoRef,
   mirrored,
+  videoDevices,
+  selectedDeviceId,
+  onDeviceChange,
   onToggleCamera,
   onCapture,
   onPick,
@@ -76,6 +79,27 @@ function PhotoSlot({
 
         {cameraActive ? (
           <>
+            {videoDevices && videoDevices.length > 0 && (
+              <select
+                value={selectedDeviceId}
+                onChange={(e) => onDeviceChange(e.target.value)}
+                style={{
+                  flex: '1',
+                  minWidth: '100px',
+                  padding: '0.4rem',
+                  borderRadius: '4px',
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface)',
+                  color: 'var(--text)',
+                }}
+              >
+                {videoDevices.map((d) => (
+                  <option key={d.deviceId} value={d.deviceId}>
+                    {d.label || `Camera ${d.deviceId.substring(0, 5)}`}
+                  </option>
+                ))}
+              </select>
+            )}
             <button type="button" className="btn-primary" disabled={busy} onClick={onCapture}>
               Capture
             </button>
@@ -126,6 +150,8 @@ export default function StepPhoto({
   const [busyKey, setBusyKey] = useState('')
   const [localError, setLocalError] = useState({})
   const [cameraKey, setCameraKey] = useState('')
+  const [videoDevices, setVideoDevices] = useState([])
+  const [selectedDeviceId, setSelectedDeviceId] = useState('')
 
   const stopCamera = () => {
     if (streamRef.current) {
@@ -147,7 +173,7 @@ export default function StepPhoto({
     return undefined
   }, [cameraKey])
 
-  const startCamera = async (slotKey) => {
+  const startCamera = async (slotKey, deviceId = selectedDeviceId) => {
     setLocalError((prev) => ({ ...prev, [slotKey]: '' }))
     stopCamera()
     try {
@@ -158,17 +184,43 @@ export default function StepPhoto({
         }))
         return
       }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user' },
-        audio: false,
-      })
+      
+      const constraints = deviceId
+        ? { video: { deviceId: { exact: deviceId } }, audio: false }
+        : { video: { facingMode: 'user' }, audio: false }
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints)
       streamRef.current = stream
       setCameraKey(slotKey)
+
+      const devices = await navigator.mediaDevices.enumerateDevices()
+      const videoInputs = devices.filter((d) => d.kind === 'videoinput')
+      setVideoDevices(videoInputs)
+
+      if (!deviceId && videoInputs.length > 0) {
+        const track = stream.getVideoTracks()[0]
+        const activeDevice = videoInputs.find((d) => d.label === track.label)
+        if (activeDevice) {
+          setSelectedDeviceId(activeDevice.deviceId)
+        } else {
+          setSelectedDeviceId(videoInputs[0].deviceId)
+        }
+      } else if (deviceId) {
+        setSelectedDeviceId(deviceId)
+      }
     } catch {
       setLocalError((prev) => ({
         ...prev,
         [slotKey]: 'Unable to access the camera. Check permissions or upload a photo.',
       }))
+    }
+  }
+
+  const handleDeviceChange = (deviceId) => {
+    if (cameraKey) {
+      startCamera(cameraKey, deviceId)
+    } else {
+      setSelectedDeviceId(deviceId)
     }
   }
 
@@ -262,6 +314,9 @@ export default function StepPhoto({
           cameraActive={cameraKey === 'holding'}
           videoRef={holdingVideoRef}
           mirrored
+          videoDevices={videoDevices}
+          selectedDeviceId={selectedDeviceId}
+          onDeviceChange={handleDeviceChange}
           inputRef={holdingRef}
           onToggleCamera={() =>
             cameraKey === 'holding' ? stopCamera() : startCamera('holding')
@@ -284,6 +339,9 @@ export default function StepPhoto({
           cameraActive={cameraKey === 'license'}
           videoRef={licenseVideoRef}
           mirrored
+          videoDevices={videoDevices}
+          selectedDeviceId={selectedDeviceId}
+          onDeviceChange={handleDeviceChange}
           inputRef={licenseRef}
           onToggleCamera={() =>
             cameraKey === 'license' ? stopCamera() : startCamera('license')
