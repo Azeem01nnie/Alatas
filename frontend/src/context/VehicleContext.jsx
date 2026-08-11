@@ -22,6 +22,7 @@ export function VehicleProvider({ children }) {
   const [rentals, setRentals] = useState([])
   const [tick, setTick] = useState(0)
   const [ready, setReady] = useState(false)
+  const [loadError, setLoadError] = useState(null)
   const hasLoaded = useRef(false)
 
   useEffect(() => {
@@ -53,8 +54,13 @@ export function VehicleProvider({ children }) {
             : [],
         )
         hasLoaded.current = true
+        setLoadError(null)
       } catch (err) {
         console.warn('Initial data load failed', err)
+        if (mounted) {
+          setLoadError(err?.message || 'Could not load fleet data from the server.')
+          // Do not mark hasLoaded — empty state must not autosave and wipe SQLite
+        }
       } finally {
         if (mounted) setReady(true)
       }
@@ -88,6 +94,7 @@ export function VehicleProvider({ children }) {
       Array.isArray(rentalsData) ? rentalsData.map(normalizeRental) : [],
     )
     hasLoaded.current = true
+    setLoadError(null)
     return {
       vehicles: Array.isArray(vehiclesData) ? vehiclesData : [],
       rentals: Array.isArray(rentalsData) ? rentalsData.map(normalizeRental) : [],
@@ -259,6 +266,7 @@ export function VehicleProvider({ children }) {
         vehicles,
         rentals,
         ready,
+        loadError,
         bookedVehicleIds,
         addVehicle,
         updateVehicle,

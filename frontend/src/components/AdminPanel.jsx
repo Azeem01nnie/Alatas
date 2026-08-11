@@ -522,6 +522,7 @@ export default function AdminPanel() {
     vehicles,
     rentals,
     ready,
+    loadError,
     addVehicle,
     updateVehicle,
     removeVehicle,
@@ -607,15 +608,15 @@ export default function AdminPanel() {
   }, [manageLayout])
 
   // Remove OCR junk owners that were never linked to a saved vehicle
-  // Wait until fleet data has loaded — empty [] at boot must not wipe owners.
+  // Wait until fleet data has loaded successfully — empty [] on API failure must not wipe owners.
   useEffect(() => {
-    if (!ready) return
+    if (!ready || loadError) return
     const linkedIds = [
       ...vehicles.map((v) => v.ownerId),
       ...archivedVehicles.map((v) => v.ownerId),
     ].filter(Boolean)
     setOwners(purgeOrphanOwners(linkedIds))
-  }, [ready, vehicles, archivedVehicles])
+  }, [ready, loadError, vehicles, archivedVehicles])
 
   useEffect(() => {
     if (tab === 'settings') {
@@ -795,36 +796,35 @@ export default function AdminPanel() {
         rentals: parsed.rentals,
       })
 
-      if (Array.isArray(parsed.owners)) {
-        try {
-          localStorage.setItem('alatas-owners', JSON.stringify(parsed.owners))
-        } catch {
-          /* ignore quota */
-        }
-        setOwners(parsed.owners)
+      const nextOwners = Array.isArray(parsed.owners) ? parsed.owners : []
+      try {
+        localStorage.setItem('alatas-owners', JSON.stringify(nextOwners))
+      } catch {
+        /* ignore quota */
       }
+      setOwners(nextOwners)
 
-      if (Array.isArray(parsed.archivedVehicles)) {
-        saveArchivedVehicles(parsed.archivedVehicles)
-        setArchivedVehicles(parsed.archivedVehicles)
-      }
+      const nextArchived = Array.isArray(parsed.archivedVehicles)
+        ? parsed.archivedVehicles
+        : []
+      saveArchivedVehicles(nextArchived)
+      setArchivedVehicles(nextArchived)
 
-      if (parsed.vehicleReports && typeof parsed.vehicleReports === 'object') {
-        try {
-          localStorage.setItem(
-            'alatas-vehicle-reports',
-            JSON.stringify({
+      const nextReports =
+        parsed.vehicleReports && typeof parsed.vehicleReports === 'object'
+          ? {
               entries: Array.isArray(parsed.vehicleReports.entries)
                 ? parsed.vehicleReports.entries
                 : [],
               submissions: Array.isArray(parsed.vehicleReports.submissions)
                 ? parsed.vehicleReports.submissions
                 : [],
-            }),
-          )
-        } catch {
-          /* ignore quota */
-        }
+            }
+          : { entries: [], submissions: [] }
+      try {
+        localStorage.setItem('alatas-vehicle-reports', JSON.stringify(nextReports))
+      } catch {
+        /* ignore quota */
       }
 
       if (parsed.systemSettings && typeof parsed.systemSettings === 'object') {
@@ -873,6 +873,48 @@ export default function AdminPanel() {
       confirmLabel: 'Choose backup file',
       danger: true,
     })
+  }
+
+  const requestClearCache = () => {
+    setConfirm({
+      type: 'clear-cache',
+      title: 'Clear cache?',
+      message:
+        'This clears temporary browser cache and notification markers. Vehicles, rentals, owners, and settings are not deleted.',
+      confirmLabel: 'Clear cache',
+    })
+  }
+
+  const clearAppCache = async () => {
+    setDataBusy(true)
+    setDataMessage('')
+    try {
+      const authKey = 'customer-encoder-admin-auth'
+      const sessionKeys = []
+      for (let i = 0; i < sessionStorage.length; i += 1) {
+        const key = sessionStorage.key(i)
+        if (key) sessionKeys.push(key)
+      }
+      sessionKeys.forEach((key) => {
+        if (key === authKey) return
+        if (key.startsWith('alatas-browser-notif:')) {
+          sessionStorage.removeItem(key)
+        }
+      })
+
+      if ('caches' in window) {
+        const names = await caches.keys()
+        await Promise.all(names.map((name) => caches.delete(name)))
+      }
+
+      setDismissedAlerts(new Set())
+      setDataMessage('Cache cleared. Vehicles and rental data were kept.')
+      window.setTimeout(() => setDataMessage(''), 2800)
+    } catch (err) {
+      setDataMessage(err?.message || 'Could not clear cache.')
+    } finally {
+      setDataBusy(false)
+    }
   }
 
   const onProfilePhotoChange = async (e) => {
@@ -1570,6 +1612,11 @@ export default function AdminPanel() {
       window.setTimeout(() => importDataRef.current?.click(), 50)
       return
     }
+    if (confirm.type === 'clear-cache') {
+      setConfirm(null)
+      void clearAppCache()
+      return
+    }
     setConfirm(null)
   }
 
@@ -1654,6 +1701,11 @@ export default function AdminPanel() {
           </h2>
           <div className="admin-content-header-actions">
             {message && <span className="admin-success">{message}</span>}
+            {loadError && (
+              <span className="admin-load-error" role="alert">
+                Server unavailable — fleet data not loaded. Start the API and refresh.
+              </span>
+            )}
             <div className="admin-notif" ref={notifRef}>
               <button
                 type="button"
@@ -2441,7 +2493,7 @@ export default function AdminPanel() {
             <VehicleReports
               vehicles={vehicles}
               adminName={profile.displayName}
-              dataReady={ready}
+              dataReady={ready && !loadError}
             />
           )}
 
@@ -2587,249 +2639,261 @@ export default function AdminPanel() {
                   <span className="settings-eyebrow">Workspace</span>
                   <h3 className="settings-title">Settings</h3>
                   <p className="settings-lead">
-                    Manage your profile, appearance, and rental alerts for the fleet desk.
+                    Profile, appearance, alerts, backups, and browser cache for the fleet desk.
                   </p>
                 </div>
                 {profileMessage && <span className="admin-success settings-toast">{profileMessage}</span>}
               </div>
 
               <div className="settings-layout">
-                <article className="settings-card settings-profile-card">
-                  <div className="settings-card-head">
-                    <span className="settings-eyebrow">Account</span>
-                    <h4 className="settings-card-title">Admin profile</h4>
-                    <p className="settings-card-copy">
-                      Update how you appear in the sidebar. Your role stays Admin.
-                    </p>
-                  </div>
-
-                  <div className="settings-profile-body">
-                    <div className="settings-avatar-wrap">
-                      <div className="settings-avatar" aria-hidden="true">
-                        {profileDraft.photo ? (
-                          <img src={profileDraft.photo} alt="" />
-                        ) : (
-                          <span>{profileInitials(profileDraft.displayName)}</span>
-                        )}
-                      </div>
-                      <div className="settings-avatar-actions">
-                        <input
-                          ref={profilePhotoRef}
-                          type="file"
-                          accept="image/*"
-                          className="sr-only"
-                          onChange={onProfilePhotoChange}
-                        />
-                        <button
-                          type="button"
-                          className="btn-outline settings-photo-btn"
-                          onClick={() => profilePhotoRef.current?.click()}
-                        >
-                          <IconCamera />
-                          {profileDraft.photo ? 'Change photo' : 'Upload photo'}
-                        </button>
-                        {profileDraft.photo && (
-                          <button
-                            type="button"
-                            className="btn-ghost settings-remove-photo"
-                            onClick={() => setProfileDraft((prev) => ({ ...prev, photo: '' }))}
-                          >
-                            Remove
-                          </button>
-                        )}
-                      </div>
+                <div className="settings-stack">
+                  <article className="settings-card settings-profile-card">
+                    <div className="settings-card-head">
+                      <span className="settings-eyebrow">Account</span>
+                      <h4 className="settings-card-title">Admin profile</h4>
+                      <p className="settings-card-copy">
+                        Update how you appear in the sidebar. Your role stays Admin.
+                      </p>
                     </div>
 
-                    <div className="settings-profile-fields">
-                      <label className="field settings-name-field">
-                        <span className="field-label">Display name</span>
+                    <div className="settings-profile-body">
+                      <div className="settings-avatar-wrap">
+                        <div className="settings-avatar" aria-hidden="true">
+                          {profileDraft.photo ? (
+                            <img src={profileDraft.photo} alt="" />
+                          ) : (
+                            <span>{profileInitials(profileDraft.displayName)}</span>
+                          )}
+                        </div>
+                        <div className="settings-avatar-actions">
+                          <input
+                            ref={profilePhotoRef}
+                            type="file"
+                            accept="image/*"
+                            className="sr-only"
+                            onChange={onProfilePhotoChange}
+                          />
+                          <button
+                            type="button"
+                            className="btn-outline settings-photo-btn"
+                            onClick={() => profilePhotoRef.current?.click()}
+                          >
+                            <IconCamera />
+                            {profileDraft.photo ? 'Change photo' : 'Upload photo'}
+                          </button>
+                          {profileDraft.photo && (
+                            <button
+                              type="button"
+                              className="btn-ghost settings-remove-photo"
+                              onClick={() => setProfileDraft((prev) => ({ ...prev, photo: '' }))}
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="settings-profile-fields">
+                        <label className="field settings-name-field">
+                          <span className="field-label">Display name</span>
+                          <input
+                            type="text"
+                            value={profileDraft.displayName}
+                            onChange={(e) =>
+                              setProfileDraft((prev) => ({ ...prev, displayName: e.target.value }))
+                            }
+                            maxLength={40}
+                            placeholder="Your name"
+                          />
+                        </label>
+
+                        <div className="settings-role-row">
+                          <span className="settings-role-label">Role</span>
+                          <span className="settings-role-badge">Admin</span>
+                        </div>
+
+                        <div className="settings-card-actions">
+                          <button type="button" className="btn-primary" onClick={saveProfileChanges}>
+                            Save profile
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </article>
+
+                  <article className="settings-card settings-notifications-card">
+                    <div className="settings-card-head">
+                      <span className="settings-eyebrow">System</span>
+                      <h4 className="settings-card-title">Notifications</h4>
+                      <p className="settings-card-copy">
+                        Stay ahead of overdue returns and rentals that are about to start.
+                      </p>
+                    </div>
+
+                    <div className="settings-toggle-list settings-toggle-grid">
+                      <label className="settings-toggle-row">
+                        <span className="settings-toggle-copy">
+                          <strong>Overdue returns</strong>
+                          <span>
+                            Alert when a rented car is past its return time and not yet returned.
+                          </span>
+                        </span>
                         <input
-                          type="text"
-                          value={profileDraft.displayName}
-                          onChange={(e) =>
-                            setProfileDraft((prev) => ({ ...prev, displayName: e.target.value }))
-                          }
-                          maxLength={40}
-                          placeholder="Your name"
+                          type="checkbox"
+                          className="settings-switch"
+                          checked={systemSettings.notifyOverdue}
+                          onChange={(e) => updateSystemSetting({ notifyOverdue: e.target.checked })}
                         />
                       </label>
 
-                      <div className="settings-role-row">
-                        <span className="settings-role-label">Role</span>
-                        <span className="settings-role-badge">Admin</span>
-                      </div>
+                      <label className="settings-toggle-row">
+                        <span className="settings-toggle-copy">
+                          <strong>Upcoming rental (1 hour)</strong>
+                          <span>
+                            Notify about 1 hour before a scheduled rental starts so the car is ready.
+                          </span>
+                        </span>
+                        <input
+                          type="checkbox"
+                          className="settings-switch"
+                          checked={systemSettings.notifyUpcoming}
+                          onChange={(e) => updateSystemSetting({ notifyUpcoming: e.target.checked })}
+                        />
+                      </label>
 
-                      <div className="settings-card-actions">
-                        <button type="button" className="btn-primary" onClick={saveProfileChanges}>
-                          Save profile
+                      <label className="settings-toggle-row">
+                        <span className="settings-toggle-copy">
+                          <strong>Browser push</strong>
+                          <span>
+                            Also show desktop notifications when the browser tab is in the background.
+                          </span>
+                        </span>
+                        <input
+                          type="checkbox"
+                          className="settings-switch"
+                          checked={systemSettings.notifyBrowser}
+                          onChange={(e) => toggleBrowserNotifs(e.target.checked)}
+                        />
+                      </label>
+                    </div>
+
+                    {visibleAlerts.length > 0 && (
+                      <div className="settings-alert-preview">
+                        <span className="settings-role-label">Live right now</span>
+                        <ul>
+                          {visibleAlerts.slice(0, 3).map((a) => (
+                            <li key={a.id}>
+                              <strong>{a.title}</strong> — {a.body}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </article>
+                </div>
+
+                <div className="settings-stack">
+                  <article className="settings-card settings-appearance-card">
+                    <div className="settings-card-head">
+                      <span className="settings-eyebrow">System</span>
+                      <h4 className="settings-card-title">Appearance</h4>
+                      <p className="settings-card-copy">
+                        Choose how the admin panel looks across the workspace.
+                      </p>
+                    </div>
+
+                    <div className="settings-theme-grid" role="radiogroup" aria-label="Appearance mode">
+                      {[
+                        { id: 'light', label: 'Light', hint: 'Soft desk view' },
+                        { id: 'dark', label: 'Dark', hint: 'Dark gray desk' },
+                      ].map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          role="radio"
+                          aria-checked={systemSettings.theme === opt.id}
+                          className={`settings-theme-option is-${opt.id}${
+                            systemSettings.theme === opt.id ? ' is-selected' : ''
+                          }`}
+                          onClick={() => updateSystemSetting({ theme: opt.id })}
+                        >
+                          <span className="settings-theme-swatch" aria-hidden="true" />
+                          <span className="settings-theme-copy">
+                            <strong>{opt.label}</strong>
+                            <span>{opt.hint}</span>
+                          </span>
                         </button>
-                      </div>
+                      ))}
                     </div>
-                  </div>
-                </article>
+                  </article>
 
-                <article className="settings-card settings-appearance-card">
-                  <div className="settings-card-head">
-                    <span className="settings-eyebrow">System</span>
-                    <h4 className="settings-card-title">Appearance</h4>
-                    <p className="settings-card-copy">
-                      Choose how the admin panel looks across the workspace.
-                    </p>
-                  </div>
+                  <article className="settings-card settings-data-card">
+                    <div className="settings-card-head">
+                      <span className="settings-eyebrow">Storage</span>
+                      <h4 className="settings-card-title">Data &amp; cache</h4>
+                      <p className="settings-card-copy">
+                        Back up or migrate fleet data, or clear temporary browser cache without
+                        deleting records.
+                      </p>
+                    </div>
 
-                  <div className="settings-theme-grid" role="radiogroup" aria-label="Appearance mode">
-                    {[
-                      { id: 'light', label: 'Light', hint: 'Soft desk view' },
-                      { id: 'dark', label: 'Dark', hint: 'Dark gray desk' },
-                    ].map((opt) => (
+                    <div className="settings-data-actions">
                       <button
-                        key={opt.id}
                         type="button"
-                        role="radio"
-                        aria-checked={systemSettings.theme === opt.id}
-                        className={`settings-theme-option is-${opt.id}${
-                          systemSettings.theme === opt.id ? ' is-selected' : ''
-                        }`}
-                        onClick={() => updateSystemSetting({ theme: opt.id })}
+                        className="btn-primary"
+                        disabled={dataBusy}
+                        onClick={downloadAppData}
                       >
-                        <span className="settings-theme-swatch" aria-hidden="true" />
-                        <span className="settings-theme-copy">
-                          <strong>{opt.label}</strong>
-                          <span>{opt.hint}</span>
-                        </span>
+                        Download data
                       </button>
-                    ))}
-                  </div>
-                </article>
-
-                <article className="settings-card settings-notifications-card">
-                  <div className="settings-card-head">
-                    <span className="settings-eyebrow">System</span>
-                    <h4 className="settings-card-title">Notifications</h4>
-                    <p className="settings-card-copy">
-                      Stay ahead of overdue returns and rentals that are about to start.
-                    </p>
-                  </div>
-
-                  <div className="settings-toggle-list settings-toggle-grid">
-                    <label className="settings-toggle-row">
-                      <span className="settings-toggle-copy">
-                        <strong>Overdue returns</strong>
-                        <span>
-                          Alert when a rented car is past its return time and not yet returned.
-                        </span>
-                      </span>
+                      <button
+                        type="button"
+                        className="btn-outline"
+                        disabled={dataBusy}
+                        onClick={requestImportData}
+                      >
+                        {dataBusy ? 'Working…' : 'Import / migrate'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-outline settings-clear-cache-btn"
+                        disabled={dataBusy}
+                        onClick={requestClearCache}
+                      >
+                        Clear cache
+                      </button>
                       <input
-                        type="checkbox"
-                        className="settings-switch"
-                        checked={systemSettings.notifyOverdue}
-                        onChange={(e) => updateSystemSetting({ notifyOverdue: e.target.checked })}
+                        ref={importDataRef}
+                        type="file"
+                        accept="application/json,.json"
+                        className="sr-only"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          e.target.value = ''
+                          void importAppData(file)
+                        }}
                       />
-                    </label>
-
-                    <label className="settings-toggle-row">
-                      <span className="settings-toggle-copy">
-                        <strong>Upcoming rental (1 hour)</strong>
-                        <span>
-                          Notify about 1 hour before a scheduled rental starts so the car is ready.
-                        </span>
-                      </span>
-                      <input
-                        type="checkbox"
-                        className="settings-switch"
-                        checked={systemSettings.notifyUpcoming}
-                        onChange={(e) => updateSystemSetting({ notifyUpcoming: e.target.checked })}
-                      />
-                    </label>
-
-                    <label className="settings-toggle-row">
-                      <span className="settings-toggle-copy">
-                        <strong>Browser push</strong>
-                        <span>
-                          Also show desktop notifications when the browser tab is in the background.
-                        </span>
-                      </span>
-                      <input
-                        type="checkbox"
-                        className="settings-switch"
-                        checked={systemSettings.notifyBrowser}
-                        onChange={(e) => toggleBrowserNotifs(e.target.checked)}
-                      />
-                    </label>
-                  </div>
-
-                  {visibleAlerts.length > 0 && (
-                    <div className="settings-alert-preview">
-                      <span className="settings-role-label">Live right now</span>
-                      <ul>
-                        {visibleAlerts.slice(0, 3).map((a) => (
-                          <li key={a.id}>
-                            <strong>{a.title}</strong> — {a.body}
-                          </li>
-                        ))}
-                      </ul>
                     </div>
-                  )}
-                </article>
+                    {dataMessage && (
+                      <p className="settings-data-message" role="status">
+                        {dataMessage}
+                      </p>
+                    )}
+                  </article>
 
-                <article className="settings-card settings-data-card">
-                  <div className="settings-card-head">
-                    <span className="settings-eyebrow">Backup</span>
-                    <h4 className="settings-card-title">Data</h4>
-                    <p className="settings-card-copy">
-                      Download a full backup, or import / migrate data from another Alatas
-                      installation.
-                    </p>
-                  </div>
-
-                  <div className="settings-data-actions">
-                    <button
-                      type="button"
-                      className="btn-primary"
-                      disabled={dataBusy}
-                      onClick={downloadAppData}
-                    >
-                      Download data
+                  <article className="settings-card settings-session-card">
+                    <div className="settings-card-head">
+                      <span className="settings-eyebrow">Session</span>
+                      <h4 className="settings-card-title">Sign out</h4>
+                      <p className="settings-card-copy">
+                        End this admin session. You’ll need to sign in again to manage the fleet.
+                      </p>
+                    </div>
+                    <button type="button" className="btn-outline settings-logout-btn" onClick={requestLogout}>
+                      Log out
                     </button>
-                    <button
-                      type="button"
-                      className="btn-outline"
-                      disabled={dataBusy}
-                      onClick={requestImportData}
-                    >
-                      {dataBusy ? 'Importing…' : 'Import / migrate'}
-                    </button>
-                    <input
-                      ref={importDataRef}
-                      type="file"
-                      accept="application/json,.json"
-                      className="sr-only"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0]
-                        e.target.value = ''
-                        void importAppData(file)
-                      }}
-                    />
-                  </div>
-                  {dataMessage && (
-                    <p className="settings-data-message" role="status">
-                      {dataMessage}
-                    </p>
-                  )}
-                </article>
-
-                <article className="settings-card settings-session-card">
-                  <div className="settings-card-head">
-                    <span className="settings-eyebrow">Session</span>
-                    <h4 className="settings-card-title">Sign out</h4>
-                    <p className="settings-card-copy">
-                      End this admin session. You’ll need to sign in again to manage the fleet.
-                    </p>
-                  </div>
-                  <button type="button" className="btn-outline settings-logout-btn" onClick={requestLogout}>
-                    Log out
-                  </button>
-                </article>
+                  </article>
+                </div>
               </div>
             </section>
           )}

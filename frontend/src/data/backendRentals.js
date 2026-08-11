@@ -1,12 +1,8 @@
 import { fetchRentals, replaceRentals, addRental as postRental } from '../api/backend'
 
 export async function loadRentals() {
-  try {
-    const rentals = await fetchRentals()
-    return Array.isArray(rentals) ? rentals : []
-  } catch {
-    return []
-  }
+  const rentals = await fetchRentals()
+  return Array.isArray(rentals) ? rentals : []
 }
 
 export async function saveRentals(rentals) {
