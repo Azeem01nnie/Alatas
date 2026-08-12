@@ -166,7 +166,7 @@ export default function RentCarForm({ onDirtyChange }) {
       if (!personal.address.trim()) nextErrors.address = 'Address is required'
       if (!personal.contactNo.trim()) nextErrors.contactNo = 'Contact number is required'
       else if (!isCompletePhMobile(personal.contactNo)) {
-        nextErrors.contactNo = 'Enter a valid 11-digit number (e.g. 0912 345 6789)'
+        nextErrors.contactNo = 'Enter a valid number (e.g. +63 912 123 1234)'
       }
       if (!personal.emergencyName.trim()) {
         nextErrors.emergencyName = 'Emergency contact name is required'
@@ -182,7 +182,7 @@ export default function RentCarForm({ onDirtyChange }) {
       if (!personal.emergencyPhone.trim()) {
         nextErrors.emergencyPhone = 'Emergency contact number is required'
       } else if (!isCompletePhMobile(personal.emergencyPhone)) {
-        nextErrors.emergencyPhone = 'Enter a valid 11-digit number (e.g. 0912 345 6789)'
+        nextErrors.emergencyPhone = 'Enter a valid number (e.g. +63 912 123 1234)'
       }
     }
 

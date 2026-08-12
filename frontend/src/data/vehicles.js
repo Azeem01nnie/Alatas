@@ -299,7 +299,10 @@ export const DEFAULT_VEHICLES = [
 
 export function formatPeso(amount) {
   if (amount === '' || amount == null || Number.isNaN(Number(amount))) return '—'
-  return `₱${Number(amount).toLocaleString('en-PH')}`
+  return `₱${Number(amount).toLocaleString('en-PH', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })}`
 }
 
 export function formatRateSummary(rateCard) {

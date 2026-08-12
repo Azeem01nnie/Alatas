@@ -398,7 +398,10 @@ function parseLocalDateKey(key) {
 }
 
 function formatPesoDash(amount) {
-  return `₱${Number(amount || 0).toLocaleString('en-PH')}`
+  return `₱${Number(amount || 0).toLocaleString('en-PH', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })}`
 }
 
 function formatDashDayLabel(date) {
@@ -3011,15 +3014,35 @@ export default function AdminPanel() {
   )
 }
 
-function RatePesoInput({ value, onChange, className, id }) {
+function sanitizePesoInput(raw) {
+  let s = String(raw || '').replace(/[^\d.]/g, '')
+  const dot = s.indexOf('.')
+  if (dot !== -1) {
+    s = `${s.slice(0, dot + 1)}${s.slice(dot + 1).replace(/\./g, '')}`
+    const [intPart, decPart = ''] = s.split('.')
+    s = `${intPart}.${decPart.slice(0, 2)}`
+  }
+  return s
+}
+
+function formatPesoInputDisplay(digits) {
+  if (digits === '' || digits === '.') return digits === '.' ? '₱0.' : ''
+  const n = Number(digits)
+  if (Number.isNaN(n)) return `₱${digits}`
+  const decLen = digits.includes('.') ? (digits.split('.')[1] || '').length : 0
+  return `₱${n.toLocaleString('en-PH', {
+    minimumFractionDigits: Math.min(decLen, 2),
+    maximumFractionDigits: 2,
+  })}`
+}
+
+function RatePesoInput({ value, onChange, className, id, placeholder }) {
   const [focused, setFocused] = useState(false)
-  const digits = String(value ?? '').replace(/[^\d.]/g, '')
+  const digits = sanitizePesoInput(value)
 
   const display = focused
     ? digits
-    : digits === ''
-      ? ''
-      : `₱${digits}`
+    : formatPesoInputDisplay(digits)
 
   return (
     <input
@@ -3027,12 +3050,10 @@ function RatePesoInput({ value, onChange, className, id }) {
       type="text"
       inputMode="decimal"
       value={display}
+      placeholder={placeholder}
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
-      onChange={(e) => {
-        const next = e.target.value.replace(/[^\d.]/g, '')
-        onChange(next)
-      }}
+      onChange={(e) => onChange(sanitizePesoInput(e.target.value))}
       className={className}
     />
   )
@@ -3192,7 +3213,9 @@ function VehicleFields({
           onChange={(e) => onChange('make', e.target.value)}
           disabled={disabled}
           className={errors.make ? 'input-error' : ''}
+          placeholder="Toyota"
         />
+        {errors.make && <span className="error-msg">{errors.make}</span>}
       </label>
       <label className="field">
         <span className="field-label">Model / Series *</span>
@@ -3202,7 +3225,9 @@ function VehicleFields({
           onChange={(e) => onChange('series', e.target.value)}
           disabled={disabled}
           className={errors.series ? 'input-error' : ''}
+          placeholder="Wigo"
         />
+        {errors.series && <span className="error-msg">{errors.series}</span>}
       </label>
       <label className="field">
         <span className="field-label">Body Type *</span>
@@ -3218,6 +3243,7 @@ function VehicleFields({
             </option>
           ))}
         </select>
+        {errors.bodyType && <span className="error-msg">{errors.bodyType}</span>}
       </label>
       <label className="field">
         <span className="field-label">Seats *</span>
@@ -3228,7 +3254,9 @@ function VehicleFields({
           onChange={(e) => onChange('seats', e.target.value)}
           disabled={disabled}
           className={errors.seats ? 'input-error' : ''}
+          placeholder="5"
         />
+        {errors.seats && <span className="error-msg">{errors.seats}</span>}
       </label>
       <label className="field">
         <span className="field-label">Transmission *</span>
@@ -3242,6 +3270,7 @@ function VehicleFields({
           <option value="Manual">Manual</option>
           <option value="Manual / Automatic">Manual / Automatic</option>
         </select>
+        {errors.transmission && <span className="error-msg">{errors.transmission}</span>}
       </label>
       <label className="field">
         <span className="field-label">Plate No. *</span>
@@ -3265,7 +3294,9 @@ function VehicleFields({
           onChange={(e) => onChange('engineNo', e.target.value)}
           disabled={disabled}
           className={errors.engineNo ? 'input-error' : ''}
+          placeholder="As on CR"
         />
+        {errors.engineNo && <span className="error-msg">{errors.engineNo}</span>}
       </label>
       <label className="field">
         <span className="field-label">Chassis No. *</span>
@@ -3275,7 +3306,9 @@ function VehicleFields({
           onChange={(e) => onChange('chassisNo', e.target.value)}
           disabled={disabled}
           className={errors.chassisNo ? 'input-error' : ''}
+          placeholder="As on CR"
         />
+        {errors.chassisNo && <span className="error-msg">{errors.chassisNo}</span>}
       </label>
 
       <div className="field field-full rate-fields-heading">
@@ -3288,7 +3321,9 @@ function VehicleFields({
           value={data.hrs5}
           onChange={(v) => onChange('hrs5', v)}
           className={errors.hrs5 ? 'input-error' : ''}
+          placeholder="0.00"
         />
+        {errors.hrs5 && <span className="error-msg">{errors.hrs5}</span>}
       </label>
       <label className="field">
         <span className="field-label">12 hours *</span>
@@ -3296,7 +3331,9 @@ function VehicleFields({
           value={data.hrs12}
           onChange={(v) => onChange('hrs12', v)}
           className={errors.hrs12 ? 'input-error' : ''}
+          placeholder="0.00"
         />
+        {errors.hrs12 && <span className="error-msg">{errors.hrs12}</span>}
       </label>
       <label className="field">
         <span className="field-label">24 hours *</span>
@@ -3304,7 +3341,9 @@ function VehicleFields({
           value={data.hrs24}
           onChange={(v) => onChange('hrs24', v)}
           className={errors.hrs24 ? 'input-error' : ''}
+          placeholder="0.00"
         />
+        {errors.hrs24 && <span className="error-msg">{errors.hrs24}</span>}
       </label>
       <label className="field">
         <span className="field-label">Exceeding / hour *</span>
@@ -3312,7 +3351,9 @@ function VehicleFields({
           value={data.exceedHour}
           onChange={(v) => onChange('exceedHour', v)}
           className={errors.exceedHour ? 'input-error' : ''}
+          placeholder="0.00"
         />
+        {errors.exceedHour && <span className="error-msg">{errors.exceedHour}</span>}
       </label>
 
       <div className="field field-full edit-section-heading">
