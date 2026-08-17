@@ -4,6 +4,7 @@ const STEPS = [
   'Rental',
   'Photos',
   'Terms',
+  'Car Photos',
   'Summary',
 ]
 

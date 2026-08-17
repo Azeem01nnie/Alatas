@@ -1,10 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
+import SignatureCanvas from 'react-signature-canvas'
 import { CONTRACT_TERMS, LIABILITY_CLAUSE } from '../data/contract'
 
-export default function StepTerms({ accepted, onAcceptedChange, error }) {
+export default function StepTerms({
+  accepted,
+  onAcceptedChange,
+  signature,
+  onSignatureChange,
+  error,
+  signatureError,
+}) {
   const [expanded, setExpanded] = useState(false)
   const [scrolledToEnd, setScrolledToEnd] = useState(false)
   const boxRef = useRef(null)
+  const sigRef = useRef(null)
+  const [isEmpty, setIsEmpty] = useState(!signature)
 
   const checkScrollEnd = () => {
     const el = boxRef.current
@@ -20,7 +30,6 @@ export default function StepTerms({ accepted, onAcceptedChange, error }) {
       setScrolledToEnd(true)
       return undefined
     }
-    // Re-check when opened; keep unlocked if already reached end before
     const id = requestAnimationFrame(checkScrollEnd)
     window.addEventListener('resize', checkScrollEnd)
     return () => {
@@ -29,14 +38,43 @@ export default function StepTerms({ accepted, onAcceptedChange, error }) {
     }
   }, [expanded])
 
+  useEffect(() => {
+    const canvas = sigRef.current
+    if (!canvas || !signature) return
+    try {
+      if (canvas.isEmpty()) {
+        canvas.fromDataURL(signature)
+        setIsEmpty(false)
+      }
+    } catch {
+      /* ignore restore errors */
+    }
+  }, [signature])
+
   const canAccept = scrolledToEnd || !expanded
+
+  const handleStrokeEnd = () => {
+    const canvas = sigRef.current
+    if (!canvas || canvas.isEmpty()) return
+    const dataUrl = canvas.toDataURL('image/png')
+    setIsEmpty(false)
+    onSignatureChange(dataUrl)
+    if (canAccept) onAcceptedChange(true)
+  }
+
+  const handleClear = () => {
+    sigRef.current?.clear()
+    setIsEmpty(true)
+    onSignatureChange('')
+    onAcceptedChange(false)
+  }
 
   return (
     <section className="step-panel">
       <h2 className="step-title">Terms &amp; Conditions</h2>
       <p className="step-subtitle">
         A printed copy is available at the counter. Open this only when the customer wants to read
-        the full terms on screen, then confirm below.
+        the full terms on screen, then sign below to accept.
       </p>
 
       <div className={`terms-accordion${expanded ? ' is-open' : ' is-collapsed'}`}>
@@ -98,12 +136,65 @@ export default function StepTerms({ accepted, onAcceptedChange, error }) {
         )}
       </div>
 
+      <div className={`signature-block${!canAccept ? ' is-locked' : ''}`}>
+        <div className="signature-block-head">
+          <span className="field-label">Customer signature *</span>
+          {!isEmpty && signature ? (
+            <span className="signature-ok-pill">Signed</span>
+          ) : (
+            <span className="signature-pending-pill">Pending</span>
+          )}
+        </div>
+        <p className="signature-block-note">
+          Sign with finger, stylus, or mouse. Signing automatically accepts the terms
+          {canAccept ? '' : ' (finish reading or collapse the terms first)'}.
+        </p>
+
+        <div
+          className={`signature-pad${signatureError ? ' has-error' : ''}${!canAccept ? ' is-disabled' : ''}`}
+        >
+          <div className="signature-pad-frame">
+            <SignatureCanvas
+              ref={sigRef}
+              penColor="#111"
+              minWidth={1.2}
+              maxWidth={2.6}
+              canvasProps={{
+                className: 'signature-pad-canvas',
+                width: 640,
+                height: 180,
+                style: { width: '100%', height: '180px' },
+              }}
+              onEnd={handleStrokeEnd}
+            />
+            {isEmpty && !signature && (
+              <span className="signature-pad-hint">Sign here</span>
+            )}
+          </div>
+          <div className="signature-pad-bar">
+            <span className={`signature-status${!isEmpty || signature ? ' is-signed' : ''}`}>
+              {!isEmpty || signature ? 'Signature captured' : 'Awaiting signature'}
+            </span>
+            <button
+              type="button"
+              className="btn-ghost signature-clear"
+              onClick={handleClear}
+              disabled={!canAccept || (isEmpty && !signature)}
+            >
+              Clear / Re-sign
+            </button>
+          </div>
+        </div>
+        {signatureError && <span className="error-msg">{signatureError}</span>}
+      </div>
+
       <label className={`terms-check${!canAccept ? ' locked' : ''}${error ? ' has-error' : ''}`}>
         <input
           type="checkbox"
           checked={accepted}
-          disabled={!canAccept}
+          disabled={!canAccept || !signature}
           onChange={(e) => onAcceptedChange(e.target.checked)}
+          readOnly={Boolean(signature) && accepted}
         />
         <span>{LIABILITY_CLAUSE}</span>
       </label>

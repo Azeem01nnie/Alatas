@@ -11,3 +11,5 @@ release/
 .DS_Store
 .vscode/*
 !.vscode/extensions.json
+_ocr_out.txt
+_parse_check.mjs

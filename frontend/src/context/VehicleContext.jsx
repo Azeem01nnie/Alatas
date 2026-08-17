@@ -21,6 +21,8 @@ export function VehicleProvider({ children }) {
   const [vehicles, setVehicles] = useState([])
   const [rentals, setRentals] = useState([])
   const [tick, setTick] = useState(0)
+  const [ready, setReady] = useState(false)
+  const [loadError, setLoadError] = useState(null)
   const hasLoaded = useRef(false)
 
   useEffect(() => {
@@ -38,19 +40,30 @@ export function VehicleProvider({ children }) {
     let mounted = true
 
     async function loadInitialData() {
-      const [vehiclesData, rentalsData] = await Promise.all([
-        loadVehicles(),
-        loadRentals(),
-      ])
+      try {
+        const [vehiclesData, rentalsData] = await Promise.all([
+          loadVehicles(),
+          loadRentals(),
+        ])
 
-      if (!mounted) return
-      setVehicles(Array.isArray(vehiclesData) ? vehiclesData : [])
-      setRentals(
-        Array.isArray(rentalsData)
-          ? rentalsData.map(normalizeRental)
-          : [],
-      )
-      hasLoaded.current = true
+        if (!mounted) return
+        setVehicles(Array.isArray(vehiclesData) ? vehiclesData : [])
+        setRentals(
+          Array.isArray(rentalsData)
+            ? rentalsData.map(normalizeRental)
+            : [],
+        )
+        hasLoaded.current = true
+        setLoadError(null)
+      } catch (err) {
+        console.warn('Initial data load failed', err)
+        if (mounted) {
+          setLoadError(err?.message || 'Could not load fleet data from the server.')
+          // Do not mark hasLoaded — empty state must not autosave and wipe SQLite
+        }
+      } finally {
+        if (mounted) setReady(true)
+      }
     }
 
     loadInitialData()
@@ -81,6 +94,7 @@ export function VehicleProvider({ children }) {
       Array.isArray(rentalsData) ? rentalsData.map(normalizeRental) : [],
     )
     hasLoaded.current = true
+    setLoadError(null)
     return {
       vehicles: Array.isArray(vehiclesData) ? vehiclesData : [],
       rentals: Array.isArray(rentalsData) ? rentalsData.map(normalizeRental) : [],
@@ -203,20 +217,7 @@ export function VehicleProvider({ children }) {
     } else {
       setVehicles((prev) => prev.filter((v) => v.id !== id))
     }
-
-    if (Array.isArray(result.rentals)) {
-      setRentals(
-        result.rentals.map(normalizeRental),
-      )
-    } else {
-      setRentals((prev) =>
-        prev.filter(
-          (r) =>
-            r.vehicle?.id !== id ||
-            r.rentalLifecycle === 'completed',
-        ),
-      )
-    }
+    // Keep rental history for audits — do not strip rentals on vehicle delete
     return result
   }, [])
 
@@ -230,20 +231,16 @@ export function VehicleProvider({ children }) {
     }
 
     const created = await addRentalApi(entry)
-    if (created?.id) {
-      setRentals((prev) => [created, ...prev])
-      const vid = created.vehicleId || created.vehicle?.id
-      if (vid && (created.rentalLifecycle === 'active' || shouldStartNow)) {
-        updateVehicleStatus(vid, 'Rented')
-      }
-      return created
+    if (!created?.id) {
+      throw new Error('Could not save rental to the server.')
     }
 
-    setRentals((prev) => [entry, ...prev])
-    if (shouldStartNow && (entry.vehicleId || entry.vehicle?.id)) {
-      updateVehicleStatus(entry.vehicleId || entry.vehicle?.id, 'Rented')
+    setRentals((prev) => [created, ...prev])
+    const vid = created.vehicleId || created.vehicle?.id
+    if (vid && (created.rentalLifecycle === 'active' || shouldStartNow)) {
+      updateVehicleStatus(vid, 'Rented')
     }
-    return entry
+    return created
   }
 
   const bookedVehicleIds = useMemo(() => {
@@ -268,6 +265,8 @@ export function VehicleProvider({ children }) {
       value={{
         vehicles,
         rentals,
+        ready,
+        loadError,
         bookedVehicleIds,
         addVehicle,
         updateVehicle,

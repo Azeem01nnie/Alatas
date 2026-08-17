@@ -1,12 +1,8 @@
 import { fetchVehicles, replaceVehicles, deleteVehicle as apiDeleteVehicle } from '../api/backend'
 
 export async function loadVehicles() {
-  try {
-    const vehicles = await fetchVehicles()
-    return Array.isArray(vehicles) ? vehicles : []
-  } catch {
-    return []
-  }
+  const vehicles = await fetchVehicles()
+  return Array.isArray(vehicles) ? vehicles : []
 }
 
 export async function saveVehicles(vehicles) {

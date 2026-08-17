@@ -31,16 +31,15 @@ function PhoneInput({ name, value, onChange, error, autoComplete = 'tel' }) {
       'End',
     ]
     if (allowedKeys.includes(e.key) || e.ctrlKey || e.metaKey) {
-      // Don't allow deleting the locked "09" prefix
       if (e.key === 'Backspace' || e.key === 'Delete') {
         const digits = String(value || '').replace(/\D/g, '')
         const el = e.currentTarget
         const start = el.selectionStart ?? 0
         const end = el.selectionEnd ?? 0
-        // If caret is within/before "09", block destructive edits that would remove prefix
-        if (digits.length <= 2 || (start <= 2 && end <= 2 && e.key === 'Backspace')) {
+        const prefixLen = String(value || '').startsWith('+63 ') ? 4 : 3
+        if (digits.length <= 2 || (start <= prefixLen && end <= prefixLen && e.key === 'Backspace')) {
           e.preventDefault()
-          onChange('09')
+          onChange('+63')
         }
       }
       return
@@ -56,7 +55,6 @@ function PhoneInput({ name, value, onChange, error, autoComplete = 'tel' }) {
         type="text"
         name={name}
         inputMode="numeric"
-        pattern="[0-9 ]*"
         value={value}
         onChange={handleChange}
         onFocus={() => onChange(ensurePhMobilePrefix(value))}

@@ -1,8 +1,8 @@
 {
   "name": "alatas",
   "private": true,
-  "version": "1.0.5",
-  "description": "Alatas Car Rental Services desktop and web app",
+  "version": "1.1.0",
+  "description": "Alatas Car Rental Services — web app and Windows desktop (Electron)",
   "main": "electron/main.cjs",
   "author": "Alatas Car Rental Services",
   "scripts": {

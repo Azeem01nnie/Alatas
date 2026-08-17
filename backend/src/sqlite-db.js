@@ -56,6 +56,11 @@ function createDb() {
       chassisNo TEXT,
       status TEXT,
       image TEXT,
+      ownerId TEXT,
+      ownerName TEXT,
+      ownershipType TEXT,
+      orcrImage TEXT,
+      orImage TEXT,
       hrs5 INTEGER,
       hrs12 INTEGER,
       hrs24 INTEGER,
@@ -73,6 +78,8 @@ function createDb() {
       rental TEXT,
       photo TEXT,
       licensePhoto TEXT,
+      signature TEXT,
+      carPhotos TEXT,
       termsAccepted INTEGER,
       rentalLifecycle TEXT,
       startedAt TEXT,
@@ -82,10 +89,19 @@ function createDb() {
     );
   `)
 
-  // Migrations for databases created before these columns existed
-  ensureColumn(db, 'rentals', 'encodedAt', 'TEXT')
-  ensureColumn(db, 'rentals', 'licensePhoto', 'TEXT')
-  ensureColumn(db, 'rentals', 'termsAccepted', 'INTEGER')
+  // Migrations for older databases
+  ;[
+    ['vehicles', 'ownerId', 'TEXT'],
+    ['vehicles', 'ownerName', 'TEXT'],
+    ['vehicles', 'ownershipType', 'TEXT'],
+    ['vehicles', 'orcrImage', 'TEXT'],
+    ['vehicles', 'orImage', 'TEXT'],
+    ['rentals', 'encodedAt', 'TEXT'],
+    ['rentals', 'licensePhoto', 'TEXT'],
+    ['rentals', 'signature', 'TEXT'],
+    ['rentals', 'carPhotos', 'TEXT'],
+    ['rentals', 'termsAccepted', 'INTEGER'],
+  ].forEach(([table, column, typeSql]) => ensureColumn(db, table, column, typeSql))
 
   return db
 }
@@ -97,10 +113,12 @@ const deleteVehiclesStmt = db.prepare('DELETE FROM vehicles')
 const insertVehicleStmt = db.prepare(
   `INSERT INTO vehicles (
       id, make, series, bodyType, seats, transmission, plateNo,
-      engineNo, chassisNo, status, image, hrs5, hrs12, hrs24, exceedHour, createdAt
+      engineNo, chassisNo, status, image, ownerId, ownerName, ownershipType,
+      orcrImage, orImage, hrs5, hrs12, hrs24, exceedHour, createdAt
     ) VALUES (
       @id, @make, @series, @bodyType, @seats, @transmission, @plateNo,
-      @engineNo, @chassisNo, @status, @image, @hrs5, @hrs12, @hrs24, @exceedHour, @createdAt
+      @engineNo, @chassisNo, @status, @image, @ownerId, @ownerName, @ownershipType,
+      @orcrImage, @orImage, @hrs5, @hrs12, @hrs24, @exceedHour, @createdAt
     )`,
 )
 
@@ -108,26 +126,21 @@ const getRentalRows = db.prepare('SELECT * FROM rentals ORDER BY createdAt DESC'
 const deleteRentalsStmt = db.prepare('DELETE FROM rentals')
 const insertRentalStmt = db.prepare(
   `INSERT INTO rentals (
-      id, vehicleId, vehicle, personal, rental, photo, licensePhoto, termsAccepted,
-      rentalLifecycle, startedAt, completedAt, encodedAt, createdAt
+      id, vehicleId, vehicle, personal, rental, photo, licensePhoto, signature, carPhotos,
+      termsAccepted, rentalLifecycle, startedAt, completedAt, encodedAt, createdAt
     ) VALUES (
-      @id, @vehicleId, @vehicle, @personal, @rental, @photo, @licensePhoto, @termsAccepted,
-      @rentalLifecycle, @startedAt, @completedAt, @encodedAt, @createdAt
+      @id, @vehicleId, @vehicle, @personal, @rental, @photo, @licensePhoto, @signature, @carPhotos,
+      @termsAccepted, @rentalLifecycle, @startedAt, @completedAt, @encodedAt, @createdAt
     )`,
 )
 
 const deleteVehicleStmt = db.prepare('DELETE FROM vehicles WHERE id = ?')
-const deleteRentalsByVehicleIdStmt = db.prepare('DELETE FROM rentals WHERE vehicleId = ?')
 
 function deleteVehicle(id) {
   const key = String(id || '').trim()
   if (!key) return getVehicles()
-
-  const tx = db.transaction(() => {
-    deleteVehicleStmt.run(key)
-    deleteRentalsByVehicleIdStmt.run(key)
-  })
-  tx()
+  // Keep rental history for audits; only remove the fleet record
+  deleteVehicleStmt.run(key)
   return getVehicles()
 }
 
@@ -144,6 +157,11 @@ function mapVehicle(row) {
     chassisNo: row.chassisNo,
     status: row.status,
     image: row.image,
+    ownerId: row.ownerId || '',
+    ownerName: row.ownerName || '',
+    ownershipType: row.ownershipType || 'company',
+    orcrImage: row.orcrImage || '',
+    orImage: row.orImage || '',
     rates: {
       hrs5: row.hrs5,
       hrs12: row.hrs12,
@@ -154,6 +172,7 @@ function mapVehicle(row) {
 }
 
 function mapRental(row) {
+  const carPhotos = parseJson(row.carPhotos)
   return {
     id: row.id,
     vehicleId: row.vehicleId,
@@ -162,6 +181,11 @@ function mapRental(row) {
     rental: parseJson(row.rental),
     photo: row.photo,
     licensePhoto: row.licensePhoto,
+    signature: row.signature,
+    carPhotos:
+      carPhotos && typeof carPhotos === 'object' && !Array.isArray(carPhotos)
+        ? carPhotos
+        : {},
     termsAccepted: Boolean(row.termsAccepted),
     rentalLifecycle: row.rentalLifecycle,
     startedAt: row.startedAt,
@@ -198,6 +222,11 @@ function replaceVehicles(vehicles) {
         chassisNo: vehicle.chassisNo ?? null,
         status: vehicle.status ?? null,
         image: vehicle.image ?? null,
+        ownerId: vehicle.ownerId ?? null,
+        ownerName: vehicle.ownerName ?? null,
+        ownershipType: vehicle.ownershipType ?? null,
+        orcrImage: vehicle.orcrImage ?? null,
+        orImage: vehicle.orImage ?? null,
         hrs5: vehicle.rates?.hrs5 == null ? null : Number(vehicle.rates.hrs5),
         hrs12: vehicle.rates?.hrs12 == null ? null : Number(vehicle.rates.hrs12),
         hrs24: vehicle.rates?.hrs24 == null ? null : Number(vehicle.rates.hrs24),
@@ -225,6 +254,8 @@ function toRentalRow(rental, fallbackNow) {
     rental: serializeJson(rental.rental),
     photo: rental.photo ?? null,
     licensePhoto: rental.licensePhoto ?? null,
+    signature: rental.signature ?? null,
+    carPhotos: serializeJson(rental.carPhotos || {}),
     termsAccepted: rental.termsAccepted ? 1 : 0,
     rentalLifecycle: rental.rentalLifecycle ?? null,
     startedAt: rental.startedAt ?? null,
