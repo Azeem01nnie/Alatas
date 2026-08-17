@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "mobile",
+    "slug": "mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/logonobg.png",
+    "splash": {
+      "image": "./assets/splash_logonobg.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.uryzei.mobile"
+    },
+    "web": {
+      "favicon": "./assets/logonobg.png"
+    },
+    "plugins": [
+      [
+        "@morrowdigital/watermelondb-expo-plugin",
+        {
+          "iosJsi": false,
+          "androidJsi": false
+        }
+      ],
+
+      [
+        "expo-build-properties",
+        {
+          "android": {}
+        }
+      ]
+    ]
+  }
+}
