@@ -13,6 +13,8 @@ import {
 import { database } from '../db';
 import { Q } from '@nozbe/watermelondb';
 
+import { Eye, EyeOff } from 'lucide-react-native';
+
 const { width } = Dimensions.get('window');
 
 const AUTH_KEY = 'customer-encoder-admin-auth';
@@ -129,7 +131,7 @@ export default function AdminLogin({ onSuccess }) {
                   style={styles.passwordToggle}
                   onPress={() => setShowPassword((v) => !v)}
                 >
-                  <Text style={styles.toggleText}>{showPassword ? 'Hide' : 'Show'}</Text>
+                  {showPassword ? <EyeOff color="#666" size={20} /> : <Eye color="#666" size={20} />}
                 </TouchableOpacity>
               </View>
             </View>

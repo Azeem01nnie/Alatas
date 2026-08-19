@@ -11,10 +11,14 @@ import EmployeeManageScreen from '../screens/EmployeeManageScreen';
 import CarLogsScreen from '../screens/CarLogsScreen';
 import CarDetailsScreen from '../screens/CarDetailsScreen';
 
+import { useTheme } from '../context/ThemeContext';
+
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
 function AdminTabNavigator() {
+  const { theme } = useTheme();
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -32,20 +36,26 @@ function AdminTabNavigator() {
           }
         },
         tabBarActiveTintColor: '#3b82f6',
-        tabBarInactiveTintColor: '#64748b',
+        tabBarInactiveTintColor: theme.textSub,
+        tabBarStyle: {
+          backgroundColor: theme.card,
+          borderTopColor: theme.border,
+        },
         headerShown: true,
       })}
     >
-      <Tab.Screen name="Dashboard" component={AdminDashboardScreen} />
-      <Tab.Screen name="Logs" component={ActivityLogsScreen} />
-      <Tab.Screen name="Cars" component={CarLogsScreen} />
-      <Tab.Screen name="Employees" component={EmployeeManageScreen} />
-      <Tab.Screen name="Profile" component={ProfileScreen} />
+      <Tab.Screen name="Dashboard" component={AdminDashboardScreen} options={{ headerShown: false }} />
+      <Tab.Screen name="Logs" component={ActivityLogsScreen} options={{ headerShown: false }} />
+      <Tab.Screen name="Cars" component={CarLogsScreen} options={{ headerShown: false }} />
+      <Tab.Screen name="Employees" component={EmployeeManageScreen} options={{ headerShown: false }} />
+      <Tab.Screen name="Profile" component={ProfileScreen} options={{ headerShown: false }} />
     </Tab.Navigator>
   );
 }
 
 export default function RootNavigator() {
+  const { theme } = useTheme();
+
   return (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -53,7 +63,13 @@ export default function RootNavigator() {
         <Stack.Screen 
           name="CarDetails" 
           component={CarDetailsScreen} 
-          options={{ headerShown: true, title: 'Car Details' }}
+          options={{ 
+            headerShown: true, 
+            title: 'Car Details',
+            headerStyle: { backgroundColor: theme.card },
+            headerTintColor: theme.textMain,
+            headerTitleStyle: { fontWeight: '700' }
+          }}
         />
       </Stack.Navigator>
     </NavigationContainer>

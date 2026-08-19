@@ -1,22 +1,36 @@
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, View } from 'react-native';
-import { useState } from 'react';
+import { StyleSheet, View, LogBox } from 'react-native';
+import { useState, useEffect } from 'react';
+import { DeviceEventEmitter } from 'react-native';
 import AdminLogin from './components/AdminLogin';
 
 import RootNavigator from './src/navigation/RootNavigator';
+import { ThemeProvider } from './src/context/ThemeContext';
+
+LogBox.ignoreLogs([
+  'setLayoutAnimationEnabledExperimental is currently a no-op',
+  'SafeAreaView has been deprecated'
+]);
 
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
-  if (isLoggedIn) {
-    return <RootNavigator />;
-  }
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('logout', () => setIsLoggedIn(false));
+    return () => sub.remove();
+  }, []);
 
   return (
-    <View style={styles.container}>
-      <AdminLogin onSuccess={() => setIsLoggedIn(true)} />
-      <StatusBar style="auto" />
-    </View>
+    <ThemeProvider>
+      {isLoggedIn ? (
+        <RootNavigator />
+      ) : (
+        <View style={styles.container}>
+          <AdminLogin onSuccess={() => setIsLoggedIn(true)} />
+          <StatusBar style="auto" />
+        </View>
+      )}
+    </ThemeProvider>
   );
 }
 
