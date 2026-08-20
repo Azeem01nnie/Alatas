@@ -14,19 +14,26 @@ LogBox.ignoreLogs([
 
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [userRole, setUserRole] = useState(null);
 
   useEffect(() => {
-    const sub = DeviceEventEmitter.addListener('logout', () => setIsLoggedIn(false));
+    const sub = DeviceEventEmitter.addListener('logout', () => {
+      setIsLoggedIn(false);
+      setUserRole(null);
+    });
     return () => sub.remove();
   }, []);
 
   return (
     <ThemeProvider>
       {isLoggedIn ? (
-        <RootNavigator />
+        <RootNavigator userRole={userRole} />
       ) : (
         <View style={styles.container}>
-          <AdminLogin onSuccess={() => setIsLoggedIn(true)} />
+          <AdminLogin onSuccess={(role) => {
+            setUserRole(role);
+            setIsLoggedIn(true);
+          }} />
           <StatusBar style="auto" />
         </View>
       )}

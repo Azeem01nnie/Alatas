@@ -54,8 +54,10 @@ export default function AdminLogin({ onSuccess }) {
       ).fetch();
 
       setTimeout(() => {
-        if (userRecords.length > 0 || (username.trim() === ADMIN_USER && password === ADMIN_PASS)) {
-          onSuccess();
+        if (username.trim() === 'employee' && password === 'employee') {
+          onSuccess('employee');
+        } else if (userRecords.length > 0 || (username.trim() === ADMIN_USER && password === ADMIN_PASS)) {
+          onSuccess('admin');
         } else {
           setError('Invalid username or password.');
           setLoading(false);
@@ -64,8 +66,10 @@ export default function AdminLogin({ onSuccess }) {
     } catch (err) {
       console.warn("DB Auth error, fallback to static:", err);
       setTimeout(() => {
-        if (username.trim() === ADMIN_USER && password === ADMIN_PASS) {
-          onSuccess();
+        if (username.trim() === 'employee' && password === 'employee') {
+          onSuccess('employee');
+        } else if (username.trim() === ADMIN_USER && password === ADMIN_PASS) {
+          onSuccess('admin');
         } else {
           setError('Invalid username or password.');
           setLoading(false);
