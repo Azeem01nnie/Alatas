@@ -94,6 +94,32 @@ app.put('/api/rentals', (req, res) => {
   }
 })
 
+// --- WatermelonDB Sync Endpoints (To Be Implemented) ---
+app.get('/api/sync/pull', (req, res) => {
+  // WatermelonDB passes last_pulled_at as a query param
+  const lastPulledAt = req.query.last_pulled_at || 0;
+  
+  // TODO: Fetch records from SQLite that have been modified since lastPulledAt
+  // For now, we return empty changes to satisfy the contract.
+  res.json({
+    changes: {
+      vehicles: { created: [], updated: [], deleted: [] },
+      rentals: { created: [], updated: [], deleted: [] }
+    },
+    timestamp: Date.now()
+  });
+})
+
+app.post('/api/sync/push', (req, res) => {
+  const { changes, last_pulled_at } = req.body;
+  
+  // TODO: Loop through changes.vehicles and changes.rentals
+  // TODO: Apply Last-Write-Wins logic based on timestamps
+  // TODO: Insert/Update SQLite and optionally log conflicts
+  
+  res.json({ ok: true });
+})
+
 if (serveFrontend && frontendDist && fs.existsSync(frontendDist)) {
   app.use(express.static(frontendDist))
   app.use((req, res, next) => {
