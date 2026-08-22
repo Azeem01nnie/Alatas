@@ -48,6 +48,31 @@ function rentalUpdatedAt(rental) {
   return ts ? new Date(ts).getTime() : 0
 }
 
+function flattenSyncRecords(list) {
+  const out = []
+  for (const entry of list) {
+    if (Array.isArray(entry)) out.push(...entry)
+    else if (entry != null) out.push(entry)
+  }
+  return out
+}
+
+function changesForQueueItem(item) {
+  const payload = item.payload
+  const records = Array.isArray(payload) ? payload : payload != null ? [payload] : []
+
+  if (item.action === 'delete') {
+    const deleted = Array.isArray(payload)
+      ? payload.map((p) => (typeof p === 'object' ? p?.id : p)).filter(Boolean)
+      : [payload?.id ?? payload].filter(Boolean)
+    return { created: [], updated: [], deleted }
+  }
+  if (item.action === 'create') {
+    return { created: records, updated: [], deleted: [] }
+  }
+  return { created: [], updated: records, deleted: [] }
+}
+
 async function flushQueueToCloud() {
   if (!CLOUD_SYNC_ENABLED) {
     return { ok: true, flushed: 0, skipped: true, reason: 'Cloud sync not configured' }
@@ -63,11 +88,7 @@ async function flushQueueToCloud() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           changes: {
-            [item.entityType]: {
-              created: item.action === 'create' ? [item.payload] : [],
-              updated: item.action === 'update' ? [item.payload] : [],
-              deleted: item.action === 'delete' ? [item.payload?.id || item.payload] : [],
-            },
+            [item.entityType]: changesForQueueItem(item),
           },
           last_pulled_at: Number(getSyncMeta('last_pulled_at') || 0),
         }),
@@ -298,14 +319,14 @@ app.get('/api/sync/pull', (req, res) => {
 app.post('/api/sync/push', (req, res) => {
   try {
     const { changes } = req.body || {}
-    const vehicleUpdates = [
+    const vehicleUpdates = flattenSyncRecords([
       ...(changes?.vehicles?.created || []),
       ...(changes?.vehicles?.updated || []),
-    ]
-    const rentalUpdates = [
+    ])
+    const rentalUpdates = flattenSyncRecords([
       ...(changes?.rentals?.created || []),
       ...(changes?.rentals?.updated || []),
-    ]
+    ])
 
     if (vehicleUpdates.length) {
       const current = getVehicles()

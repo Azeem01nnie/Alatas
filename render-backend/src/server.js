@@ -41,6 +41,15 @@ function rentalUpdatedAt(rental) {
   return ts ? new Date(ts).getTime() : 0
 }
 
+function flattenSyncRecords(list) {
+  const out = []
+  for (const entry of list) {
+    if (Array.isArray(entry)) out.push(...entry)
+    else if (entry != null) out.push(entry)
+  }
+  return out
+}
+
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'alatas-render-backend', host: HOST })
 })
@@ -213,14 +222,14 @@ app.get('/api/sync/pull', (req, res) => {
 app.post('/api/sync/push', (req, res) => {
   try {
     const { changes } = req.body || {}
-    const vehicleUpdates = [
+    const vehicleUpdates = flattenSyncRecords([
       ...(changes?.vehicles?.created || []),
       ...(changes?.vehicles?.updated || []),
-    ]
-    const rentalUpdates = [
+    ])
+    const rentalUpdates = flattenSyncRecords([
       ...(changes?.rentals?.created || []),
       ...(changes?.rentals?.updated || []),
-    ]
+    ])
 
     if (vehicleUpdates.length) {
       const current = getVehicles()
