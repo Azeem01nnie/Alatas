@@ -1,5 +1,5 @@
 {
-  "name": "alatas-backend",
+  "name": "alatas-render-backend",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -9,10 +9,8 @@
     "build": "wget https://github.com/benbjohnson/litestream/releases/download/v0.3.13/litestream-v0.3.13-linux-amd64.tar.gz && tar -xzf litestream-v0.3.13-linux-amd64.tar.gz && chmod +x litestream"
   },
   "dependencies": {
-    "alatas": "file:..",
     "better-sqlite3": "^13.0.3",
     "cors": "^2.8.5",
-    "dotenv": "^17.4.2",
     "express": "^5.1.0"
   }
 }

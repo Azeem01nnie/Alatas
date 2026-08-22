@@ -51,3 +51,32 @@ export function addRental(rental) {
     body: JSON.stringify(rental),
   })
 }
+
+export function fetchPendingRentals() {
+  return request('/api/pending-rentals')
+}
+
+export function acceptPendingRental(id) {
+  return request(`/api/pending-rentals/${encodeURIComponent(id)}/accept`, {
+    method: 'POST',
+  })
+}
+
+export function rejectPendingRental(id, reason = '') {
+  return request(`/api/pending-rentals/${encodeURIComponent(id)}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  })
+}
+
+export function fetchSystemStatus() {
+  return request('/api/system/status')
+}
+
+export function fetchSyncQueue() {
+  return request('/api/sync/queue')
+}
+
+export function flushSyncQueue() {
+  return request('/api/sync/queue/flush', { method: 'POST' })
+}

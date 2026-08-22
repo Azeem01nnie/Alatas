@@ -35,9 +35,13 @@ import RentalCalendar from './RentalCalendar'
 import TransactionPage from './TransactionPage'
 import VehicleModal from './VehicleModal'
 import VehicleReports from './VehicleReports'
+import PendingApprovals from './PendingApprovals'
 import { addOwner, autoCapitalizeWords, loadOwners, purgeOrphanOwners, updateOwner } from '../utils/owners'
 import { loadReportStore } from '../utils/vehicleReports'
 import { scanOrcrImage, mergeScanFields } from '../utils/orcrOcr'
+import { fetchSystemStatus } from '../api/backend'
+import { CLOUD_SYNC_ENABLED, isCloudConfigured } from '../api/cloudSync'
+import { useConnectivity } from '../hooks/useConnectivity'
 
 const PROFILE_KEY = 'alatas-admin-profile'
 const SYSTEM_SETTINGS_KEY = 'alatas-admin-system-settings'
@@ -532,7 +536,9 @@ export default function AdminPanel() {
     updateVehicleStatus,
     completeRentalForVehicle,
     replaceAllData,
+    reloadData,
   } = useVehicles()
+  const { online } = useConnectivity()
   const [authed, setAuthed] = useState(() => isAdminLoggedIn())
   const [tab, setTab] = useState('dashboard')
   const [form, setForm] = useState(EMPTY)
@@ -593,7 +599,9 @@ export default function AdminPanel() {
     upcoming: false,
     onRent: false,
     maintenance: false,
+    pending: false,
   })
+  const [systemStatus, setSystemStatus] = useState(null)
   const fileRef = useRef(null)
   const editFileRef = useRef(null)
   const profilePhotoRef = useRef(null)
@@ -967,8 +975,33 @@ export default function AdminPanel() {
     return vehicles.filter((v) => !archivedIds.has(String(v.id)))
   }, [vehicles, archivedVehicles])
 
+  useEffect(() => {
+    let mounted = true
+    fetchSystemStatus()
+      .then((status) => {
+        if (mounted) setSystemStatus(status)
+      })
+      .catch(() => {
+        if (mounted) setSystemStatus(null)
+      })
+    return () => {
+      mounted = false
+    }
+  }, [ready, online])
+
   const scheduledRentals = useMemo(
-    () => rentals.filter((r) => r.rentalLifecycle === 'scheduled'),
+    () =>
+      rentals.filter(
+        (r) =>
+          r.rentalLifecycle === 'scheduled' &&
+          r.approvalStatus !== 'pending' &&
+          r.approvalStatus !== 'rejected',
+      ),
+    [rentals],
+  )
+
+  const pendingApprovalCount = useMemo(
+    () => rentals.filter((r) => r.approvalStatus === 'pending').length,
     [rentals],
   )
 
@@ -1305,7 +1338,7 @@ export default function AdminPanel() {
   const validateFields = (data) => {
     const next = {}
     ;['make', 'series', 'bodyType', 'engineNo', 'chassisNo'].forEach((key) => {
-      if (!String(data[key] || '').trim()) next[key] = 'Required'
+        if (!String(data[key] || '').trim()) next[key] = 'Required'
     })
     const plate = sanitizePlateNo(data.plateNo)
     if (!plate) next.plateNo = 'Required'
@@ -1456,7 +1489,7 @@ export default function AdminPanel() {
         ? new Date(blocking.rental.periodFrom).toLocaleString()
         : 'the scheduled date'
       const life = blocking.rentalLifecycle === 'active' ? 'currently on rent' : 'scheduled to be rented'
-      setConfirm({
+    setConfirm({
         type: 'archive-blocked',
         title: 'Cannot archive vehicle',
         message: `You cannot archive ${vehicle.make} — ${vehicle.series} (${vehicle.plateNo}) because it is ${life} on ${when}. Complete or wait until the rental is finished first.`,
@@ -1700,13 +1733,23 @@ export default function AdminPanel() {
               ? 'Transaction'
               : tab === 'settings'
                 ? 'Settings'
-                : NAV.find((n) => n.id === tab)?.label}
+              : NAV.find((n) => n.id === tab)?.label}
           </h2>
           <div className="admin-content-header-actions">
-            {message && <span className="admin-success">{message}</span>}
+          {message && <span className="admin-success">{message}</span>}
             {loadError && (
               <span className="admin-load-error" role="alert">
                 Server unavailable — fleet data not loaded. Start the API and refresh.
+              </span>
+            )}
+            {!loadError && !online && (
+              <span className="admin-offline-badge" role="status">
+                Offline — local desk still works
+              </span>
+            )}
+            {pendingApprovalCount > 0 && tab === 'dashboard' && (
+              <span className="admin-pending-badge" role="status">
+                {pendingApprovalCount} pending approval{pendingApprovalCount === 1 ? '' : 's'}
               </span>
             )}
             <div className="admin-notif" ref={notifRef}>
@@ -1950,13 +1993,13 @@ export default function AdminPanel() {
                                   formatDateTime(rental.rental?.periodTo)}
                               </span>
                             </div>
-                            <button
-                              type="button"
+                    <button
+                      type="button"
                               className="btn-outline btn-sm"
                               onClick={() => requestRentCompleted(vehicle)}
-                            >
+                    >
                               Complete
-                            </button>
+                    </button>
                           </article>
                         )}
                       />
@@ -1986,12 +2029,12 @@ export default function AdminPanel() {
                               )}
                             </div>
                             <div className="dash-attn-meta">
-                              <strong>
-                                {v.make} — {v.series}
-                              </strong>
-                              <span>
+                      <strong>
+                        {v.make} — {v.series}
+                      </strong>
+                      <span>
                                 {v.plateNo} · {v.bodyType}
-                              </span>
+                      </span>
                             </div>
                             <button
                               type="button"
@@ -2003,6 +2046,14 @@ export default function AdminPanel() {
                           </article>
                         )}
                       />
+
+                      <div className="dash-attn-card dash-attn-pending">
+                        <PendingApprovals
+                          vehicles={vehicles}
+                          onChanged={reloadData}
+                          compact
+                        />
+                      </div>
                     </div>
                   </section>
                 </div>
@@ -2181,8 +2232,8 @@ export default function AdminPanel() {
                             </span>
                             <span className="dash-recent-meta">
                               <span>{r.rental?.rentalFee || '—'}</span>
-                              <span
-                                    className={`status-badge ${
+                    <span
+                      className={`status-badge ${
                                   r.rentalLifecycle === 'active'
                                     ? 'status-rented'
                                     : r.rentalLifecycle === 'scheduled'
@@ -2195,7 +2246,7 @@ export default function AdminPanel() {
                                   : r.rentalLifecycle === 'scheduled'
                                     ? 'Scheduled'
                                     : 'Done'}
-                              </span>
+                    </span>
                             </span>
                           </button>
                         </li>
@@ -2232,14 +2283,14 @@ export default function AdminPanel() {
                   {manageView === 'fleet' ? (
                     <div className="chip-group manage-status-filters" role="group" aria-label="Filter by status">
                       {MANAGE_STATUS_FILTERS.map((f) => (
-                        <button
+                      <button
                           key={f.id}
-                          type="button"
+                        type="button"
                           className={`chip${manageStatus === f.id ? ' selected' : ''}`}
                           onClick={() => setManageStatus(f.id)}
-                        >
+                      >
                           {f.label}
-                        </button>
+                      </button>
                       ))}
                     </div>
                   ) : (
@@ -2248,14 +2299,14 @@ export default function AdminPanel() {
                     </p>
                   )}
                   <div className="manage-layout-toggle" role="group" aria-label="Fleet layout">
-                    <button
-                      type="button"
+                      <button
+                        type="button"
                       className={`manage-layout-btn${manageLayout === 'list' ? ' is-active' : ''}`}
                       onClick={() => setManageLayout('list')}
                       aria-pressed={manageLayout === 'list'}
-                    >
+                      >
                       List
-                    </button>
+                      </button>
                     <button
                       type="button"
                       className={`manage-layout-btn${manageLayout === 'cards' ? ' is-active' : ''}`}
@@ -2264,19 +2315,19 @@ export default function AdminPanel() {
                     >
                       Cards
                     </button>
-                  </div>
+              </div>
                 </div>
               </div>
-              )}
+          )}
 
               {showAddForm && manageView === 'fleet' && (
                 <form className="form-grid manage-add-form" onSubmit={handleSubmit}>
-                  <VehicleFields
-                    data={form}
-                    errors={errors}
-                    onChange={update}
-                    fileRef={fileRef}
-                    onFile={(e) => handleImageFile(e, false)}
+                <VehicleFields
+                  data={form}
+                  errors={errors}
+                  onChange={update}
+                  fileRef={fileRef}
+                  onFile={(e) => handleImageFile(e, false)}
                     locked={fieldsLocked}
                     onToggleLock={() => setFieldsLocked(false)}
                     owners={owners}
@@ -2288,13 +2339,13 @@ export default function AdminPanel() {
                     orcrBusy={orcrBusy && orcrTarget === 'add'}
                     orcrDocHint={orcrTarget === 'add' ? orcrDocHint : null}
                     orcrProgress={orcrProgress}
-                  />
-                  <div className="field field-full admin-form-actions">
+                />
+                <div className="field field-full admin-form-actions">
                     <button type="submit" className="btn-primary" disabled={orcrBusy}>
                       Save Vehicle
-                    </button>
-                  </div>
-                </form>
+                  </button>
+                </div>
+              </form>
               )}
 
               {!(showAddForm && manageView === 'fleet') && (
@@ -2417,14 +2468,14 @@ export default function AdminPanel() {
                             }}
                           >
                             <img src={v.image} alt="" className="admin-vehicle-thumb" />
-                            <div className="admin-vehicle-meta">
-                              <strong>
-                                {v.make} — {v.series}
-                              </strong>
-                              <span>
+                    <div className="admin-vehicle-meta">
+                      <strong>
+                        {v.make} — {v.series}
+                      </strong>
+                      <span>
                                 {v.seats} seaters · {v.transmission} · {v.plateNo}
-                              </span>
-                            </div>
+                      </span>
+                    </div>
                             <span className={`status-badge ${badgeClass}`}>
                               {manageView === 'archive' ? 'Archived' : formatStatusLabel(display)}
                             </span>
@@ -2458,18 +2509,18 @@ export default function AdminPanel() {
                                 </>
                               ) : (
                                 <>
-                                  <button
-                                    type="button"
-                                    className="btn-outline btn-sm"
+                    <button
+                      type="button"
+                      className="btn-outline btn-sm"
                                     onClick={(e) => {
                                       e.stopPropagation()
                                       requestRestore(v)
                                     }}
-                                  >
+                    >
                                     Restore
-                                  </button>
-                                  <button
-                                    type="button"
+                    </button>
+                    <button
+                      type="button"
                                     className="btn-ghost btn-sm manage-card-remove"
                                     onClick={(e) => {
                                       e.stopPropagation()
@@ -2477,11 +2528,11 @@ export default function AdminPanel() {
                                     }}
                                   >
                                     Delete
-                                  </button>
+                    </button>
                                 </>
                               )}
                             </div>
-                          </article>
+                  </article>
                         )
                       })}
                     </div>
@@ -2504,14 +2555,14 @@ export default function AdminPanel() {
             <section className="admin-history-section">
               <div className="history-filters">
                 <label className="field search-field history-search-field">
-                  <span className="field-label">Search history</span>
-                  <input
-                    type="search"
-                    value={historySearch}
-                    onChange={(e) => setHistorySearch(e.target.value)}
+                <span className="field-label">Search history</span>
+                <input
+                  type="search"
+                  value={historySearch}
+                  onChange={(e) => setHistorySearch(e.target.value)}
                     placeholder="Customer name or plate..."
-                  />
-                </label>
+                />
+              </label>
 
                 <div className="field history-date-field">
                   <span className="field-label">From</span>
@@ -2585,15 +2636,15 @@ export default function AdminPanel() {
                     </div>
 
                     <div className="history-body">
-                      <div className="history-main">
+                    <div className="history-main">
                         <strong>{fullName}</strong>
                         <span className="history-vehicle">
                           {r.vehicle?.make} {r.vehicle?.series}
                           {r.vehicle?.plateNo ? ` · ${r.vehicle.plateNo}` : ''}
-                        </span>
-                      </div>
+                      </span>
+                    </div>
 
-                      <div className="history-meta">
+                    <div className="history-meta">
                         {r.rental?.rentalType && (
                           <span className="history-chip">{r.rental.rentalType}</span>
                         )}
@@ -2606,15 +2657,15 @@ export default function AdminPanel() {
                       </div>
 
                       <div className="history-period">
-                        <span>
+                      <span>
                           {r.rental?.periodFromLabel || formatDateTime(r.rental?.periodFrom)}
                           {' → '}
                           {r.rental?.periodToLabel || formatDateTime(r.rental?.periodTo)}
-                        </span>
-                        <span className="history-encoded">
-                          Encoded {formatDateTime(r.encodedAt)}
-                        </span>
-                      </div>
+                      </span>
+                      <span className="history-encoded">
+                        Encoded {formatDateTime(r.encodedAt)}
+                      </span>
+                    </div>
                     </div>
 
                     <div className="history-aside">
@@ -2884,6 +2935,45 @@ export default function AdminPanel() {
                     )}
                   </article>
 
+                  <article className="settings-card settings-cloud-card">
+                    <div className="settings-card-head">
+                      <span className="settings-eyebrow">Sync</span>
+                      <h4 className="settings-card-title">Cloud connection (Render)</h4>
+                      <p className="settings-card-copy">
+                        Option C: this desk keeps working offline with local SQLite. Cloud sync
+                        stays disabled until you deploy Render and set{' '}
+                        <code>VITE_RENDER_API_URL</code>.
+                      </p>
+                    </div>
+
+                    <ul className="settings-cloud-status">
+                      <li>
+                        <strong>Local API</strong>
+                        <span>{loadError ? 'Unavailable' : 'Running (offline-capable)'}</span>
+                      </li>
+                      <li>
+                        <strong>Internet</strong>
+                        <span>{online ? 'Online' : 'Offline — desk still works'}</span>
+                      </li>
+                      <li>
+                        <strong>Cloud URL configured</strong>
+                        <span>{isCloudConfigured() ? 'Yes' : 'Not yet'}</span>
+                      </li>
+                      <li>
+                        <strong>Cloud sync enabled</strong>
+                        <span>{CLOUD_SYNC_ENABLED ? 'Yes' : 'No (by design until deploy)'}</span>
+                      </li>
+                      <li>
+                        <strong>Pending sync queue</strong>
+                        <span>{systemStatus?.pendingSyncCount ?? '—'}</span>
+                      </li>
+                      <li>
+                        <strong>Pending approvals</strong>
+                        <span>{systemStatus?.pendingApprovalCount ?? pendingApprovalCount}</span>
+                      </li>
+                    </ul>
+                  </article>
+
                   <article className="settings-card settings-session-card">
                     <div className="settings-card-head">
                       <span className="settings-eyebrow">Session</span>
@@ -2936,25 +3026,25 @@ export default function AdminPanel() {
                   Refine vehicle details, rates, and display image before saving.
                 </p>
               </div>
-              <button
-                type="button"
+            <button
+              type="button"
                 className="modal-close edit-modal-close"
-                onClick={() => setEditForm(null)}
-                aria-label="Close"
-              >
-                ×
-              </button>
+              onClick={() => setEditForm(null)}
+              aria-label="Close"
+            >
+              ×
+            </button>
             </div>
 
             <div className="edit-modal-scroll">
               <div className="edit-modal-body">
                 <div className="form-grid edit-vehicle-grid">
-                  <VehicleFields
-                    data={editForm}
-                    errors={editErrors}
-                    onChange={updateEdit}
-                    fileRef={editFileRef}
-                    onFile={(e) => handleImageFile(e, true)}
+              <VehicleFields
+                data={editForm}
+                errors={editErrors}
+                onChange={updateEdit}
+                fileRef={editFileRef}
+                onFile={(e) => handleImageFile(e, true)}
                     locked={editFieldsLocked}
                     onToggleLock={() => setEditFieldsLocked(false)}
                     owners={owners}
@@ -2966,8 +3056,8 @@ export default function AdminPanel() {
                     orcrBusy={orcrBusy && orcrTarget === 'edit'}
                     orcrDocHint={orcrTarget === 'edit' ? orcrDocHint : null}
                     orcrProgress={orcrProgress}
-                  />
-                </div>
+              />
+            </div>
               </div>
             </div>
 
@@ -3376,13 +3466,13 @@ function VehicleFields({
             </p>
           )}
           <label className="edit-upload-btn">
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              onChange={onFile}
-              className="file-input"
-            />
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          onChange={onFile}
+          className="file-input"
+        />
             <span>Choose Image</span>
           </label>
         </div>
@@ -3390,14 +3480,14 @@ function VehicleFields({
         <div className="edit-image-preview-wrap">
           {data.image ? (
             <div className="admin-image-preview edit-image-preview">
-              <img src={data.image} alt="Preview" />
-            </div>
+            <img src={data.image} alt="Preview" />
+          </div>
           ) : (
             <div className="admin-image-preview edit-image-preview edit-image-default">
               <img src={addVehiclePlaceholder} alt="Add vehicle photo placeholder" />
               <span className="edit-image-default-label">Add vehicle photo</span>
             </div>
-          )}
+        )}
         </div>
 
         {errors.image && <span className="error-msg">{errors.image}</span>}

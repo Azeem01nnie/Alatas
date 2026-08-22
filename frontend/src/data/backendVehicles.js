@@ -1,4 +1,5 @@
 import { fetchVehicles, replaceVehicles, deleteVehicle as apiDeleteVehicle } from '../api/backend'
+import { enqueueOfflineOp } from '../utils/offlineQueue'
 
 export async function loadVehicles() {
   const vehicles = await fetchVehicles()
@@ -11,6 +12,7 @@ export async function saveVehicles(vehicles) {
     return true
   } catch (err) {
     console.warn('Unable to persist vehicles to backend', err)
+    enqueueOfflineOp({ type: 'vehicles', payload: vehicles })
     return false
   }
 }

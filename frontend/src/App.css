@@ -4077,6 +4077,106 @@ html[data-theme='dark'] .login-password-toggle:hover {
   background: linear-gradient(180deg, #b54708 0%, #7a3205 100%);
 }
 
+.dash-attn-pending::before {
+  background: linear-gradient(180deg, #2563eb 0%, #1e40af 100%);
+}
+
+.dash-attn-pending {
+  background:
+    linear-gradient(135deg, rgba(37, 99, 235, 0.08) 0%, transparent 42%),
+    var(--surface);
+}
+
+.pending-approvals-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.pending-approvals-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.pending-approvals-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.pending-approvals-actions,
+.pending-approvals-reject-form {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.pending-approvals-reject-form input {
+  min-width: 10rem;
+  flex: 1;
+}
+
+.pending-approvals-error {
+  color: var(--brand);
+  font-size: 0.82rem;
+  margin: 0 0 0.5rem;
+}
+
+.pending-approvals-empty {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.admin-offline-badge,
+.admin-pending-badge {
+  font-size: 0.78rem;
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+}
+
+.admin-pending-badge {
+  border-color: rgba(37, 99, 235, 0.35);
+  background: rgba(37, 99, 235, 0.1);
+  color: #1e40af;
+}
+
+.settings-cloud-status {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.settings-cloud-status li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.88rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-cloud-status li:last-child {
+  border-bottom: none;
+}
+
+.settings-cloud-status span {
+  color: var(--muted);
+  text-align: right;
+}
+
 .dash-attn-upcoming {
   background:
     linear-gradient(135deg, rgba(245, 196, 0, 0.08) 0%, transparent 42%),

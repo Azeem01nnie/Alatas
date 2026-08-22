@@ -1,8 +1,8 @@
-import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
 import fs from 'fs'
 import path from 'path'
+import { fileURLToPath } from 'url'
 import {
   getVehicles,
   replaceVehicles,
@@ -20,25 +20,18 @@ import {
   getSyncQueue,
   getSyncMeta,
   setSyncMeta,
-  markQueueItemSynced,
-  markQueueItemFailed,
 } from './sync-db.js'
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
 const PORT = Number(process.env.PORT || 4000)
-const HOST = process.env.HOST || '127.0.0.1'
-const serveFrontend = process.env.SERVE_FRONTEND === '1'
-const frontendDist = process.env.FRONTEND_DIST
-  ? path.resolve(process.env.FRONTEND_DIST)
-  : null
-const RENDER_API_URL = (process.env.RENDER_API_URL || '').replace(/\/$/, '')
-const CLOUD_SYNC_ENABLED = process.env.CLOUD_SYNC_ENABLED === '1' && Boolean(RENDER_API_URL)
+const HOST = process.env.HOST || '0.0.0.0'
 
 app.use(cors())
 app.use(express.json({ limit: '15mb' }))
 
 function sendError(res, err, status = 500) {
-  console.error('[api]', err)
+  console.error('[render-api]', err)
   const message = err?.message || 'Internal server error'
   res.status(status).json({ error: message })
 }
@@ -48,57 +41,15 @@ function rentalUpdatedAt(rental) {
   return ts ? new Date(ts).getTime() : 0
 }
 
-async function flushQueueToCloud() {
-  if (!CLOUD_SYNC_ENABLED) {
-    return { ok: true, flushed: 0, skipped: true, reason: 'Cloud sync not configured' }
-  }
-
-  const queue = getSyncQueue()
-  let flushed = 0
-
-  for (const item of queue) {
-    try {
-      const response = await fetch(`${RENDER_API_URL}/api/sync/push`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          changes: {
-            [item.entityType]: {
-              created: item.action === 'create' ? [item.payload] : [],
-              updated: item.action === 'update' ? [item.payload] : [],
-              deleted: item.action === 'delete' ? [item.payload?.id || item.payload] : [],
-            },
-          },
-          last_pulled_at: Number(getSyncMeta('last_pulled_at') || 0),
-        }),
-      })
-
-      if (!response.ok) {
-        const text = await response.text().catch(() => '')
-        throw new Error(`Cloud push failed (${response.status}): ${text}`)
-      }
-
-      markQueueItemSynced(item.id)
-      flushed += 1
-    } catch (err) {
-      markQueueItemFailed(item.id, err.message)
-      return { ok: false, flushed, error: err.message }
-    }
-  }
-
-  return { ok: true, flushed }
-}
-
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, service: 'alatas-backend', host: HOST })
+  res.json({ ok: true, service: 'alatas-render-backend', host: HOST })
 })
 
 app.get('/api/system/status', (_req, res) => {
   res.json({
     ok: true,
-    mode: 'local',
-    cloudSyncEnabled: CLOUD_SYNC_ENABLED,
-    cloudApiUrl: CLOUD_SYNC_ENABLED ? RENDER_API_URL : null,
+    mode: 'cloud-master',
+    cloudSyncEnabled: true,
     pendingSyncCount: getSyncQueue().length,
     pendingApprovalCount: getPendingRentals().length,
     lastPulledAt: getSyncMeta('last_pulled_at'),
@@ -117,11 +68,6 @@ app.put('/api/vehicles', (req, res) => {
   try {
     const vehicles = Array.isArray(req.body) ? req.body : []
     const result = replaceVehicles(vehicles)
-    enqueueSyncItem({
-      entityType: 'vehicles',
-      action: 'update',
-      payload: result,
-    })
     res.json(result)
   } catch (err) {
     sendError(res, err)
@@ -148,11 +94,6 @@ app.post('/api/rentals', (req, res) => {
       source: req.body.source || 'desktop',
     }
     const created = addRental(entry)
-    enqueueSyncItem({
-      entityType: 'rentals',
-      action: 'create',
-      payload: created,
-    })
     res.status(201).json(created)
   } catch (err) {
     sendError(res, err)
@@ -192,11 +133,6 @@ app.get('/api/pending-rentals', (_req, res) => {
 app.post('/api/pending-rentals/:id/accept', (req, res) => {
   try {
     const accepted = acceptPendingRental(req.params.id)
-    enqueueSyncItem({
-      entityType: 'rentals',
-      action: 'update',
-      payload: accepted,
-    })
     res.json(accepted)
   } catch (err) {
     sendError(res, err, err.message.includes('not found') ? 404 : 409)
@@ -207,11 +143,6 @@ app.post('/api/pending-rentals/:id/reject', (req, res) => {
   try {
     const reason = req.body?.reason || ''
     const rejected = rejectPendingRental(req.params.id, reason)
-    enqueueSyncItem({
-      entityType: 'rentals',
-      action: 'update',
-      payload: rejected,
-    })
     res.json(rejected)
   } catch (err) {
     sendError(res, err, err.message.includes('not found') ? 404 : 409)
@@ -226,11 +157,6 @@ app.delete('/api/vehicles/:id', (req, res) => {
     }
     const remainingVehicles = deleteVehicle(id)
     const remainingRentals = getRentals()
-    enqueueSyncItem({
-      entityType: 'vehicles',
-      action: 'delete',
-      payload: { id },
-    })
     res.json({ ok: true, vehicles: remainingVehicles, rentals: remainingRentals })
   } catch (err) {
     sendError(res, err)
@@ -241,11 +167,6 @@ app.put('/api/rentals', (req, res) => {
   try {
     const rentals = Array.isArray(req.body) ? req.body : []
     const result = replaceRentals(rentals)
-    enqueueSyncItem({
-      entityType: 'rentals',
-      action: 'update',
-      payload: result,
-    })
     res.json(result)
   } catch (err) {
     sendError(res, err)
@@ -260,21 +181,11 @@ app.get('/api/sync/queue', (_req, res) => {
   }
 })
 
-app.post('/api/sync/queue/flush', async (_req, res) => {
-  try {
-    const result = await flushQueueToCloud()
-    res.json(result)
-  } catch (err) {
-    sendError(res, err)
-  }
-})
-
 app.get('/api/sync/pull', (req, res) => {
   try {
     const lastPulledAt = Number(req.query.last_pulled_at || 0)
     const vehicles = getVehicles()
     const rentals = getRentals()
-
     const changedRentals = rentals.filter((r) => rentalUpdatedAt(r) > lastPulledAt)
     const timestamp = Date.now()
     setSyncMeta('last_pulled_at', String(timestamp))
@@ -283,8 +194,12 @@ app.get('/api/sync/pull', (req, res) => {
       changes: {
         vehicles: { created: [], updated: vehicles, deleted: [] },
         rentals: {
-          created: changedRentals.filter((r) => rentalUpdatedAt(r) > lastPulledAt && r.createdAt && new Date(r.createdAt).getTime() > lastPulledAt),
-          updated: changedRentals.filter((r) => !(r.createdAt && new Date(r.createdAt).getTime() > lastPulledAt)),
+          created: changedRentals.filter(
+            (r) => r.createdAt && new Date(r.createdAt).getTime() > lastPulledAt,
+          ),
+          updated: changedRentals.filter(
+            (r) => !(r.createdAt && new Date(r.createdAt).getTime() > lastPulledAt),
+          ),
           deleted: [],
         },
       },
@@ -336,32 +251,22 @@ app.post('/api/sync/push', (req, res) => {
   }
 })
 
-if (serveFrontend && frontendDist && fs.existsSync(frontendDist)) {
-  app.use(express.static(frontendDist))
-  app.use((req, res, next) => {
-    if (req.method !== 'GET' && req.method !== 'HEAD') return next()
-    if (req.path.startsWith('/api')) return next()
-    res.sendFile(path.join(frontendDist, 'index.html'), (err) => {
-      if (err) next(err)
-    })
+app.get('/', (_req, res) => {
+  res.json({
+    service: 'alatas-render-backend',
+    docs: path.join(__dirname, '..', 'README.md'),
   })
-}
+})
 
 app.use((err, _req, res, _next) => {
   sendError(res, err)
 })
 
 const server = app.listen(PORT, HOST, () => {
-  console.log(`Alatas backend running on http://${HOST}:${PORT}`)
-  if (CLOUD_SYNC_ENABLED) {
-    console.log(`Cloud sync target: ${RENDER_API_URL}`)
-  }
-  if (serveFrontend) {
-    console.log(`Serving frontend from ${frontendDist}`)
-  }
+  console.log(`Alatas Render backend running on http://${HOST}:${PORT}`)
 })
 
 server.on('error', (err) => {
-  console.error('Failed to start Alatas backend:', err)
+  console.error('Failed to start Alatas Render backend:', err)
   process.exit(1)
 })

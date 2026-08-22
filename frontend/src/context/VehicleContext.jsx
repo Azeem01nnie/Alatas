@@ -3,12 +3,23 @@ import { loadVehicles, saveVehicles, deleteVehicle as deleteVehicleApi } from '.
 import { loadRentals, saveRentals, addRental as addRentalApi } from '../data/backendRentals'
 import { getArchivedIdSet, ARCHIVE_EVENT } from '../utils/archivedVehicles'
 import { isScheduledWindow } from '../utils/vehicleDisplayStatus'
+import { flushOfflineQueue } from '../utils/offlineQueue'
+import { replaceVehicles as apiReplaceVehicles, replaceRentals as apiReplaceRentals, addRental as apiAddRental } from '../api/backend'
 
 const VehicleContext = createContext(null)
 
 function normalizeRental(r) {
-  if (r.rentalLifecycle) return r
-  return { ...r, rentalLifecycle: 'completed' }
+  const base = r.approvalStatus ? r : { ...r, approvalStatus: 'accepted' }
+  if (base.rentalLifecycle) return base
+  return { ...base, rentalLifecycle: 'completed' }
+}
+
+function isActiveBooking(rental) {
+  if (rental.approvalStatus === 'pending' || rental.approvalStatus === 'rejected') return false
+  if (rental.rentalLifecycle === 'pending_approval' || rental.rentalLifecycle === 'rejected') {
+    return false
+  }
+  return rental.rentalLifecycle === 'active' || rental.rentalLifecycle === 'scheduled'
 }
 
 function isDue(periodFrom) {
@@ -41,6 +52,12 @@ export function VehicleProvider({ children }) {
 
     async function loadInitialData() {
       try {
+        await flushOfflineQueue({
+          vehicles: (payload) => apiReplaceVehicles(payload),
+          rentals: (payload) => apiReplaceRentals(payload),
+          'rentals-add': (payload) => apiAddRental(payload),
+        })
+
         const [vehiclesData, rentalsData] = await Promise.all([
           loadVehicles(),
           loadRentals(),
@@ -153,6 +170,7 @@ export function VehicleProvider({ children }) {
       setRentals((prev) => {
         const due = prev.filter((r) => {
           if (r.rentalLifecycle !== 'scheduled') return false
+          if (r.approvalStatus === 'pending' || r.approvalStatus === 'rejected') return false
           const start = r.rental?.periodFrom
             ? new Date(r.rental.periodFrom).getTime()
             : NaN
@@ -250,6 +268,7 @@ export function VehicleProvider({ children }) {
       .filter((r) => {
         const vid = r.vehicle?.id
         if (!vid || archived.has(String(vid))) return false
+        if (!isActiveBooking(r)) return false
         if (r.rentalLifecycle === 'active') return true
         if (r.rentalLifecycle === 'scheduled') {
           return isScheduledWindow(r.rental?.periodFrom, now)
