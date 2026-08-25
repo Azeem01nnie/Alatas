@@ -17,6 +17,16 @@ function customerName(rental) {
   return [p.firstName, p.lastName].filter(Boolean).join(' ') || p.fullName || 'Customer'
 }
 
+function accountProof(rental) {
+  return (
+    rental?.submittedBy ||
+    rental?.personal?.submittedBy ||
+    rental?.carPhotosAddedBy ||
+    rental?.carPhotos?._addedBy ||
+    ''
+  )
+}
+
 function formatDateTime(value) {
   if (!value) return '—'
   const d = new Date(value)
@@ -132,6 +142,7 @@ export default function PendingApprovals({ vehicles, onChanged, compact = false,
                   </strong>
                   <span>
                     {vehicle?.plateNo || 'No plate'} · {customerName(rental)}
+                    {accountProof(rental) ? ` · by ${accountProof(rental)}` : ''}
                   </span>
                   <span className="dash-attn-time">
                     {formatDateTime(rental.rental?.periodFrom)}
@@ -191,6 +202,7 @@ export default function PendingApprovals({ vehicles, onChanged, compact = false,
                   </strong>
                   <span>
                     {vehicle?.plateNo || 'No plate'} · {customerName(rental)}
+                    {accountProof(rental) ? ` · by ${accountProof(rental)}` : ''}
                   </span>
                 </div>
                 {rejectId === rental.id ? (
@@ -250,6 +262,7 @@ export default function PendingApprovals({ vehicles, onChanged, compact = false,
                   </strong>
                   <span>
                     {vehicle?.plateNo || 'No plate'} · {customerName(rental)}
+                    {accountProof(rental) ? ` · by ${accountProof(rental)}` : ''}
                   </span>
                   <span className="pending-approvals-time">
                     From {formatDateTime(rental.rental?.periodFrom)} · source:{' '}

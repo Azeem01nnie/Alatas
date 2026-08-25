@@ -193,12 +193,20 @@ export function buildWaitingApprovalNotices(rentals, pendingRentals) {
     const name = [rental.personal?.firstName, rental.personal?.lastName]
       .filter(Boolean)
       .join(' ') || 'Customer';
+    const submittedBy =
+      rental.submittedBy ||
+      rental.personal?.submittedBy ||
+      getCarPhotosAddedBy(rental) ||
+      null;
     return {
       ...log,
       status: 'Waiting for approval',
-      text: name
-        ? `${name} · tap to review and approve`
-        : 'Tap to review and approve',
+      submittedBy,
+      text: submittedBy
+        ? `${name} · submitted / photos by ${submittedBy}`
+        : name
+          ? `${name} · tap to review and approve`
+          : 'Tap to review and approve',
     };
   });
 }

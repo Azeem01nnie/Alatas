@@ -26,6 +26,7 @@ export default function RentalReviewContent({ rental, theme }) {
   if (!details) return null;
 
   const photoTakerName = details.carPhotosAddedBy || null;
+  const submittedBy = details.submittedBy || null;
 
   return (
     <>
@@ -39,6 +40,9 @@ export default function RentalReviewContent({ rental, theme }) {
         <DetailRow label="Plate number" value={details.plateNo} theme={theme} />
         <DetailRow label="Rental from" value={details.periodFrom} theme={theme} />
         <DetailRow label="Rental to" value={details.periodTo} theme={theme} />
+        {submittedBy ? (
+          <DetailRow label="Account (proof)" value={submittedBy} theme={theme} />
+        ) : null}
       </View>
 
       <PhotoBlock title="Holding license" uri={details.holdingLicenseUri} theme={theme} />
@@ -48,7 +52,7 @@ export default function RentalReviewContent({ rental, theme }) {
         <View style={styles.photoBlock}>
           <Text style={[styles.sectionHeading, { color: theme.textMain }]}>Vehicle photos</Text>
           <Text style={[styles.photoTaker, { color: theme.textSub }]}>
-            Taken by {photoTakerName || 'Unknown account'}
+            Taken by {photoTakerName || submittedBy || 'Unknown account'}
           </Text>
           {details.carPhotos.map((item) => (
             <View key={item.key} style={styles.carPhotoItem}>

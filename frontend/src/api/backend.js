@@ -137,3 +137,31 @@ export function authenticateEmployee(username, password) {
     body: JSON.stringify({ username, password }),
   })
 }
+
+export function fetchChatMessages({ threadId, since, limit } = {}) {
+  const params = new URLSearchParams()
+  if (threadId) params.set('threadId', threadId)
+  if (since) params.set('since', since)
+  if (limit) params.set('limit', String(limit))
+  const qs = params.toString()
+  return request(`/api/chat/messages${qs ? `?${qs}` : ''}`)
+}
+
+export function sendChatMessage(payload) {
+  return request('/api/chat/messages', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function fetchChatThreads({ archived = false } = {}) {
+  const qs = archived ? '?archived=1' : ''
+  return request(`/api/chat/threads${qs}`)
+}
+
+export function setChatThreadArchivedRemote(threadId, archived) {
+  return request(`/api/chat/threads/${encodeURIComponent(threadId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ archived: Boolean(archived) }),
+  })
+}

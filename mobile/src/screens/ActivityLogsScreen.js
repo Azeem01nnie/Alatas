@@ -145,6 +145,16 @@ export default function ActivityLogsScreen() {
                 <Text style={[styles.submitterContext, { color: theme.textSub }]}>
                   {selectedLog?.time} • {selectedLog?.vehicle} • {selectedLog?.status}
                 </Text>
+                {(selectedLog?.submittedBy ||
+                  selectedLog?.rental?.carPhotosAddedBy ||
+                  selectedLog?.rental?.carPhotos?._addedBy) ? (
+                  <Text style={[styles.submitterProof, { color: ACCENT }]}>
+                    Account proof:{' '}
+                    {selectedLog?.submittedBy ||
+                      selectedLog?.rental?.carPhotosAddedBy ||
+                      selectedLog?.rental?.carPhotos?._addedBy}
+                  </Text>
+                ) : null}
               </View>
 
               <RentalReviewContent rental={selectedLog?.rental} theme={theme} />
@@ -253,6 +263,7 @@ const styles = StyleSheet.create({
   modalScroll: { paddingBottom: 40 },
   submitterInfo: { marginBottom: 24 },
   submitterName: { fontSize: 18, fontWeight: '700', marginBottom: 4 },
+  submitterProof: { fontSize: 13, fontWeight: '700', marginTop: 8 },
   submitterContext: { fontSize: 14, color: '#64748b' },
   sectionHeading: { fontSize: 16, fontWeight: '700', marginBottom: 12 },
   gridImage: { width: '100%', height: 180, borderRadius: 12, marginBottom: 24 },

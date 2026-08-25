@@ -16,6 +16,9 @@ export function formatApiError(err, context = '') {
   const combined = `${raw} ${body} ${context}`.toLowerCase();
 
   if (status === 404 || raw.includes('404')) {
+    if (combined.includes('chat')) {
+      return 'Chat is not available on the server yet. Redeploy the cloud backend, or use the desk API in dev.';
+    }
     if (combined.includes('employee')) {
       return 'Employees are not available on the server yet. Redeploy the cloud backend to enable employee sync.';
     }

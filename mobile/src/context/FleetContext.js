@@ -177,16 +177,33 @@ export function FleetProvider({ children }) {
 
   const metrics = useMemo(() => {
     const fieldRentals = rentals.filter((r) => r.source === 'mobile' || r.source === 'field');
-    const pendingCount = pendingRentals.length;
     const fleetCount = vehicles.length;
     const brands = new Set(vehicles.map((v) => v.make).filter(Boolean)).size;
 
+    const upcoming = rentals.filter(
+      (r) =>
+        r.rentalLifecycle === 'scheduled' &&
+        r.approvalStatus !== 'pending' &&
+        r.approvalStatus !== 'rejected',
+    );
+    const photosNeeded = upcoming.filter((r) => {
+      const cp = r.carPhotos || {};
+      return !['front', 'rear', 'left', 'right'].every((key) => Boolean(cp[key]));
+    }).length;
+    const photosDone = upcoming.filter((r) => {
+      const cp = r.carPhotos || {};
+      return ['front', 'rear', 'left', 'right'].every((key) => Boolean(cp[key]));
+    }).length;
+
     return {
       fleetCount,
-      pendingCount,
+      pendingCount: photosNeeded,
+      approvalPendingCount: pendingRentals.length,
       activityCount: fieldRentals.length,
       brandCount: brands,
-      uploadedCount: fieldRentals.filter((r) => r.photo).length,
+      // One count per submission that has vehicle photos uploaded
+      uploadedCount: photosDone,
+      photosDoneCount: photosDone,
     };
   }, [vehicles, rentals, pendingRentals]);
 

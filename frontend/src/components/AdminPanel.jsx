@@ -36,6 +36,7 @@ import VehicleModal from './VehicleModal'
 import VehicleReports from './VehicleReports'
 import PendingApprovals from './PendingApprovals'
 import EmployeesPanel from './EmployeesPanel'
+import ChatPanel from './ChatPanel'
 import { addOwner, autoCapitalizeWords, loadOwners, purgeOrphanOwners, updateOwner } from '../utils/owners'
 import { loadReportStore } from '../utils/vehicleReports'
 import { scanOrcrImage, mergeScanFields } from '../utils/orcrOcr'
@@ -282,6 +283,14 @@ function IconEmployees() {
   )
 }
 
+function IconChat() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />
+    </svg>
+  )
+}
+
 const MANAGE_STATUS_FILTERS = [
   { id: 'All', label: 'All' },
   { id: 'Available', label: 'Available' },
@@ -296,6 +305,7 @@ const NAV = [
   { id: 'rent', label: 'Rent Car', icon: <IconRent /> },
   { id: 'manage', label: 'Manage Vehicle', icon: <IconManage /> },
   { id: 'employees', label: 'Employees', icon: <IconEmployees /> },
+  { id: 'chat', label: 'Chat', icon: <IconChat /> },
   { id: 'reports', label: 'Vehicle Reports', icon: <IconReports /> },
   { id: 'history', label: 'Rental History', icon: <IconHistory /> },
 ]
@@ -2652,6 +2662,8 @@ export default function AdminPanel() {
           )}
 
           {tab === 'employees' && <EmployeesPanel />}
+
+          {tab === 'chat' && <ChatPanel adminName={profile.displayName} />}
 
           {tab === 'history' && (
             <section className="admin-history-section">

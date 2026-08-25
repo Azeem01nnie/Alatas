@@ -621,6 +621,43 @@ function replaceEmployees(list) {
   return getEmployees()
 }
 
+/** Merge remote employees into local without wiping local-only rows. Newer updatedAt wins. */
+function mergeEmployees(remoteList) {
+  const remote = Array.isArray(remoteList) ? remoteList : []
+  if (!remote.length) {
+    return getEmployees({ includePassword: true })
+  }
+
+  const local = getEmployees({ includePassword: true })
+  const byId = new Map()
+  const byUsername = new Map()
+
+  const upsert = (row) => {
+    if (!row?.id || !row?.username) return
+    const key = String(row.id)
+    const uname = String(row.username).trim().toLowerCase()
+    const existing = byId.get(key) || byUsername.get(uname)
+    if (!existing) {
+      byId.set(key, row)
+      byUsername.set(uname, row)
+      return
+    }
+    const existingTs = new Date(existing.updatedAt || existing.createdAt || 0).getTime()
+    const nextTs = new Date(row.updatedAt || row.createdAt || 0).getTime()
+    if (nextTs >= existingTs) {
+      byId.delete(String(existing.id))
+      byUsername.delete(String(existing.username || '').trim().toLowerCase())
+      byId.set(key, row)
+      byUsername.set(uname, row)
+    }
+  }
+
+  local.forEach(upsert)
+  remote.forEach(upsert)
+
+  return replaceEmployees([...byId.values()])
+}
+
 function authenticateEmployee(username, password) {
   const employee = getEmployeeByUsername(username, { includePassword: true })
   if (!employee) return null
@@ -628,6 +665,248 @@ function authenticateEmployee(username, password) {
   if (String(employee.password || '') !== String(password || '')) return null
   const { password: _pw, ...safe } = employee
   return safe
+}
+
+function ensureChatTable() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id TEXT PRIMARY KEY,
+      threadId TEXT NOT NULL,
+      senderRole TEXT NOT NULL,
+      senderName TEXT,
+      senderUsername TEXT,
+      text TEXT NOT NULL,
+      createdAt TEXT NOT NULL
+    );
+  `)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_chat_thread ON chat_messages(threadId, createdAt);`)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS chat_threads (
+      threadId TEXT PRIMARY KEY,
+      archived INTEGER DEFAULT 0,
+      archivedAt TEXT,
+      updatedAt TEXT
+    );
+  `)
+}
+
+ensureChatTable()
+
+function ensureChatThreadRow(threadId) {
+  const key = String(threadId || '').trim()
+  if (!key) return null
+  const existing = db.prepare('SELECT * FROM chat_threads WHERE threadId = ?').get(key)
+  if (existing) return existing
+  const now = new Date().toISOString()
+  db.prepare(`
+    INSERT INTO chat_threads (threadId, archived, archivedAt, updatedAt)
+    VALUES (?, 0, NULL, ?)
+  `).run(key, now)
+  return db.prepare('SELECT * FROM chat_threads WHERE threadId = ?').get(key)
+}
+
+function setChatThreadArchived(threadId, archived = true) {
+  const key = String(threadId || '').trim()
+  if (!key) throw new Error('threadId is required')
+  ensureChatThreadRow(key)
+  const now = new Date().toISOString()
+  const isArchived = archived ? 1 : 0
+  db.prepare(`
+    UPDATE chat_threads
+    SET archived = ?,
+        archivedAt = ?,
+        updatedAt = ?
+    WHERE threadId = ?
+  `).run(isArchived, isArchived ? now : null, now, key)
+
+  const row = db.prepare('SELECT * FROM chat_threads WHERE threadId = ?').get(key)
+  return {
+    threadId: row.threadId,
+    archived: row.archived === 1,
+    archivedAt: row.archivedAt || null,
+    updatedAt: row.updatedAt || null,
+  }
+}
+
+function isChatThreadArchived(threadId) {
+  const row = db.prepare('SELECT archived FROM chat_threads WHERE threadId = ?').get(String(threadId || ''))
+  return row?.archived === 1
+}
+function mapChatMessage(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    threadId: row.threadId,
+    senderRole: row.senderRole === 'admin' ? 'admin' : 'employee',
+    senderName: row.senderName || '',
+    senderUsername: row.senderUsername || '',
+    text: row.text || '',
+    createdAt: row.createdAt || null,
+  }
+}
+
+function getChatMessages({ threadId = null, since = null, limit = 200 } = {}) {
+  const cap = Math.min(Math.max(Number(limit) || 200, 1), 500)
+  let rows
+  if (threadId && since) {
+    rows = db
+      .prepare(
+        `SELECT * FROM chat_messages
+         WHERE threadId = ? AND createdAt > ?
+         ORDER BY createdAt ASC
+         LIMIT ?`,
+      )
+      .all(String(threadId), String(since), cap)
+  } else if (threadId) {
+    rows = db
+      .prepare(
+        `SELECT * FROM chat_messages
+         WHERE threadId = ?
+         ORDER BY createdAt ASC
+         LIMIT ?`,
+      )
+      .all(String(threadId), cap)
+  } else if (since) {
+    rows = db
+      .prepare(
+        `SELECT * FROM chat_messages
+         WHERE createdAt > ?
+         ORDER BY createdAt ASC
+         LIMIT ?`,
+      )
+      .all(String(since), cap)
+  } else {
+    rows = db
+      .prepare(
+        `SELECT * FROM chat_messages
+         ORDER BY createdAt ASC
+         LIMIT ?`,
+      )
+      .all(cap)
+  }
+  return rows.map(mapChatMessage)
+}
+
+function addChatMessage(input = {}) {
+  const text = String(input.text || '').trim()
+  if (!text) throw new Error('Message text is required')
+  if (text.length > 2000) throw new Error('Message is too long')
+
+  const senderRole = input.senderRole === 'admin' ? 'admin' : 'employee'
+  const senderUsername = String(input.senderUsername || '').trim()
+  const senderName = String(input.senderName || senderUsername || senderRole).trim()
+  const threadId = String(
+    input.threadId ||
+      (senderRole === 'employee' ? senderUsername || 'employee' : 'admin'),
+  ).trim()
+  if (!threadId) throw new Error('threadId is required')
+
+  const now = new Date().toISOString()
+  const id = String(input.id || `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
+
+  db.prepare(`
+    INSERT INTO chat_messages (id, threadId, senderRole, senderName, senderUsername, text, createdAt)
+    VALUES (@id, @threadId, @senderRole, @senderName, @senderUsername, @text, @createdAt)
+  `).run({
+    id,
+    threadId,
+    senderRole,
+    senderName,
+    senderUsername,
+    text,
+    createdAt: input.createdAt || now,
+  })
+
+  ensureChatThreadRow(threadId)
+  if (senderRole === 'employee' && isChatThreadArchived(threadId)) {
+    setChatThreadArchived(threadId, false)
+  }
+
+  return mapChatMessage(db.prepare('SELECT * FROM chat_messages WHERE id = ?').get(id))
+}
+
+function getChatThreads({ archived = false } = {}) {
+  const wantArchived = archived ? 1 : 0
+  const rows = db
+    .prepare(
+      `SELECT m.threadId,
+              MAX(m.createdAt) AS lastAt,
+              COUNT(*) AS messageCount,
+              COALESCE(t.archived, 0) AS archived,
+              t.archivedAt AS archivedAt
+       FROM chat_messages m
+       LEFT JOIN chat_threads t ON t.threadId = m.threadId
+       GROUP BY m.threadId
+       HAVING COALESCE(t.archived, 0) = ?
+       ORDER BY lastAt DESC`,
+    )
+    .all(wantArchived)
+
+  return rows.map((row) => {
+    const last = db
+      .prepare(
+        `SELECT * FROM chat_messages
+         WHERE threadId = ?
+         ORDER BY createdAt DESC
+         LIMIT 1`,
+      )
+      .get(row.threadId)
+    const employeeMsg = db
+      .prepare(
+        `SELECT senderName, senderUsername FROM chat_messages
+         WHERE threadId = ? AND senderRole = 'employee'
+         ORDER BY createdAt DESC
+         LIMIT 1`,
+      )
+      .get(row.threadId)
+
+    return {
+      threadId: row.threadId,
+      messageCount: row.messageCount,
+      lastAt: row.lastAt,
+      lastMessage: mapChatMessage(last),
+      employeeName: employeeMsg?.senderName || row.threadId,
+      employeeUsername: employeeMsg?.senderUsername || row.threadId,
+      archived: row.archived === 1,
+      archivedAt: row.archivedAt || null,
+    }
+  })
+}
+
+function mergeChatMessages(remoteList) {
+  const remote = Array.isArray(remoteList) ? remoteList : []
+  if (!remote.length) return getChatMessages({ limit: 500 })
+
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO chat_messages
+      (id, threadId, senderRole, senderName, senderUsername, text, createdAt)
+    VALUES (@id, @threadId, @senderRole, @senderName, @senderUsername, @text, @createdAt)
+  `)
+
+  const run = db.transaction((items) => {
+    for (const item of items) {
+      const text = String(item?.text || '').trim()
+      const id = String(item?.id || '').trim()
+      const threadId = String(item?.threadId || '').trim()
+      if (!id || !threadId || !text) continue
+      const senderRole = item.senderRole === 'admin' ? 'admin' : 'employee'
+      insert.run({
+        id,
+        threadId,
+        senderRole,
+        senderName: String(item.senderName || '').trim(),
+        senderUsername: String(item.senderUsername || '').trim(),
+        text,
+        createdAt: item.createdAt || new Date().toISOString(),
+      })
+      ensureChatThreadRow(threadId)
+      if (senderRole === 'employee' && isChatThreadArchived(threadId)) {
+        setChatThreadArchived(threadId, false)
+      }
+    }
+  })
+  run(remote)
+  return getChatMessages({ limit: 500 })
 }
 
 export {
@@ -652,5 +931,11 @@ export {
   updateEmployee,
   deleteEmployee,
   replaceEmployees,
+  mergeEmployees,
   authenticateEmployee,
+  getChatMessages,
+  addChatMessage,
+  getChatThreads,
+  setChatThreadArchived,
+  mergeChatMessages,
 }

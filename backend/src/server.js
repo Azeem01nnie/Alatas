@@ -20,7 +20,13 @@ import {
   updateEmployee,
   deleteEmployee,
   replaceEmployees,
+  mergeEmployees,
   authenticateEmployee,
+  getChatMessages,
+  addChatMessage,
+  getChatThreads,
+  setChatThreadArchived,
+  mergeChatMessages,
 } from './sqlite-db.js'
 import {
   getPendingRentals,
@@ -220,9 +226,38 @@ async function pullEmployeesFromCloud() {
     return { ok: true, pulled: 0 }
   }
 
-  // Prefer cloud as source of truth for shared employee directory
-  replaceEmployees(remote)
-  return { ok: true, pulled: remote.length }
+  const localBefore = getEmployees({ includePassword: true })
+
+  // Never wipe local employees when cloud is empty — merge instead
+  if (remote.length === 0) {
+    if (localBefore.length > 0) {
+      try {
+        await pushEmployeeMutationToCloud(
+          'PUT',
+          '/api/employees',
+          localBefore,
+        )
+        return { ok: true, pulled: 0, seeded: localBefore.length }
+      } catch (err) {
+        console.warn('[local-api] could not seed employees to cloud', err?.message || err)
+      }
+    }
+    return { ok: true, pulled: 0 }
+  }
+
+  mergeEmployees(remote)
+  const localAfter = getEmployees({ includePassword: true })
+
+  // Push any local-only rows back to cloud so mobile stays in sync
+  if (localAfter.length > remote.length) {
+    try {
+      await pushEmployeeMutationToCloud('PUT', '/api/employees', localAfter)
+    } catch (err) {
+      console.warn('[local-api] could not push merged employees to cloud', err?.message || err)
+    }
+  }
+
+  return { ok: true, pulled: remote.length, local: localAfter.length }
 }
 
 async function pushEmployeeMutationToCloud(method, path, body) {
@@ -438,6 +473,112 @@ app.post('/api/employees/auth', (req, res) => {
     res.json(employee)
   } catch (err) {
     sendError(res, err)
+  }
+})
+
+async function pullChatFromCloud() {
+  if (!CLOUD_SYNC_ENABLED || !RENDER_API_URL) {
+    return { ok: true, skipped: true }
+  }
+  const response = await fetch(`${RENDER_API_URL}/api/chat/messages?limit=500`)
+  if (!response.ok) {
+    throw new Error(`Cloud chat pull failed (${response.status})`)
+  }
+  const remote = await response.json()
+  mergeChatMessages(Array.isArray(remote) ? remote : [])
+
+  // Keep archive flags aligned with cloud when the endpoint exists.
+  try {
+    const [activeRes, archivedRes] = await Promise.all([
+      fetch(`${RENDER_API_URL}/api/chat/threads`),
+      fetch(`${RENDER_API_URL}/api/chat/threads?archived=1`),
+    ])
+    if (activeRes.ok) {
+      const active = await activeRes.json()
+      for (const thread of Array.isArray(active) ? active : []) {
+        if (thread?.threadId) setChatThreadArchived(thread.threadId, false)
+      }
+    }
+    if (archivedRes.ok) {
+      const archived = await archivedRes.json()
+      for (const thread of Array.isArray(archived) ? archived : []) {
+        if (thread?.threadId) setChatThreadArchived(thread.threadId, true)
+      }
+    }
+  } catch (err) {
+    console.warn('[local-api] chat archive sync skipped', err?.message || err)
+  }
+
+  return { ok: true, pulled: Array.isArray(remote) ? remote.length : 0 }
+}
+
+app.get('/api/chat/threads', async (req, res) => {
+  try {
+    await pullChatFromCloud().catch((err) => {
+      console.warn('[local-api] chat pull skipped', err?.message || err)
+    })
+    const archived = String(req.query.archived || '') === '1'
+    res.json(getChatThreads({ archived }))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.patch('/api/chat/threads/:threadId', async (req, res) => {
+  try {
+    const archived = Boolean(req.body?.archived)
+    const updated = setChatThreadArchived(req.params.threadId, archived)
+    if (CLOUD_SYNC_ENABLED && RENDER_API_URL) {
+      try {
+        await fetch(
+          `${RENDER_API_URL}/api/chat/threads/${encodeURIComponent(req.params.threadId)}`,
+          {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ archived }),
+          },
+        )
+      } catch (err) {
+        console.warn('[local-api] could not sync chat archive to cloud', err?.message || err)
+      }
+    }
+    res.json(updated)
+  } catch (err) {
+    sendError(res, err, 400)
+  }
+})
+
+app.get('/api/chat/messages', async (req, res) => {
+  try {
+    await pullChatFromCloud().catch((err) => {
+      console.warn('[local-api] chat pull skipped', err?.message || err)
+    })
+    const threadId = req.query.threadId ? String(req.query.threadId) : null
+    const since = req.query.since ? String(req.query.since) : null
+    const limit = Number(req.query.limit || 200)
+    res.json(getChatMessages({ threadId, since, limit }))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/chat/messages', async (req, res) => {
+  try {
+    const created = addChatMessage(req.body || {})
+    if (CLOUD_SYNC_ENABLED && RENDER_API_URL) {
+      try {
+        await fetch(`${RENDER_API_URL}/api/chat/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(created),
+        })
+      } catch (err) {
+        console.warn('[local-api] could not push chat message to cloud', err?.message || err)
+      }
+    }
+    res.status(201).json(created)
+  } catch (err) {
+    sendError(res, err, 400)
   }
 })
 

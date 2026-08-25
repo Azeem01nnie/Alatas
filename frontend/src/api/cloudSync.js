@@ -109,3 +109,35 @@ export async function deleteCloudEmployee(id) {
     method: 'DELETE',
   })
 }
+
+export async function fetchCloudChatMessages({ threadId, since, limit } = {}) {
+  if (!isCloudConfigured()) return []
+  const params = new URLSearchParams()
+  if (threadId) params.set('threadId', threadId)
+  if (since) params.set('since', since)
+  if (limit) params.set('limit', String(limit))
+  const qs = params.toString()
+  return cloudRequest(`/api/chat/messages${qs ? `?${qs}` : ''}`)
+}
+
+export async function sendCloudChatMessage(payload) {
+  if (!isCloudConfigured()) throw new Error('Cloud URL is not configured')
+  return cloudRequest('/api/chat/messages', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function fetchCloudChatThreads({ archived = false } = {}) {
+  if (!isCloudConfigured()) return []
+  const qs = archived ? '?archived=1' : ''
+  return cloudRequest(`/api/chat/threads${qs}`)
+}
+
+export async function setCloudChatThreadArchived(threadId, archived) {
+  if (!isCloudConfigured()) throw new Error('Cloud URL is not configured')
+  return cloudRequest(`/api/chat/threads/${encodeURIComponent(threadId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ archived: Boolean(archived) }),
+  })
+}

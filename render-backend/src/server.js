@@ -21,6 +21,11 @@ import {
   deleteEmployee,
   replaceEmployees,
   authenticateEmployee,
+  getChatMessages,
+  addChatMessage,
+  getChatThreads,
+  setChatThreadArchived,
+  mergeChatMessages,
 } from './sqlite-db.js'
 import {
   getPendingRentals,
@@ -164,6 +169,44 @@ app.post('/api/employees/auth', (req, res) => {
     res.json(employee)
   } catch (err) {
     sendError(res, err)
+  }
+})
+
+app.get('/api/chat/threads', (req, res) => {
+  try {
+    const archived = String(req.query.archived || '') === '1'
+    res.json(getChatThreads({ archived }))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.patch('/api/chat/threads/:threadId', (req, res) => {
+  try {
+    const archived = Boolean(req.body?.archived)
+    res.json(setChatThreadArchived(req.params.threadId, archived))
+  } catch (err) {
+    sendError(res, err, 400)
+  }
+})
+
+app.get('/api/chat/messages', (req, res) => {
+  try {
+    const threadId = req.query.threadId ? String(req.query.threadId) : null
+    const since = req.query.since ? String(req.query.since) : null
+    const limit = Number(req.query.limit || 200)
+    res.json(getChatMessages({ threadId, since, limit }))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/chat/messages', (req, res) => {
+  try {
+    const created = addChatMessage(req.body || {})
+    res.status(201).json(created)
+  } catch (err) {
+    sendError(res, err, 400)
   }
 })
 

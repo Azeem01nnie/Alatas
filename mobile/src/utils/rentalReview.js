@@ -54,5 +54,10 @@ export function buildRentalReviewDetails(rental) {
     })).filter((item) => item.uri),
     carPhotosComplete: rentalHasCarPhotos(rental),
     carPhotosAddedBy: getCarPhotosAddedBy(rental),
+    submittedBy:
+      rental.submittedBy ||
+      rental.personal?.submittedBy ||
+      getCarPhotosAddedBy(rental) ||
+      null,
   };
 }
