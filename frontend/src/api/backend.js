@@ -52,6 +52,13 @@ export function addRental(rental) {
   })
 }
 
+export function submitPendingRental(rental) {
+  return request('/api/rentals/pending', {
+    method: 'POST',
+    body: JSON.stringify(rental),
+  })
+}
+
 export function fetchPendingRentals() {
   return request('/api/pending-rentals')
 }
@@ -79,4 +86,54 @@ export function fetchSyncQueue() {
 
 export function flushSyncQueue() {
   return request('/api/sync/queue/flush', { method: 'POST' })
+}
+
+export function pullFromCloudViaBackend() {
+  return request('/api/sync/cloud/pull', { method: 'POST' })
+}
+
+export function runCloudSync() {
+  return request('/api/sync/cloud/run', { method: 'POST' })
+}
+
+export function fetchAdminProfile() {
+  return request('/api/settings/admin-profile')
+}
+
+export function saveAdminProfileRemote(profile) {
+  return request('/api/settings/admin-profile', {
+    method: 'PUT',
+    body: JSON.stringify(profile),
+  })
+}
+
+export function fetchEmployees() {
+  return request('/api/employees')
+}
+
+export function createEmployee(employee) {
+  return request('/api/employees', {
+    method: 'POST',
+    body: JSON.stringify(employee),
+  })
+}
+
+export function updateEmployee(id, patch) {
+  return request(`/api/employees/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  })
+}
+
+export function deleteEmployee(id) {
+  return request(`/api/employees/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  })
+}
+
+export function authenticateEmployee(username, password) {
+  return request('/api/employees/auth', {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+  })
 }

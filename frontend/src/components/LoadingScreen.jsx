@@ -13,6 +13,7 @@ export default function LoadingScreen({ onDone }) {
       <main className="success-card loading-card">
         <div className="loader" aria-hidden="true" />
         <h1>Successful</h1>
+        <p>This rental is waiting for approval.</p>
       </main>
     </div>
   )

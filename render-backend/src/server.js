@@ -8,8 +8,19 @@ import {
   replaceVehicles,
   getRentals,
   addRental,
+  updateRentalCarPhotos,
   replaceRentals,
   deleteVehicle,
+  getAdminProfile,
+  setAdminProfile,
+  getVehicleReports,
+  setVehicleReports,
+  getEmployees,
+  createEmployee,
+  updateEmployee,
+  deleteEmployee,
+  replaceEmployees,
+  authenticateEmployee,
 } from './sqlite-db.js'
 import {
   getPendingRentals,
@@ -63,6 +74,97 @@ app.get('/api/system/status', (_req, res) => {
     pendingApprovalCount: getPendingRentals().length,
     lastPulledAt: getSyncMeta('last_pulled_at'),
   })
+})
+
+app.get('/api/settings/admin-profile', (_req, res) => {
+  try {
+    res.json(getAdminProfile())
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.put('/api/settings/admin-profile', (req, res) => {
+  try {
+    res.json(setAdminProfile(req.body || {}))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.get('/api/vehicle-reports', (_req, res) => {
+  try {
+    res.json(getVehicleReports())
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.put('/api/vehicle-reports', (req, res) => {
+  try {
+    res.json(setVehicleReports(req.body || {}))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.get('/api/employees', (req, res) => {
+  try {
+    const includePassword = String(req.query.includePassword || '') === '1'
+    res.json(getEmployees({ includePassword }))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.put('/api/employees', (req, res) => {
+  try {
+    res.json(replaceEmployees(req.body))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/employees', (req, res) => {
+  try {
+    const created = createEmployee(req.body || {})
+    res.status(201).json(created)
+  } catch (err) {
+    sendError(res, err, 400)
+  }
+})
+
+app.patch('/api/employees/:id', (req, res) => {
+  try {
+    const updated = updateEmployee(req.params.id, req.body || {})
+    res.json(updated)
+  } catch (err) {
+    const status = String(err?.message || '').includes('not found') ? 404 : 400
+    sendError(res, err, status)
+  }
+})
+
+app.delete('/api/employees/:id', (req, res) => {
+  try {
+    res.json(deleteEmployee(req.params.id))
+  } catch (err) {
+    const status = String(err?.message || '').includes('not found') ? 404 : 400
+    sendError(res, err, status)
+  }
+})
+
+app.post('/api/employees/auth', (req, res) => {
+  try {
+    const { username, password } = req.body || {}
+    const employee = authenticateEmployee(username, password)
+    if (!employee) {
+      res.status(401).json({ error: 'Invalid username or password' })
+      return
+    }
+    res.json(employee)
+  } catch (err) {
+    sendError(res, err)
+  }
 })
 
 app.get('/api/vehicles', (_req, res) => {
@@ -172,6 +274,44 @@ app.delete('/api/vehicles/:id', (req, res) => {
   }
 })
 
+app.patch('/api/rentals/:id/car-photos', (req, res) => {
+  try {
+    const carPhotos = req.body?.carPhotos
+    const addedBy = req.body?.addedBy
+    if (!carPhotos || typeof carPhotos !== 'object' || Array.isArray(carPhotos)) {
+      return res.status(400).json({ error: 'carPhotos object is required' })
+    }
+    const updated = updateRentalCarPhotos(req.params.id, carPhotos, addedBy)
+    enqueueSyncItem({
+      entityType: 'rentals',
+      action: 'update',
+      payload: updated,
+    })
+    res.json(updated)
+  } catch (err) {
+    sendError(res, err, err.message.includes('not found') ? 404 : 400)
+  }
+})
+
+app.post('/api/rentals/:id/car-photos', (req, res) => {
+  try {
+    const carPhotos = req.body?.carPhotos
+    const addedBy = req.body?.addedBy
+    if (!carPhotos || typeof carPhotos !== 'object' || Array.isArray(carPhotos)) {
+      return res.status(400).json({ error: 'carPhotos object is required' })
+    }
+    const updated = updateRentalCarPhotos(req.params.id, carPhotos, addedBy)
+    enqueueSyncItem({
+      entityType: 'rentals',
+      action: 'update',
+      payload: updated,
+    })
+    res.json(updated)
+  } catch (err) {
+    sendError(res, err, err.message.includes('not found') ? 404 : 400)
+  }
+})
+
 app.put('/api/rentals', (req, res) => {
   try {
     const rentals = Array.isArray(req.body) ? req.body : []
@@ -211,6 +351,7 @@ app.get('/api/sync/pull', (req, res) => {
           ),
           deleted: [],
         },
+        vehicleReports: getVehicleReports(),
       },
       timestamp,
     })
@@ -252,6 +393,19 @@ app.post('/api/sync/push', (req, res) => {
         }
       }
       replaceRentals([...byId.values()])
+    }
+
+    const reportStore = changes?.vehicleReports?.updated?.[0] || changes?.vehicleReports
+    if (reportStore && Array.isArray(reportStore.entries)) {
+      const local = getVehicleReports()
+      const byId = new Map(local.entries.map((entry) => [entry.id, entry]))
+      reportStore.entries.forEach((entry) => {
+        if (entry?.id) byId.set(entry.id, entry)
+      })
+      setVehicleReports({
+        entries: [...byId.values()],
+        submissions: reportStore.submissions?.length ? reportStore.submissions : local.submissions,
+      })
     }
 
     res.json({ ok: true })

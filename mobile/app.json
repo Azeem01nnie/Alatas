@@ -30,6 +30,13 @@
       ],
 
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Alatas to access photos for field inspections.",
+          "cameraPermission": "Allow Alatas to use the camera for field inspections."
+        }
+      ],
+      [
         "expo-build-properties",
         {
           "android": {}

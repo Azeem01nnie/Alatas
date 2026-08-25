@@ -8,8 +8,19 @@ import {
   replaceVehicles,
   getRentals,
   addRental,
+  updateRentalCarPhotos,
   replaceRentals,
   deleteVehicle,
+  getAdminProfile,
+  setAdminProfile,
+  getVehicleReports,
+  setVehicleReports,
+  getEmployees,
+  createEmployee,
+  updateEmployee,
+  deleteEmployee,
+  replaceEmployees,
+  authenticateEmployee,
 } from './sqlite-db.js'
 import {
   getPendingRentals,
@@ -110,6 +121,149 @@ async function flushQueueToCloud() {
   return { ok: true, flushed }
 }
 
+function applySyncChanges(changes) {
+  const vehicleUpdates = flattenSyncRecords([
+    ...(changes?.vehicles?.created || []),
+    ...(changes?.vehicles?.updated || []),
+  ])
+  const rentalUpdates = flattenSyncRecords([
+    ...(changes?.rentals?.created || []),
+    ...(changes?.rentals?.updated || []),
+  ])
+
+  if (vehicleUpdates.length) {
+    const current = getVehicles()
+    const byId = new Map(current.map((v) => [String(v.id), v]))
+    for (const vehicle of vehicleUpdates) {
+      if (vehicle?.id) byId.set(String(vehicle.id), vehicle)
+    }
+    replaceVehicles([...byId.values()])
+  }
+
+  if (rentalUpdates.length) {
+    const current = getRentals()
+    const byId = new Map(current.map((r) => [String(r.id), r]))
+    for (const rental of rentalUpdates) {
+      if (!rental?.id) continue
+      const key = String(rental.id)
+      const existing = byId.get(key)
+      if (!existing || rentalUpdatedAt(rental) >= rentalUpdatedAt(existing)) {
+        byId.set(key, rental)
+      }
+    }
+    replaceRentals([...byId.values()])
+  }
+
+  const reportStore = changes?.vehicleReports?.updated?.[0] || changes?.vehicleReports
+  if (reportStore && Array.isArray(reportStore.entries)) {
+    const local = getVehicleReports()
+    const byId = new Map(local.entries.map((entry) => [entry.id, entry]))
+    reportStore.entries.forEach((entry) => {
+      if (entry?.id) byId.set(entry.id, entry)
+    })
+    setVehicleReports({
+      entries: [...byId.values()],
+      submissions: reportStore.submissions?.length ? reportStore.submissions : local.submissions,
+    })
+  }
+
+  return {
+    vehicles: vehicleUpdates.length,
+    rentals: rentalUpdates.length,
+    vehicleReports: reportStore?.entries?.length || 0,
+  }
+}
+
+async function pullVehicleReportsFromCloud() {
+  if (!CLOUD_SYNC_ENABLED || !RENDER_API_URL) {
+    return { ok: true, skipped: true, reason: 'Cloud sync not configured' }
+  }
+
+  const response = await fetch(`${RENDER_API_URL}/api/vehicle-reports`)
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    throw new Error(`Cloud vehicle reports pull failed (${response.status}): ${text}`)
+  }
+
+  const remote = await response.json()
+  const local = getVehicleReports()
+  if (!Array.isArray(remote?.entries) || !remote.entries.length) {
+    return { ok: true, pulled: 0, entries: local.entries.length }
+  }
+
+  const byId = new Map(local.entries.map((entry) => [entry.id, entry]))
+  remote.entries.forEach((entry) => {
+    if (entry?.id) byId.set(entry.id, entry)
+  })
+
+  const merged = setVehicleReports({
+    entries: [...byId.values()],
+    submissions: remote.submissions?.length ? remote.submissions : local.submissions,
+  })
+
+  return { ok: true, pulled: remote.entries.length, entries: merged.entries.length }
+}
+
+async function pullEmployeesFromCloud() {
+  if (!CLOUD_SYNC_ENABLED || !RENDER_API_URL) {
+    return { ok: true, skipped: true, reason: 'Cloud sync not configured' }
+  }
+
+  const response = await fetch(`${RENDER_API_URL}/api/employees?includePassword=1`)
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    throw new Error(`Cloud employees pull failed (${response.status}): ${text}`)
+  }
+
+  const remote = await response.json()
+  if (!Array.isArray(remote)) {
+    return { ok: true, pulled: 0 }
+  }
+
+  // Prefer cloud as source of truth for shared employee directory
+  replaceEmployees(remote)
+  return { ok: true, pulled: remote.length }
+}
+
+async function pushEmployeeMutationToCloud(method, path, body) {
+  if (!CLOUD_SYNC_ENABLED || !RENDER_API_URL) return null
+  const response = await fetch(`${RENDER_API_URL}${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: body == null ? undefined : JSON.stringify(body),
+  })
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    throw new Error(`Cloud employee sync failed (${response.status}): ${text}`)
+  }
+  if (response.status === 204) return null
+  return response.json()
+}
+
+async function pullFromCloudToLocal() {
+  if (!CLOUD_SYNC_ENABLED) {
+    return { ok: true, skipped: true, reason: 'Cloud sync not configured' }
+  }
+
+  const lastPulledAt = Number(getSyncMeta('last_pulled_at') || 0)
+  const response = await fetch(
+    `${RENDER_API_URL}/api/sync/pull?last_pulled_at=${encodeURIComponent(lastPulledAt)}`,
+  )
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    throw new Error(`Cloud pull failed (${response.status}): ${text}`)
+  }
+
+  const data = await response.json()
+  const applied = applySyncChanges(data.changes || {})
+  if (data.timestamp) {
+    setSyncMeta('last_pulled_at', String(data.timestamp))
+  }
+
+  return { ok: true, applied, timestamp: data.timestamp ?? Date.now() }
+}
+
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'alatas-backend', host: HOST })
 })
@@ -124,6 +278,167 @@ app.get('/api/system/status', (_req, res) => {
     pendingApprovalCount: getPendingRentals().length,
     lastPulledAt: getSyncMeta('last_pulled_at'),
   })
+})
+
+app.get('/api/settings/admin-profile', (_req, res) => {
+  try {
+    res.json(getAdminProfile())
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.put('/api/settings/admin-profile', async (req, res) => {
+  try {
+    const profile = setAdminProfile(req.body || {})
+    if (CLOUD_SYNC_ENABLED && RENDER_API_URL) {
+      try {
+        await fetch(`${RENDER_API_URL}/api/settings/admin-profile`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(profile),
+        })
+      } catch (err) {
+        console.warn('[local-api] could not push admin profile to cloud', err?.message || err)
+      }
+    }
+    res.json(profile)
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.get('/api/vehicle-reports', async (_req, res) => {
+  try {
+    await pullVehicleReportsFromCloud().catch((err) => {
+      console.warn('[local-api] vehicle reports pull skipped', err?.message || err)
+    })
+    res.json(getVehicleReports())
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.put('/api/vehicle-reports', async (req, res) => {
+  try {
+    const store = setVehicleReports(req.body || {})
+    if (CLOUD_SYNC_ENABLED && RENDER_API_URL) {
+      try {
+        await fetch(`${RENDER_API_URL}/api/vehicle-reports`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(store),
+        })
+      } catch (err) {
+        console.warn('[local-api] could not push vehicle reports to cloud', err?.message || err)
+      }
+    }
+    res.json(store)
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.get('/api/employees', async (req, res) => {
+  try {
+    await pullEmployeesFromCloud().catch((err) => {
+      console.warn('[local-api] employees pull skipped', err?.message || err)
+    })
+    const includePassword = String(req.query.includePassword || '') === '1'
+    res.json(getEmployees({ includePassword }))
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.put('/api/employees', async (req, res) => {
+  try {
+    const rows = replaceEmployees(req.body)
+    if (CLOUD_SYNC_ENABLED && RENDER_API_URL) {
+      try {
+        await pushEmployeeMutationToCloud('PUT', '/api/employees', getEmployees({ includePassword: true }))
+      } catch (err) {
+        console.warn('[local-api] could not push employees to cloud', err?.message || err)
+      }
+    }
+    res.json(rows)
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/employees', async (req, res) => {
+  try {
+    const created = createEmployee(req.body || {})
+    if (CLOUD_SYNC_ENABLED && RENDER_API_URL) {
+      try {
+        await pushEmployeeMutationToCloud('POST', '/api/employees', {
+          ...created,
+          password: String(req.body?.password || ''),
+        })
+      } catch (err) {
+        console.warn('[local-api] could not push new employee to cloud', err?.message || err)
+      }
+    }
+    res.status(201).json(created)
+  } catch (err) {
+    sendError(res, err, 400)
+  }
+})
+
+app.patch('/api/employees/:id', async (req, res) => {
+  try {
+    const updated = updateEmployee(req.params.id, req.body || {})
+    if (CLOUD_SYNC_ENABLED && RENDER_API_URL) {
+      try {
+        await pushEmployeeMutationToCloud(
+          'PATCH',
+          `/api/employees/${encodeURIComponent(req.params.id)}`,
+          req.body || {},
+        )
+      } catch (err) {
+        console.warn('[local-api] could not push employee update to cloud', err?.message || err)
+      }
+    }
+    res.json(updated)
+  } catch (err) {
+    const status = String(err?.message || '').includes('not found') ? 404 : 400
+    sendError(res, err, status)
+  }
+})
+
+app.delete('/api/employees/:id', async (req, res) => {
+  try {
+    const removed = deleteEmployee(req.params.id)
+    if (CLOUD_SYNC_ENABLED && RENDER_API_URL) {
+      try {
+        await pushEmployeeMutationToCloud(
+          'DELETE',
+          `/api/employees/${encodeURIComponent(req.params.id)}`,
+        )
+      } catch (err) {
+        console.warn('[local-api] could not delete employee on cloud', err?.message || err)
+      }
+    }
+    res.json(removed)
+  } catch (err) {
+    const status = String(err?.message || '').includes('not found') ? 404 : 400
+    sendError(res, err, status)
+  }
+})
+
+app.post('/api/employees/auth', (req, res) => {
+  try {
+    const { username, password } = req.body || {}
+    const employee = authenticateEmployee(username, password)
+    if (!employee) {
+      res.status(401).json({ error: 'Invalid username or password' })
+      return
+    }
+    res.json(employee)
+  } catch (err) {
+    sendError(res, err)
+  }
 })
 
 app.get('/api/vehicles', (_req, res) => {
@@ -258,6 +573,44 @@ app.delete('/api/vehicles/:id', (req, res) => {
   }
 })
 
+app.patch('/api/rentals/:id/car-photos', (req, res) => {
+  try {
+    const carPhotos = req.body?.carPhotos
+    const addedBy = req.body?.addedBy
+    if (!carPhotos || typeof carPhotos !== 'object' || Array.isArray(carPhotos)) {
+      return res.status(400).json({ error: 'carPhotos object is required' })
+    }
+    const updated = updateRentalCarPhotos(req.params.id, carPhotos, addedBy)
+    enqueueSyncItem({
+      entityType: 'rentals',
+      action: 'update',
+      payload: updated,
+    })
+    res.json(updated)
+  } catch (err) {
+    sendError(res, err, err.message.includes('not found') ? 404 : 400)
+  }
+})
+
+app.post('/api/rentals/:id/car-photos', (req, res) => {
+  try {
+    const carPhotos = req.body?.carPhotos
+    const addedBy = req.body?.addedBy
+    if (!carPhotos || typeof carPhotos !== 'object' || Array.isArray(carPhotos)) {
+      return res.status(400).json({ error: 'carPhotos object is required' })
+    }
+    const updated = updateRentalCarPhotos(req.params.id, carPhotos, addedBy)
+    enqueueSyncItem({
+      entityType: 'rentals',
+      action: 'update',
+      payload: updated,
+    })
+    res.json(updated)
+  } catch (err) {
+    sendError(res, err, err.message.includes('not found') ? 404 : 400)
+  }
+})
+
 app.put('/api/rentals', (req, res) => {
   try {
     const rentals = Array.isArray(req.body) ? req.body : []
@@ -308,6 +661,7 @@ app.get('/api/sync/pull', (req, res) => {
           updated: changedRentals.filter((r) => !(r.createdAt && new Date(r.createdAt).getTime() > lastPulledAt)),
           deleted: [],
         },
+        vehicleReports: getVehicleReports(),
       },
       timestamp,
     })
@@ -319,39 +673,30 @@ app.get('/api/sync/pull', (req, res) => {
 app.post('/api/sync/push', (req, res) => {
   try {
     const { changes } = req.body || {}
-    const vehicleUpdates = flattenSyncRecords([
-      ...(changes?.vehicles?.created || []),
-      ...(changes?.vehicles?.updated || []),
-    ])
-    const rentalUpdates = flattenSyncRecords([
-      ...(changes?.rentals?.created || []),
-      ...(changes?.rentals?.updated || []),
-    ])
+    const applied = applySyncChanges(changes || {})
+    res.json({ ok: true, applied })
+  } catch (err) {
+    sendError(res, err)
+  }
+})
 
-    if (vehicleUpdates.length) {
-      const current = getVehicles()
-      const byId = new Map(current.map((v) => [String(v.id), v]))
-      for (const vehicle of vehicleUpdates) {
-        if (vehicle?.id) byId.set(String(vehicle.id), vehicle)
-      }
-      replaceVehicles([...byId.values()])
+app.post('/api/sync/cloud/pull', async (_req, res) => {
+  try {
+    const result = await pullFromCloudToLocal()
+    res.json(result)
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+app.post('/api/sync/cloud/run', async (_req, res) => {
+  try {
+    const flush = await flushQueueToCloud()
+    if (!flush.ok) {
+      return res.status(502).json({ ok: false, flush })
     }
-
-    if (rentalUpdates.length) {
-      const current = getRentals()
-      const byId = new Map(current.map((r) => [String(r.id), r]))
-      for (const rental of rentalUpdates) {
-        if (!rental?.id) continue
-        const key = String(rental.id)
-        const existing = byId.get(key)
-        if (!existing || rentalUpdatedAt(rental) >= rentalUpdatedAt(existing)) {
-          byId.set(key, rental)
-        }
-      }
-      replaceRentals([...byId.values()])
-    }
-
-    res.json({ ok: true })
+    const pull = await pullFromCloudToLocal()
+    res.json({ ok: true, flush, pull })
   } catch (err) {
     sendError(res, err)
   }
@@ -376,6 +721,9 @@ const server = app.listen(PORT, HOST, () => {
   console.log(`Alatas backend running on http://${HOST}:${PORT}`)
   if (CLOUD_SYNC_ENABLED) {
     console.log(`Cloud sync target: ${RENDER_API_URL}`)
+    pullVehicleReportsFromCloud().catch((err) => {
+      console.warn('[local-api] startup vehicle reports pull failed', err?.message || err)
+    })
   }
   if (serveFrontend) {
     console.log(`Serving frontend from ${frontendDist}`)

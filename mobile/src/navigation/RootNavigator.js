@@ -4,12 +4,15 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Home, ClipboardList, User, Users, Car, Camera, MessageSquare } from 'lucide-react-native';
 
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AdminDashboardScreen from '../screens/AdminDashboardScreen';
 import ActivityLogsScreen from '../screens/ActivityLogsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import EmployeeManageScreen from '../screens/EmployeeManageScreen';
 import CarLogsScreen from '../screens/CarLogsScreen';
 import CarDetailsScreen from '../screens/CarDetailsScreen';
+import CarPhotosScreen from '../screens/CarPhotosScreen';
+import VehicleReportsScreen from '../screens/VehicleReportsScreen';
 
 // Employee Screens
 import EmployeeDashboardScreen from '../screens/EmployeeDashboardScreen';
@@ -25,6 +28,7 @@ const Stack = createNativeStackNavigator();
 
 function AdminTabNavigator() {
   const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
 
   return (
     <Tab.Navigator
@@ -42,13 +46,23 @@ function AdminTabNavigator() {
             return <User color={color} size={size} />;
           }
         },
-        tabBarActiveTintColor: '#3b82f6',
+        tabBarActiveTintColor: '#b32025',
         tabBarInactiveTintColor: theme.textSub,
+        tabBarHideOnKeyboard: true,
         tabBarStyle: {
           backgroundColor: theme.card,
           borderTopColor: theme.border,
+          borderTopWidth: 1,
+          paddingTop: 6,
+          paddingBottom: Math.max(insets.bottom, 8),
+          height: 56 + Math.max(insets.bottom, 8),
         },
-        headerShown: true,
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: '600',
+          marginBottom: 2,
+        },
+        headerShown: false,
       })}
     >
       <Tab.Screen name="Dashboard" component={AdminDashboardScreen} options={{ headerShown: false }} />
@@ -62,6 +76,7 @@ function AdminTabNavigator() {
 
 function EmployeeTabNavigator() {
   const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
 
   return (
     <Tab.Navigator
@@ -77,13 +92,23 @@ function EmployeeTabNavigator() {
             return <User color={color} size={size} />;
           }
         },
-        tabBarActiveTintColor: '#3b82f6',
+        tabBarActiveTintColor: '#b32025',
         tabBarInactiveTintColor: theme.textSub,
+        tabBarHideOnKeyboard: true,
         tabBarStyle: {
           backgroundColor: theme.card,
           borderTopColor: theme.border,
+          borderTopWidth: 1,
+          paddingTop: 6,
+          paddingBottom: Math.max(insets.bottom, 8),
+          height: 56 + Math.max(insets.bottom, 8),
         },
-        headerShown: true,
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: '600',
+          marginBottom: 2,
+        },
+        headerShown: false,
       })}
     >
       <Tab.Screen name="Dashboard" component={EmployeeDashboardScreen} options={{ headerShown: false }} />
@@ -113,7 +138,28 @@ export default function RootNavigator({ userRole }) {
             title: 'Car Details',
             headerStyle: { backgroundColor: theme.card },
             headerTintColor: theme.textMain,
-            headerTitleStyle: { fontWeight: '700' }
+            headerTitleStyle: { fontWeight: '700' },
+            contentStyle: { backgroundColor: theme.bg },
+          }}
+        />
+        <Stack.Screen
+          name="CarPhotos"
+          component={CarPhotosScreen}
+          options={{
+            headerShown: true,
+            title: 'Car Photos',
+            headerStyle: { backgroundColor: theme.card },
+            headerTintColor: theme.textMain,
+            headerTitleStyle: { fontWeight: '700' },
+            contentStyle: { backgroundColor: theme.bg },
+          }}
+        />
+        <Stack.Screen
+          name="VehicleReports"
+          component={VehicleReportsScreen}
+          options={{
+            headerShown: false,
+            contentStyle: { backgroundColor: theme.bg },
           }}
         />
       </Stack.Navigator>

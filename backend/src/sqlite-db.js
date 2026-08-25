@@ -105,6 +105,8 @@ function createDb() {
     ['rentals', 'source', 'TEXT'],
     ['rentals', 'rejectionReason', 'TEXT'],
     ['rentals', 'updatedAt', 'TEXT'],
+    ['rentals', 'carPhotosAddedBy', 'TEXT'],
+    ['vehicles', 'reportEntries', 'TEXT'],
   ].forEach(([table, column, typeSql]) => ensureColumn(db, table, column, typeSql))
 
   db.prepare(
@@ -125,11 +127,11 @@ const insertVehicleStmt = db.prepare(
   `INSERT INTO vehicles (
       id, make, series, bodyType, seats, transmission, plateNo,
       engineNo, chassisNo, status, image, ownerId, ownerName, ownershipType,
-      orcrImage, orImage, hrs5, hrs12, hrs24, exceedHour, createdAt
+      orcrImage, orImage, hrs5, hrs12, hrs24, exceedHour, createdAt, reportEntries
     ) VALUES (
       @id, @make, @series, @bodyType, @seats, @transmission, @plateNo,
       @engineNo, @chassisNo, @status, @image, @ownerId, @ownerName, @ownershipType,
-      @orcrImage, @orImage, @hrs5, @hrs12, @hrs24, @exceedHour, @createdAt
+      @orcrImage, @orImage, @hrs5, @hrs12, @hrs24, @exceedHour, @createdAt, @reportEntries
     )`,
 )
 
@@ -139,11 +141,11 @@ const insertRentalStmt = db.prepare(
   `INSERT INTO rentals (
       id, vehicleId, vehicle, personal, rental, photo, licensePhoto, signature, carPhotos,
       termsAccepted, rentalLifecycle, startedAt, completedAt, encodedAt, createdAt,
-      approvalStatus, source, rejectionReason, updatedAt
+      approvalStatus, source, rejectionReason, updatedAt, carPhotosAddedBy
     ) VALUES (
       @id, @vehicleId, @vehicle, @personal, @rental, @photo, @licensePhoto, @signature, @carPhotos,
       @termsAccepted, @rentalLifecycle, @startedAt, @completedAt, @encodedAt, @createdAt,
-      @approvalStatus, @source, @rejectionReason, @updatedAt
+      @approvalStatus, @source, @rejectionReason, @updatedAt, @carPhotosAddedBy
     )`,
 )
 
@@ -158,6 +160,7 @@ function deleteVehicle(id) {
 }
 
 function mapVehicle(row) {
+  const reportEntries = parseJson(row.reportEntries)
   return {
     id: row.id,
     make: row.make,
@@ -175,6 +178,7 @@ function mapVehicle(row) {
     ownershipType: row.ownershipType || 'company',
     orcrImage: row.orcrImage || '',
     orImage: row.orImage || '',
+    reportEntries: Array.isArray(reportEntries) ? reportEntries : [],
     rates: {
       hrs5: row.hrs5,
       hrs12: row.hrs12,
@@ -209,6 +213,7 @@ function mapRental(row) {
     source: row.source || 'desktop',
     rejectionReason: row.rejectionReason || null,
     updatedAt: row.updatedAt || row.createdAt,
+    carPhotosAddedBy: row.carPhotosAddedBy || null,
   }
 }
 
@@ -249,6 +254,9 @@ function replaceVehicles(vehicles) {
         hrs24: vehicle.rates?.hrs24 == null ? null : Number(vehicle.rates.hrs24),
         exceedHour: vehicle.rates?.exceedHour == null ? null : Number(vehicle.rates.exceedHour),
         createdAt: vehicle.createdAt || now,
+        reportEntries: serializeJson(
+          Array.isArray(vehicle.reportEntries) ? vehicle.reportEntries : [],
+        ),
       })
     }
   })
@@ -284,6 +292,7 @@ function toRentalRow(rental, fallbackNow) {
     source: rental.source || 'desktop',
     rejectionReason: rental.rejectionReason ?? null,
     updatedAt: rental.updatedAt ?? now,
+    carPhotosAddedBy: rental.carPhotosAddedBy ?? null,
   }
 }
 
@@ -299,6 +308,49 @@ function addRental(rental) {
   const entry = toRentalRow(rental, now)
   insertRentalStmt.run(entry)
   return mapRental(entry)
+}
+
+const CAR_PHOTO_KEYS = ['front', 'rear', 'left', 'right']
+
+function rentalCarPhotosComplete(carPhotos) {
+  if (!carPhotos || typeof carPhotos !== 'object') return false
+  return CAR_PHOTO_KEYS.every((key) => Boolean(carPhotos[key]))
+}
+
+function updateRentalCarPhotos(id, carPhotos, addedBy) {
+  const key = String(id || '').trim()
+  if (!key) throw new Error('Rental id is required')
+  const row = db.prepare('SELECT * FROM rentals WHERE id = ?').get(key)
+  if (!row) throw new Error('Rental not found')
+
+  const existing =
+    parseJson(row.carPhotos) && typeof parseJson(row.carPhotos) === 'object'
+      ? parseJson(row.carPhotos)
+      : {}
+  if (rentalCarPhotosComplete(existing)) {
+    throw new Error('Car photos are locked and cannot be changed')
+  }
+
+  const incoming = carPhotos && typeof carPhotos === 'object' ? carPhotos : {}
+  const merged = { ...existing, ...incoming }
+  const now = new Date().toISOString()
+  const allComplete = rentalCarPhotosComplete(merged)
+  const addedByName =
+    (addedBy && String(addedBy).trim()) ||
+    (merged._addedBy && String(merged._addedBy).trim()) ||
+    row.carPhotosAddedBy ||
+    null
+  if (allComplete && addedByName) {
+    merged._addedBy = addedByName
+  }
+  const carPhotosAddedBy = allComplete && addedByName ? addedByName : row.carPhotosAddedBy || null
+
+  db.prepare(
+    'UPDATE rentals SET carPhotos = ?, carPhotosAddedBy = ?, updatedAt = ? WHERE id = ?',
+  ).run(serializeJson(merged), carPhotosAddedBy, now, key)
+
+  const updated = db.prepare('SELECT * FROM rentals WHERE id = ?').get(key)
+  return mapRental(updated)
 }
 
 function replaceRentals(rentals) {
@@ -319,15 +371,285 @@ function replaceRentals(rentals) {
   return getRentals()
 }
 
+
+function ensureSettingsTable() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
+  `)
+}
+
+ensureSettingsTable()
+
+function getSetting(key) {
+  const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key)
+  return row ? parseJson(row.value) : null
+}
+
+function setSetting(key, value) {
+  db.prepare(`
+    INSERT INTO app_settings (key, value) VALUES (@key, @value)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run({ key, value: serializeJson(value) })
+  return getSetting(key)
+}
+
+function getAdminProfile() {
+  const stored = getSetting('admin_profile')
+  if (stored && typeof stored === 'object') {
+    return {
+      displayName: String(stored.displayName || '').trim() || 'Alatas Admin',
+      photo: typeof stored.photo === 'string' ? stored.photo : '',
+    }
+  }
+  return { displayName: 'Alatas Admin', photo: '' }
+}
+
+function setAdminProfile(profile) {
+  const next = {
+    displayName: String(profile?.displayName || '').trim() || 'Alatas Admin',
+    photo: typeof profile?.photo === 'string' ? profile.photo : '',
+  }
+  return setSetting('admin_profile', next)
+}
+
+const EMPTY_REPORT_STORE = { entries: [], submissions: [] }
+
+function getVehicleReports() {
+  const stored = getSetting('vehicle_reports')
+  if (!stored || typeof stored !== 'object') return { ...EMPTY_REPORT_STORE }
+  return {
+    entries: Array.isArray(stored.entries) ? stored.entries : [],
+    submissions: Array.isArray(stored.submissions) ? stored.submissions : [],
+  }
+}
+
+function setVehicleReports(store) {
+  const next = {
+    entries: Array.isArray(store?.entries) ? store.entries : [],
+    submissions: Array.isArray(store?.submissions) ? store.submissions : [],
+  }
+  setSetting('vehicle_reports', next)
+  return next
+}
+
+function ensureEmployeesTable() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS employees (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      username TEXT NOT NULL UNIQUE,
+      phone TEXT,
+      role TEXT,
+      password TEXT,
+      active INTEGER DEFAULT 1,
+      createdAt TEXT,
+      updatedAt TEXT
+    );
+  `)
+}
+
+ensureEmployeesTable()
+
+const ALLOWED_ROLES = new Set(['Manager', 'Inspector', 'Staff'])
+
+function mapEmployee(row, { includePassword = false } = {}) {
+  if (!row) return null
+  const employee = {
+    id: row.id,
+    name: row.name || '',
+    username: row.username || '',
+    phone: row.phone || '',
+    role: ALLOWED_ROLES.has(row.role) ? row.role : 'Staff',
+    active: row.active === 1 || row.active === true,
+    createdAt: row.createdAt || null,
+    updatedAt: row.updatedAt || null,
+  }
+  if (includePassword) employee.password = row.password || ''
+  return employee
+}
+
+function normalizeUsername(value) {
+  return String(value || '').trim().toLowerCase()
+}
+
+function getEmployees({ includePassword = false } = {}) {
+  return db
+    .prepare('SELECT * FROM employees ORDER BY createdAt DESC, name ASC')
+    .all()
+    .map((row) => mapEmployee(row, { includePassword }))
+}
+
+function getEmployeeById(id, { includePassword = false } = {}) {
+  const row = db.prepare('SELECT * FROM employees WHERE id = ?').get(String(id || ''))
+  return mapEmployee(row, { includePassword })
+}
+
+function getEmployeeByUsername(username, { includePassword = false } = {}) {
+  const key = normalizeUsername(username)
+  if (!key) return null
+  const row = db
+    .prepare('SELECT * FROM employees WHERE lower(username) = ?')
+    .get(key)
+  return mapEmployee(row, { includePassword })
+}
+
+function createEmployee(input = {}) {
+  const now = new Date().toISOString()
+  const username = String(input.username || '').trim()
+  const name = String(input.name || '').trim()
+  const password = String(input.password || '')
+  const phone = String(input.phone || '').trim()
+  const role = ALLOWED_ROLES.has(input.role) ? input.role : 'Staff'
+  const active = input.active === false ? 0 : 1
+
+  if (!name) throw new Error('Employee name is required')
+  if (!username) throw new Error('Username is required')
+  if (password.length < 6) throw new Error('Password must be at least 6 characters')
+  if (getEmployeeByUsername(username)) throw new Error('Username is already taken')
+
+  const id = String(input.id || `emp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`)
+  db.prepare(`
+    INSERT INTO employees (id, name, username, phone, role, password, active, createdAt, updatedAt)
+    VALUES (@id, @name, @username, @phone, @role, @password, @active, @createdAt, @updatedAt)
+  `).run({
+    id,
+    name,
+    username,
+    phone,
+    role,
+    password,
+    active,
+    createdAt: input.createdAt || now,
+    updatedAt: now,
+  })
+  return getEmployeeById(id)
+}
+
+function updateEmployee(id, patch = {}) {
+  const existing = db.prepare('SELECT * FROM employees WHERE id = ?').get(String(id || ''))
+  if (!existing) throw new Error('Employee not found')
+
+  const nextUsername =
+    patch.username != null ? String(patch.username).trim() : existing.username
+  if (!nextUsername) throw new Error('Username is required')
+
+  const conflict = getEmployeeByUsername(nextUsername, { includePassword: true })
+  if (conflict && conflict.id !== existing.id) {
+    throw new Error('Username is already taken')
+  }
+
+  const nextName = patch.name != null ? String(patch.name).trim() : existing.name
+  if (!nextName) throw new Error('Employee name is required')
+
+  let nextPassword = existing.password
+  if (patch.password != null && String(patch.password).length > 0) {
+    if (String(patch.password).length < 6) {
+      throw new Error('Password must be at least 6 characters')
+    }
+    nextPassword = String(patch.password)
+  }
+
+  const nextRole = patch.role != null
+    ? (ALLOWED_ROLES.has(patch.role) ? patch.role : existing.role)
+    : existing.role
+  const nextPhone = patch.phone != null ? String(patch.phone).trim() : existing.phone
+  const nextActive =
+    patch.active == null ? existing.active : (patch.active ? 1 : 0)
+  const now = new Date().toISOString()
+
+  db.prepare(`
+    UPDATE employees
+    SET name = @name,
+        username = @username,
+        phone = @phone,
+        role = @role,
+        password = @password,
+        active = @active,
+        updatedAt = @updatedAt
+    WHERE id = @id
+  `).run({
+    id: existing.id,
+    name: nextName,
+    username: nextUsername,
+    phone: nextPhone,
+    role: nextRole,
+    password: nextPassword,
+    active: nextActive,
+    updatedAt: now,
+  })
+
+  return getEmployeeById(existing.id)
+}
+
+function deleteEmployee(id) {
+  const existing = getEmployeeById(id)
+  if (!existing) throw new Error('Employee not found')
+  db.prepare('DELETE FROM employees WHERE id = ?').run(String(id))
+  return existing
+}
+
+function replaceEmployees(list) {
+  const items = Array.isArray(list) ? list : []
+  const run = db.transaction(() => {
+    db.prepare('DELETE FROM employees').run()
+    for (const item of items) {
+      const now = new Date().toISOString()
+      const username = String(item.username || '').trim()
+      const name = String(item.name || '').trim()
+      if (!username || !name) continue
+      db.prepare(`
+        INSERT INTO employees (id, name, username, phone, role, password, active, createdAt, updatedAt)
+        VALUES (@id, @name, @username, @phone, @role, @password, @active, @createdAt, @updatedAt)
+      `).run({
+        id: String(item.id || `emp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`),
+        name,
+        username,
+        phone: String(item.phone || '').trim(),
+        role: ALLOWED_ROLES.has(item.role) ? item.role : 'Staff',
+        password: String(item.password || 'ChangeMe@1'),
+        active: item.active === false ? 0 : 1,
+        createdAt: item.createdAt || now,
+        updatedAt: item.updatedAt || now,
+      })
+    }
+  })
+  run()
+  return getEmployees()
+}
+
+function authenticateEmployee(username, password) {
+  const employee = getEmployeeByUsername(username, { includePassword: true })
+  if (!employee) return null
+  if (!employee.active) return null
+  if (String(employee.password || '') !== String(password || '')) return null
+  const { password: _pw, ...safe } = employee
+  return safe
+}
+
 export {
   db,
   getVehicles,
   replaceVehicles,
   getRentals,
   addRental,
+  updateRentalCarPhotos,
   replaceRentals,
   deleteVehicle,
   mapRental,
   toRentalRow,
   updateVehicleStatusById,
+  getAdminProfile,
+  setAdminProfile,
+  getVehicleReports,
+  setVehicleReports,
+  getEmployees,
+  getEmployeeById,
+  createEmployee,
+  updateEmployee,
+  deleteEmployee,
+  replaceEmployees,
+  authenticateEmployee,
 }

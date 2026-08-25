@@ -57,7 +57,6 @@ export default function StepSummary({
 
   const durationLabel = rental.duration === 'Others' ? rental.durationOther : rental.duration
   const photosReady = Boolean(photo) && Boolean(licensePhoto)
-  const carPhotosReady = CAR_PHOTO_SLOTS.every((s) => Boolean(carPhotos?.[s.key]))
 
   return (
     <section className="step-panel">
@@ -86,7 +85,15 @@ export default function StepSummary({
             </div>
             <div className="summary-status-pill">
               <span className="summary-status-label">Photos</span>
-              <strong>{photosReady && carPhotosReady ? 'Ready' : 'Incomplete'}</strong>
+              <strong>{photosReady ? 'Ready' : 'Incomplete'}</strong>
+            </div>
+            <div className="summary-status-pill">
+              <span className="summary-status-label">Car photos</span>
+              <strong>
+                {CAR_PHOTO_SLOTS.filter((slot) => Boolean(carPhotos?.[slot.key])).length
+                  ? `${CAR_PHOTO_SLOTS.filter((slot) => Boolean(carPhotos?.[slot.key])).length} of 4 added`
+                  : 'Optional'}
+              </strong>
             </div>
           </div>
         </section>
@@ -217,25 +224,32 @@ export default function StepSummary({
               <div className="summary-media-block summary-car-condition">
                 <div className="summary-media-head">
                   <h3>Pre-rental car photos</h3>
+                  <p className="summary-empty">
+                    {CAR_PHOTO_SLOTS.some((slot) => Boolean(carPhotos?.[slot.key]))
+                      ? 'Photos added on this form. Remaining sides can still be captured on mobile.'
+                      : 'Optional — add them here or later on mobile before the rental starts.'}
+                  </p>
                 </div>
-                <div className="summary-media-grid summary-media-grid-4">
-                  {CAR_PHOTO_SLOTS.map((slot) => (
-                    <div key={slot.key} className="summary-media-card">
-                      <div className="summary-media-head">
-                        <h3>{slot.title}</h3>
+                {CAR_PHOTO_SLOTS.some((slot) => Boolean(carPhotos?.[slot.key])) ? (
+                  <div className="summary-media-grid summary-media-grid-4">
+                    {CAR_PHOTO_SLOTS.map((slot) => (
+                      <div key={slot.key} className="summary-media-card">
+                        <div className="summary-media-head">
+                          <h3>{slot.title}</h3>
+                        </div>
+                        {carPhotos?.[slot.key] ? (
+                          <img
+                            src={carPhotos[slot.key]}
+                            alt={`Car ${slot.title}`}
+                            className="summary-photo"
+                          />
+                        ) : (
+                          <p className="summary-empty">Optional</p>
+                        )}
                       </div>
-                      {carPhotos?.[slot.key] ? (
-                        <img
-                          src={carPhotos[slot.key]}
-                          alt={`Car ${slot.title}`}
-                          className="summary-photo"
-                        />
-                      ) : (
-                        <p className="summary-empty">Missing</p>
-                      )}
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             </article>
           </aside>

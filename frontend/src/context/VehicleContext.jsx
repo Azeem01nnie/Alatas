@@ -1,6 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { loadVehicles, saveVehicles, deleteVehicle as deleteVehicleApi } from '../data/backendVehicles'
-import { loadRentals, saveRentals, addRental as addRentalApi } from '../data/backendRentals'
+import {
+  loadRentals,
+  saveRentals,
+  addRental as addRentalApi,
+  submitPendingRental as submitPendingRentalApi,
+} from '../data/backendRentals'
 import { getArchivedIdSet, ARCHIVE_EVENT } from '../utils/archivedVehicles'
 import { isScheduledWindow } from '../utils/vehicleDisplayStatus'
 import { flushOfflineQueue } from '../utils/offlineQueue'
@@ -56,6 +61,7 @@ export function VehicleProvider({ children }) {
           vehicles: (payload) => apiReplaceVehicles(payload),
           rentals: (payload) => apiReplaceRentals(payload),
           'rentals-add': (payload) => apiAddRental(payload),
+          'pending-rental': (payload) => submitPendingRentalApi(payload),
         })
 
         const [vehiclesData, rentalsData] = await Promise.all([
@@ -162,6 +168,24 @@ export function VehicleProvider({ children }) {
     )
   }, [])
 
+  const cancelScheduledRental = useCallback((rentalId) => {
+    if (!rentalId) return
+    const key = String(rentalId)
+    const now = new Date().toISOString()
+    setRentals((prev) =>
+      prev.map((r) =>
+        String(r.id) === key && r.rentalLifecycle === 'scheduled'
+          ? {
+              ...r,
+              rentalLifecycle: 'cancelled',
+              cancelledAt: now,
+              updatedAt: now,
+            }
+          : r,
+      ),
+    )
+  }, [])
+
   useEffect(() => {
     const activateDueRentals = () => {
       const now = Date.now()
@@ -240,24 +264,24 @@ export function VehicleProvider({ children }) {
   }, [])
 
   const addRental = async (record) => {
-    const shouldStartNow = isDue(record.rental?.periodFrom)
     const entry = {
       ...record,
       id: `r-${Date.now()}`,
-      rentalLifecycle: shouldStartNow ? 'active' : 'scheduled',
-      startedAt: shouldStartNow ? new Date().toISOString() : null,
+      source: record.source || 'desktop',
+      approvalStatus: 'pending',
+      rentalLifecycle: 'pending_approval',
+      startedAt: null,
     }
 
-    const created = await addRentalApi(entry)
+    // Desktop schedules wait for mobile/admin approval before becoming scheduled/active.
+    const created = await submitPendingRentalApi(entry)
     if (!created?.id) {
-      throw new Error('Could not save rental to the server.')
+      // Offline: keep a local pending copy so it still appears under Waiting for approval.
+      setRentals((prev) => [entry, ...prev])
+      return entry
     }
 
-    setRentals((prev) => [created, ...prev])
-    const vid = created.vehicleId || created.vehicle?.id
-    if (vid && (created.rentalLifecycle === 'active' || shouldStartNow)) {
-      updateVehicleStatus(vid, 'Rented')
-    }
+    setRentals((prev) => [created, ...prev.filter((r) => String(r.id) !== String(created.id))])
     return created
   }
 
@@ -293,6 +317,7 @@ export function VehicleProvider({ children }) {
         updateVehicleStatus,
         addRental,
         completeRentalForVehicle,
+        cancelScheduledRental,
         reloadData,
         replaceAllData,
       }}

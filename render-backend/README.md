@@ -57,6 +57,11 @@ Phone / React Native: connection helpers exist in `frontend/src/api/cloudSync.js
 | POST | `/api/rentals/pending` | Submit field rental (pending) |
 | GET | `/api/sync/pull` | Pull changes since timestamp |
 | POST | `/api/sync/push` | Push client changes (LWW) |
+| GET | `/api/employees` | List employee accounts |
+| POST | `/api/employees` | Create employee |
+| PATCH | `/api/employees/:id` | Update employee |
+| DELETE | `/api/employees/:id` | Remove employee |
+| POST | `/api/employees/auth` | Employee mobile login |
 | GET | `/api/sync/queue` | Inspect outbound sync queue |
 
 ## Security note

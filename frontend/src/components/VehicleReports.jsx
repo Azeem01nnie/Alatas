@@ -13,7 +13,7 @@ import {
   sumAmounts,
   updateReportEntry,
 } from '../utils/vehicleReports'
-import PremiumDatePicker from './PremiumDatePicker'
+import { fetchVehicleReportsFromCloud, pushVehicleReportsToCloud } from '../api/vehicleReportsApi'
 
 const EMPTY_ENTRY = {
   date: new Date().toISOString().slice(0, 10),
@@ -85,6 +85,13 @@ function IconChevronDown({ open = false }) {
       <path d="M6 9l6 6 6-6" />
     </svg>
   )
+}
+
+function toReportDateKey(date) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
 }
 
 // ── Add / Edit modal ──────────────────────────────────────────────
@@ -209,6 +216,134 @@ function EntryModal({ initial = EMPTY_ENTRY, onSave, onClose, title = 'Add Entry
   )
 }
 
+// ── Edit owner name modal ─────────────────────────────────────────
+function OwnerEditModal({ owner, onSave, onClose }) {
+  const [name, setName] = useState(owner?.name || '')
+  const [error, setError] = useState('')
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    const trimmed = name.trim()
+    if (!trimmed) {
+      setError('Owner name is required')
+      return
+    }
+    onSave(trimmed)
+  }
+
+  return (
+    <div className="modal-overlay confirm-modal-overlay reports-owner-edit-overlay" role="presentation" onClick={onClose}>
+      <div
+        className="modal-panel reports-owner-edit-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="owner-edit-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="reports-owner-edit-header">
+          <div>
+            <p className="reports-owner-edit-eyebrow">Vehicle Reports</p>
+            <h3 id="owner-edit-title" className="modal-title">Edit Owner</h3>
+          </div>
+          <button type="button" className="modal-close" onClick={onClose} aria-label="Close">×</button>
+        </header>
+        <form className="reports-owner-edit-form" onSubmit={handleSubmit}>
+          <label className="field field-full">
+            <span className="field-label">Owner name</span>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => { setName(e.target.value); setError('') }}
+              autoFocus
+              placeholder="Enter owner name"
+            />
+          </label>
+          {error && <span className="error-msg">{error}</span>}
+          <div className="modal-actions reports-owner-edit-actions">
+            <button type="button" className="btn-outline confirm-cancel-btn" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn-primary">Save changes</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ── Table row with collapsible attachment ─────────────────────────
+function ReportTableRow({ row, onEdit, onDelete, formatPeso }) {
+  const [open, setOpen] = useState(false)
+  const attachment = row.attachment
+  const isImage = typeof attachment === 'string' && attachment.startsWith('data:image')
+
+  return (
+    <>
+      <tr>
+        <td className="col-date">{row.date}</td>
+        <td className="col-type">{row.type}</td>
+        <td className="col-category">{row.category}</td>
+        <td className="col-description">
+          <div className="reports-desc-cell">
+            <span>{row.description}</span>
+            {attachment ? (
+              <button
+                type="button"
+                className="reports-view-image-btn"
+                onClick={() => setOpen((value) => !value)}
+                aria-expanded={open}
+              >
+                {open ? 'Hide image' : 'View image'}
+                <IconChevronDown open={open} />
+              </button>
+            ) : null}
+          </div>
+        </td>
+        <td className="col-amount">{row.amount == null || row.amount === '' ? '—' : formatPeso(row.amount)}</td>
+        <td className="col-status">{row.status}</td>
+        <td className="reports-row-actions col-actions">
+          <div className="manage-row-actions reports-row-actions-inner">
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label="Edit entry"
+              title="Edit"
+              onClick={() =>
+                onEdit({
+                  ...row,
+                  amount: row.amount == null ? '' : String(row.amount),
+                })
+              }
+            >
+              <IconEdit />
+            </button>
+            <button
+              type="button"
+              className="icon-btn icon-btn-danger"
+              aria-label="Delete entry"
+              title="Delete"
+              onClick={() => onDelete(row)}
+            >
+              <IconDelete />
+            </button>
+          </div>
+        </td>
+      </tr>
+      {open && attachment ? (
+        <tr className="reports-attachment-row">
+          <td colSpan={7}>
+            {isImage ? (
+              <img src={attachment} alt="Report attachment" className="reports-attachment-preview" />
+            ) : (
+              <a href={attachment} download className="reports-attachment-link">
+                Download attachment
+              </a>
+            )}
+          </td>
+        </tr>
+      ) : null}
+    </>
+  )
+}
+
 // ── Delete confirm modal ──────────────────────────────────────────
 function DeleteConfirmModal({ onConfirm, onCancel }) {
   return (
@@ -235,7 +370,7 @@ function DeleteConfirmModal({ onConfirm, onCancel }) {
 }
 
 // ── Main component ────────────────────────────────────────────────
-export default function VehicleReports({ vehicles = [], adminName = 'Admin', dataReady = true }) {
+export default function VehicleReports({ vehicles = [], adminName = 'Admin', dataReady = true, onOwnerUpdate }) {
   const [owners, setOwners] = useState(() => loadOwners())
   const [storeVersion, setStoreVersion] = useState(0)
   const store = useMemo(() => loadReportStore(), [storeVersion])
@@ -250,6 +385,7 @@ export default function VehicleReports({ vehicles = [], adminName = 'Admin', dat
   // modals
   const [addModal, setAddModal] = useState(false)
   const [editRow, setEditRow] = useState(null)    // entry object or null
+  const [editOwner, setEditOwner] = useState(null) // owner object or null
   const [deleteRow, setDeleteRow] = useState(null) // entry object or null
 
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false)
@@ -259,6 +395,41 @@ export default function VehicleReports({ vehicles = [], adminName = 'Admin', dat
     if (!dataReady) return
     setOwners(loadOwners())
   }, [dataReady, vehicles])
+
+  useEffect(() => {
+    if (!dataReady) return
+    let mounted = true
+    ;(async () => {
+      let local = loadReportStore()
+      if (local.entries.length) {
+        try {
+          await pushVehicleReportsToCloud(local)
+        } catch {
+          /* offline or cloud unavailable */
+        }
+      }
+      const remote = await fetchVehicleReportsFromCloud()
+      if (!mounted || !remote?.entries?.length) return
+      local = loadReportStore()
+      const byId = new Map(local.entries.map((entry) => [entry.id, entry]))
+      remote.entries.forEach((entry) => byId.set(entry.id, entry))
+      const merged = {
+        entries: [...byId.values()],
+        submissions: remote.submissions?.length ? remote.submissions : local.submissions,
+      }
+      if (merged.entries.length !== local.entries.length) {
+        try {
+          localStorage.setItem('alatas-vehicle-reports', JSON.stringify(merged))
+          setStoreVersion((n) => n + 1)
+        } catch {
+          /* ignore quota */
+        }
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [dataReady])
 
   useEffect(() => {
     if (!downloadMenuOpen) return
@@ -332,10 +503,20 @@ export default function VehicleReports({ vehicles = [], adminName = 'Admin', dat
 
   const refresh = () => setStoreVersion((n) => n + 1)
 
+  const applyRangePreset = (preset) => {
+    setRangePreset(preset)
+    if (preset === 'custom' && !customFrom && !customTo) {
+      const now = new Date()
+      setCustomFrom(toReportDateKey(startOfMonth(now)))
+      setCustomTo(toReportDateKey(endOfMonth(now)))
+    }
+  }
+
   const handleAddSave = (form) => {
     addReportEntry({
       ownerId: selectedOwnerId,
       vehicleId: selectedVehicleId,
+      plateNo: selectedVehicle?.plateNo || '',
       date: form.date,
       type: form.type,
       category: form.category,
@@ -367,6 +548,13 @@ export default function VehicleReports({ vehicles = [], adminName = 'Admin', dat
     deleteReportEntry(deleteRow.id)
     setDeleteRow(null)
     refresh()
+  }
+
+  const handleOwnerSave = (newName) => {
+    if (!editOwner?.id) return
+    onOwnerUpdate?.(editOwner.id, { name: newName })
+    setOwners(loadOwners())
+    setEditOwner(null)
   }
 
   const exportPdf = () => {
@@ -471,24 +659,34 @@ export default function VehicleReports({ vehicles = [], adminName = 'Admin', dat
             {filteredOwners.map((owner) => {
               const isThird = owner.ownershipType === 'thirdParty'
               return (
-                <button
-                  key={owner.id}
-                  type="button"
-                  className="reports-owner-card"
-                  onClick={() => { setSelectedOwnerId(owner.id); setSelectedVehicleId('') }}
-                >
-                  <span className="reports-owner-card-body">
-                    <strong className="reports-owner-name">{owner.name}</strong>
-                    <span className="reports-owner-meta">
-                      <span className={`reports-owner-badge${isThird ? ' is-third' : ' is-company'}`}>
-                        {isThird ? 'Third-party' : 'Company'}
-                      </span>
-                      <span className="reports-owner-count">
-                        {owner.vehicleCount} vehicle{owner.vehicleCount === 1 ? '' : 's'}
+                <div key={owner.id} className="reports-owner-card">
+                  <button
+                    type="button"
+                    className="reports-owner-card-main"
+                    onClick={() => { setSelectedOwnerId(owner.id); setSelectedVehicleId('') }}
+                  >
+                    <span className="reports-owner-card-body">
+                      <strong className="reports-owner-name">{owner.name}</strong>
+                      <span className="reports-owner-meta">
+                        <span className={`reports-owner-badge${isThird ? ' is-third' : ' is-company'}`}>
+                          {isThird ? 'Third-party' : 'Company'}
+                        </span>
+                        <span className="reports-owner-count">
+                          {owner.vehicleCount} vehicle{owner.vehicleCount === 1 ? '' : 's'}
+                        </span>
                       </span>
                     </span>
-                  </span>
-                </button>
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-btn reports-owner-edit-btn"
+                    aria-label={`Edit ${owner.name}`}
+                    title="Edit owner name"
+                    onClick={() => setEditOwner(owner)}
+                  >
+                    <IconEdit />
+                  </button>
+                </div>
               )
             })}
           </div>
@@ -575,21 +773,45 @@ export default function VehicleReports({ vehicles = [], adminName = 'Admin', dat
           </div>
 
           {/* Range filter */}
-          <div className="reports-filter-bar">
-            <button type="button" className={`btn-ghost${rangePreset === 'month' ? ' is-active' : ''}`} onClick={() => setRangePreset('month')}>
-              This Month
-            </button>
-            <button type="button" className={`btn-ghost${rangePreset === 'custom' ? ' is-active' : ''}`} onClick={() => setRangePreset('custom')}>
-              Custom Range
-            </button>
-            <button type="button" className={`btn-ghost${rangePreset === 'all' ? ' is-active' : ''}`} onClick={() => setRangePreset('all')}>
-              All Time
-            </button>
+          <div className="reports-filter-wrap">
+            <div className="reports-filter-bar">
+              <button type="button" className={`btn-ghost${rangePreset === 'month' ? ' is-active' : ''}`} onClick={() => applyRangePreset('month')}>
+                This Month
+              </button>
+              <button type="button" className={`btn-ghost${rangePreset === 'custom' ? ' is-active' : ''}`} onClick={() => applyRangePreset('custom')}>
+                Custom Range
+              </button>
+              <button type="button" className={`btn-ghost${rangePreset === 'all' ? ' is-active' : ''}`} onClick={() => applyRangePreset('all')}>
+                All Time
+              </button>
+            </div>
             {rangePreset === 'custom' && (
-              <>
-                <PremiumDatePicker value={customFrom} onChange={setCustomFrom} title="From" />
-                <PremiumDatePicker value={customTo} onChange={setCustomTo} title="To" />
-              </>
+              <div className="reports-custom-dates">
+                <label className="field reports-date-field">
+                  <span className="field-label">From</span>
+                  <input
+                    type="date"
+                    className="reports-date-input"
+                    value={customFrom}
+                    max={customTo || undefined}
+                    onChange={(e) => {
+                      const next = e.target.value
+                      setCustomFrom(next)
+                      if (customTo && next > customTo) setCustomTo('')
+                    }}
+                  />
+                </label>
+                <label className="field reports-date-field">
+                  <span className="field-label">To</span>
+                  <input
+                    type="date"
+                    className="reports-date-input"
+                    value={customTo}
+                    min={customFrom || undefined}
+                    onChange={(e) => setCustomTo(e.target.value)}
+                  />
+                </label>
+              </div>
             )}
           </div>
 
@@ -614,41 +836,13 @@ export default function VehicleReports({ vehicles = [], adminName = 'Admin', dat
                   </tr>
                 )}
                 {entries.map((row) => (
-                  <tr key={row.id}>
-                    <td className="col-date">{row.date}</td>
-                    <td className="col-type">{row.type}</td>
-                    <td className="col-category">{row.category}</td>
-                    <td className="col-description">{row.description}</td>
-                    <td className="col-amount">{row.amount == null || row.amount === '' ? '—' : formatPeso(row.amount)}</td>
-                    <td className="col-status">{row.status}</td>
-                    <td className="reports-row-actions col-actions">
-                      <div className="manage-row-actions reports-row-actions-inner">
-                        <button
-                          type="button"
-                          className="icon-btn"
-                          aria-label="Edit entry"
-                          title="Edit"
-                          onClick={() =>
-                            setEditRow({
-                              ...row,
-                              amount: row.amount == null ? '' : String(row.amount),
-                            })
-                          }
-                        >
-                          <IconEdit />
-                        </button>
-                        <button
-                          type="button"
-                          className="icon-btn icon-btn-danger"
-                          aria-label="Delete entry"
-                          title="Delete"
-                          onClick={() => setDeleteRow(row)}
-                        >
-                          <IconDelete />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+                  <ReportTableRow
+                    key={row.id}
+                    row={row}
+                    formatPeso={formatPeso}
+                    onEdit={setEditRow}
+                    onDelete={setDeleteRow}
+                  />
                 ))}
               </tbody>
               <tfoot>
@@ -680,6 +874,15 @@ export default function VehicleReports({ vehicles = [], adminName = 'Admin', dat
           initial={editRow}
           onClose={() => setEditRow(null)}
           onSave={handleEditSave}
+        />
+      )}
+
+      {/* ── Edit Owner Modal ── */}
+      {editOwner && (
+        <OwnerEditModal
+          owner={editOwner}
+          onClose={() => setEditOwner(null)}
+          onSave={handleOwnerSave}
         />
       )}
 

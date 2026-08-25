@@ -9,19 +9,21 @@ import {
   Image,
   Dimensions,
   Platform,
+  KeyboardAvoidingView,
+  ScrollView,
 } from 'react-native';
-import { database } from '../db';
-import { Q } from '@nozbe/watermelondb';
-
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Eye, EyeOff } from 'lucide-react-native';
+import { useAuth } from '../src/context/AuthContext';
+import { authenticateEmployee } from '../src/api/employees';
 
 const { width } = Dimensions.get('window');
 
-const AUTH_KEY = 'customer-encoder-admin-auth';
 const ADMIN_USER = 'alatas';
 const ADMIN_PASS = 'Alatas@2026';
 
-export default function AdminLogin({ onSuccess }) {
+export default function AdminLogin() {
+  const { login } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -33,53 +35,61 @@ export default function AdminLogin({ onSuccess }) {
     setError('');
     setLoading(true);
 
-    // Seed the database with demo credentials if it doesn't exist (simulated connection)
+    const trimmed = username.trim();
+
     try {
-      const usersCollection = database.collections.get('users');
-      const existingUsers = await usersCollection.query(Q.where('username', ADMIN_USER)).fetch();
-      
-      if (existingUsers.length === 0) {
-        await database.write(async () => {
-          await usersCollection.create(user => {
-            user.username = ADMIN_USER;
-            user.password = ADMIN_PASS;
+      // Shared employee directory (desktop + mobile)
+      try {
+        const employee = await authenticateEmployee(trimmed, password);
+        if (employee?.id) {
+          await login('employee', trimmed, {
+            displayName: employee.name || 'Employee',
+            employeeId: employee.id,
+            employeeRole: employee.role,
           });
-        });
+          setLoading(false);
+          return;
+        }
+      } catch (authErr) {
+        // 401 / network — fall through to admin or demo credentials
+        if (authErr?.status && authErr.status !== 401) {
+          console.warn('Employee auth unavailable:', authErr?.message || authErr);
+        }
       }
 
-      // Check credentials against the database
-      const userRecords = await usersCollection.query(
-        Q.where('username', username.trim()),
-        Q.where('password', password)
-      ).fetch();
+      if (trimmed === ADMIN_USER && password === ADMIN_PASS) {
+        await login('admin', trimmed);
+        setLoading(false);
+        return;
+      }
 
-      setTimeout(() => {
-        if (username.trim() === 'employee' && password === 'employee') {
-          onSuccess('employee');
-        } else if (userRecords.length > 0 || (username.trim() === ADMIN_USER && password === ADMIN_PASS)) {
-          onSuccess('admin');
-        } else {
-          setError('Invalid username or password.');
-          setLoading(false);
-        }
-      }, 900);
+      // Legacy demo employee login (offline fallback)
+      if (trimmed === 'employee' && password === 'employee') {
+        await login('employee', trimmed, { displayName: 'Employee' });
+        setLoading(false);
+        return;
+      }
+
+      setError('Invalid username or password.');
+      setLoading(false);
     } catch (err) {
-      console.warn("DB Auth error, fallback to static:", err);
-      setTimeout(() => {
-        if (username.trim() === 'employee' && password === 'employee') {
-          onSuccess('employee');
-        } else if (username.trim() === ADMIN_USER && password === ADMIN_PASS) {
-          onSuccess('admin');
-        } else {
-          setError('Invalid username or password.');
-          setLoading(false);
-        }
-      }, 900);
+      console.warn('Login failed:', err);
+      setError('Could not sign in. Check your connection and try again.');
+      setLoading(false);
     }
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.safeRoot} edges={['top', 'left', 'right', 'bottom']}>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView
+          contentContainerStyle={styles.container}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
       <View style={styles.card}>
         <View style={styles.brand}>
           <View style={styles.seatbeltRail}>
@@ -152,13 +162,22 @@ export default function AdminLogin({ onSuccess }) {
           </View>
         )}
       </View>
-    </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeRoot: {
     flex: 1,
+    backgroundColor: '#fafafa',
+  },
+  flex: {
+    flex: 1,
+  },
+  container: {
+    flexGrow: 1,
     backgroundColor: '#fafafa',
     alignItems: 'center',
     justifyContent: 'center',

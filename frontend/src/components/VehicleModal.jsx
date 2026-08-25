@@ -16,13 +16,14 @@ export default function VehicleModal({
   confirmLabel = 'Proceed',
   cancelLabel = 'Cancel',
   eyebrow = 'Selected vehicle',
+  large = false,
 }) {
   const rates = vehicle.rates || {}
 
   return (
     <div className="modal-overlay vehicle-modal-overlay" role="presentation" onClick={onClose}>
       <div
-        className="modal-panel vehicle-modal"
+        className={`modal-panel vehicle-modal${large ? ' vehicle-modal-lg' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="vehicle-modal-title"

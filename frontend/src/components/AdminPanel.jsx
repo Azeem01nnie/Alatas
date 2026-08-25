@@ -9,7 +9,6 @@ import {
   YAxis,
 } from 'recharts'
 import logo from '../assets/logonobg.png'
-import addVehiclePlaceholder from '../assets/addvehicle.png'
 import { useVehicles } from '../context/VehicleContext'
 import { BODY_TYPES } from '../data/vehicles'
 import { compressImageDataUrl } from '../utils/storage'
@@ -36,11 +35,13 @@ import TransactionPage from './TransactionPage'
 import VehicleModal from './VehicleModal'
 import VehicleReports from './VehicleReports'
 import PendingApprovals from './PendingApprovals'
+import EmployeesPanel from './EmployeesPanel'
 import { addOwner, autoCapitalizeWords, loadOwners, purgeOrphanOwners, updateOwner } from '../utils/owners'
 import { loadReportStore } from '../utils/vehicleReports'
 import { scanOrcrImage, mergeScanFields } from '../utils/orcrOcr'
-import { fetchSystemStatus } from '../api/backend'
+import { fetchSystemStatus, runCloudSync, saveAdminProfileRemote } from '../api/backend'
 import { CLOUD_SYNC_ENABLED, isCloudConfigured } from '../api/cloudSync'
+import { describeCloudConnection } from '../config/cloudConnection'
 import { useConnectivity } from '../hooks/useConnectivity'
 
 const PROFILE_KEY = 'alatas-admin-profile'
@@ -270,6 +271,17 @@ function IconReports() {
   )
 }
 
+function IconEmployees() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  )
+}
+
 const MANAGE_STATUS_FILTERS = [
   { id: 'All', label: 'All' },
   { id: 'Available', label: 'Available' },
@@ -283,6 +295,7 @@ const NAV = [
   { id: 'calendar', label: 'Calendar', icon: <IconCalendar /> },
   { id: 'rent', label: 'Rent Car', icon: <IconRent /> },
   { id: 'manage', label: 'Manage Vehicle', icon: <IconManage /> },
+  { id: 'employees', label: 'Employees', icon: <IconEmployees /> },
   { id: 'reports', label: 'Vehicle Reports', icon: <IconReports /> },
   { id: 'history', label: 'Rental History', icon: <IconHistory /> },
 ]
@@ -302,58 +315,25 @@ function formatDateTime(value) {
   return d.toLocaleString()
 }
 
-const DASH_QUEUE_PREVIEW = 2
-
-function DashAttentionCard({
-  tone,
-  title,
-  note,
-  items,
-  emptyLabel,
-  expanded,
-  onToggleExpand,
-  onSeeMore,
-  renderItem,
-}) {
-  const total = items.length
-  const visible = onSeeMore || !expanded ? items.slice(0, DASH_QUEUE_PREVIEW) : items
-  const hiddenCount = Math.max(0, total - DASH_QUEUE_PREVIEW)
-
-  return (
-    <article className={`dash-attn-card dash-attn-${tone}`}>
-      <header className="dash-attn-head">
-        <div className="dash-attn-head-copy">
-          <h4 className="dash-attn-title">{title}</h4>
-          {note ? <p className="dash-attn-note">{note}</p> : null}
-        </div>
-        <span className="dash-attn-count" aria-label={`${total} items`}>
-          {total}
-        </span>
-      </header>
-
-      {total === 0 ? (
-        <p className="dash-attn-empty">{emptyLabel}</p>
-      ) : (
-        <div className="dash-attn-list">
-          {visible.map((item, index) => renderItem(item, index))}
-        </div>
-      )}
-
-      {hiddenCount > 0 && (
-        <button
-          type="button"
-          className="dash-attn-more"
-          onClick={onSeeMore || onToggleExpand}
-        >
-          {onSeeMore
-            ? `See more (${hiddenCount})`
-            : expanded
-              ? 'Show less'
-              : `See more (${hiddenCount})`}
-        </button>
-      )}
-    </article>
-  )
+function formatTimeRemaining(target, now = Date.now(), { mode = 'remaining' } = {}) {
+  if (!target) return null
+  const end = new Date(target).getTime()
+  if (Number.isNaN(end)) return null
+  const diffMs = end - now
+  const abs = Math.abs(diffMs)
+  const totalMins = Math.floor(abs / 60_000)
+  const days = Math.floor(totalMins / (60 * 24))
+  const hours = Math.floor((totalMins % (60 * 24)) / 60)
+  const mins = totalMins % 60
+  const parts = []
+  if (days > 0) parts.push(`${days}d`)
+  if (hours > 0 || days > 0) parts.push(`${hours}h`)
+  parts.push(`${mins}m`)
+  const label = parts.join(' ')
+  if (diffMs < 0) return `Overdue by ${label}`
+  if (totalMins < 1) return mode === 'untilStart' ? 'Starting now' : 'Due now'
+  if (mode === 'untilStart') return `starts in ${label}`
+  return `${label} remaining`
 }
 
 function parseFee(fee) {
@@ -535,6 +515,7 @@ export default function AdminPanel() {
     removeVehicle,
     updateVehicleStatus,
     completeRentalForVehicle,
+    cancelScheduledRental,
     replaceAllData,
     reloadData,
   } = useVehicles()
@@ -595,12 +576,7 @@ export default function AdminPanel() {
   const [alertTick, setAlertTick] = useState(0)
   const [notifOpen, setNotifOpen] = useState(false)
   const [dismissedAlerts, setDismissedAlerts] = useState(() => new Set())
-  const [dashQueueExpanded, setDashQueueExpanded] = useState({
-    upcoming: false,
-    onRent: false,
-    maintenance: false,
-    pending: false,
-  })
+  const [attentionFilter, setAttentionFilter] = useState('upcoming')
   const [systemStatus, setSystemStatus] = useState(null)
   const fileRef = useRef(null)
   const editFileRef = useRef(null)
@@ -609,6 +585,8 @@ export default function AdminPanel() {
   const importDataRef = useRef(null)
   const [dataMessage, setDataMessage] = useState('')
   const [dataBusy, setDataBusy] = useState(false)
+  const [syncBusy, setSyncBusy] = useState(false)
+  const [syncMessage, setSyncMessage] = useState('')
 
   useEffect(() => {
     try {
@@ -751,7 +729,12 @@ export default function AdminPanel() {
     saveAdminProfile(next)
     setProfile(next)
     setProfileDraft(next)
-    setProfileMessage('Profile saved.')
+    try {
+      await saveAdminProfileRemote(next)
+      setProfileMessage('Profile saved and synced.')
+    } catch {
+      setProfileMessage('Profile saved on this device.')
+    }
     window.setTimeout(() => setProfileMessage(''), 2200)
   }
 
@@ -988,6 +971,33 @@ export default function AdminPanel() {
       mounted = false
     }
   }, [ready, online])
+
+  const handleCloudSync = useCallback(async () => {
+    if (!CLOUD_SYNC_ENABLED) {
+      setSyncMessage('Enable VITE_CLOUD_SYNC_ENABLED=true and restart the desk app.')
+      return
+    }
+    if (!online) {
+      setSyncMessage('You are offline. Connect to the internet and try again.')
+      return
+    }
+    setSyncBusy(true)
+    setSyncMessage('')
+    try {
+      const result = await runCloudSync()
+      await reloadData()
+      const flushed = result?.flush?.flushed ?? 0
+      const vehicles = result?.pull?.applied?.vehicles ?? 0
+      const rentals = result?.pull?.applied?.rentals ?? 0
+      setSyncMessage(`Sync complete — pushed ${flushed} item(s), pulled ${vehicles} vehicle(s) and ${rentals} rental update(s).`)
+      const status = await fetchSystemStatus()
+      setSystemStatus(status)
+    } catch (err) {
+      setSyncMessage(err?.message || 'Cloud sync failed.')
+    } finally {
+      setSyncBusy(false)
+    }
+  }, [online, reloadData])
 
   const scheduledRentals = useMemo(
     () =>
@@ -1390,7 +1400,7 @@ export default function AdminPanel() {
       engineNo: data.engineNo.trim(),
       chassisNo: data.chassisNo.trim(),
       image: data.image.trim() || logo,
-      status: 'Available',
+      status: data.status === 'Under Maintenance' ? 'Under Maintenance' : 'Available',
       ownerId: resolvedOwnerId || '',
       ownerName: resolvedOwnerName || '',
       ownershipType,
@@ -1422,7 +1432,7 @@ export default function AdminPanel() {
   const openEdit = (vehicle) => {
     setEditForm({
       ...vehicle,
-      status: 'Available',
+      status: vehicle.status === 'Under Maintenance' ? 'Under Maintenance' : 'Available',
       seats: vehicle.seats ?? 5,
       transmission: vehicle.transmission || 'Automatic',
       plateNo: sanitizePlateNo(vehicle.plateNo),
@@ -1461,6 +1471,19 @@ export default function AdminPanel() {
       message: `Confirm that the rental for ${vehicle.make} — ${vehicle.series} (${vehicle.plateNo}) is completed? The vehicle will be set back to Available.`,
       confirmLabel: 'Rent Completed',
       vehicleId: vehicle.id,
+    })
+  }
+
+  const requestCancelRental = (rental, vehicle) => {
+    const name = customerName(rental)
+    setConfirm({
+      type: 'cancel-rental',
+      title: 'Cancel scheduled rental?',
+      message: `Cancel the upcoming rental for ${vehicle?.make || 'Vehicle'} — ${vehicle?.series || ''} (${vehicle?.plateNo || '—'}) with ${name}? The vehicle will stay available. This cannot be undone.`,
+      confirmLabel: 'Yes, cancel rental',
+      cancelLabel: 'Keep rental',
+      danger: true,
+      rentalId: rental.id,
     })
   }
 
@@ -1589,6 +1612,11 @@ export default function AdminPanel() {
     if (confirm.type === 'complete-rental') {
       completeRentalForVehicle(confirm.vehicleId)
     }
+    if (confirm.type === 'cancel-rental') {
+      cancelScheduledRental(confirm.rentalId)
+      setMessage('Scheduled rental cancelled.')
+      setTimeout(() => setMessage(''), 2500)
+    }
     if (confirm.type === 'add') {
       const payload = toVehiclePayload(form)
       if (payload.ownerId) {
@@ -1628,7 +1656,12 @@ export default function AdminPanel() {
       }
       updateVehicle(editForm.id, {
         ...payload,
-        status: existing?.status === 'Rented' ? 'Rented' : 'Available',
+        status:
+          existing?.status === 'Rented'
+            ? 'Rented'
+            : payload.status === 'Under Maintenance'
+              ? 'Under Maintenance'
+              : 'Available',
       })
       setEditForm(null)
       setEditFieldsLocked(false)
@@ -1749,7 +1782,8 @@ export default function AdminPanel() {
             )}
             {pendingApprovalCount > 0 && tab === 'dashboard' && (
               <span className="admin-pending-badge" role="status">
-                {pendingApprovalCount} pending approval{pendingApprovalCount === 1 ? '' : 's'}
+                {pendingApprovalCount} waiting for approval
+                {pendingApprovalCount === 1 ? '' : 's'}
               </span>
             )}
             <div className="admin-notif" ref={notifRef}>
@@ -1918,142 +1952,198 @@ export default function AdminPanel() {
                   <section className="dash-panel dash-attention">
                     <h3 className="dash-panel-title">Needs attention</h3>
 
-                    <div className="dash-attn-stack">
-                      <DashAttentionCard
-                        tone="upcoming"
-                        title="Upcoming"
-                        note="Starts automatically at the contract From time."
-                        emptyLabel="No upcoming rentals."
-                        items={upcomingScheduled}
-                        expanded={dashQueueExpanded.upcoming}
-                        onSeeMore={() => requestTabChange('history')}
-                        renderItem={({ rental, vehicle, isPastDue }) => (
-                          <article key={rental.id} className="dash-attn-row">
-                            <div className="dash-attn-thumb" aria-hidden="true">
-                              {vehicle?.image ? (
-                                <img src={vehicle.image} alt="" />
-                              ) : (
-                                <span>
-                                  {(vehicle?.make || '?').slice(0, 1)}
-                                  {(vehicle?.series || '').slice(0, 1)}
-                                </span>
-                              )}
-                            </div>
-                            <div className="dash-attn-meta">
-                              <strong>
-                                {vehicle?.make} — {vehicle?.series}
-                              </strong>
-                              <span>
-                                {vehicle?.plateNo} · {customerName(rental)}
-                              </span>
-                              <span className="dash-attn-time">
-                                {rental.rental?.periodFromLabel ||
-                                  formatDateTime(rental.rental?.periodFrom)}
-                                {isPastDue ? ' · activating…' : ''}
-                              </span>
-                            </div>
-                          </article>
-                        )}
-                      />
-
-                      <DashAttentionCard
-                        tone="onrent"
-                        title="On rent"
-                        emptyLabel="No active rentals."
-                        items={onRentQueue}
-                        expanded={dashQueueExpanded.onRent}
-                        onToggleExpand={() =>
-                          setDashQueueExpanded((prev) => ({
-                            ...prev,
-                            onRent: !prev.onRent,
-                          }))
-                        }
-                        renderItem={({ rental, vehicle }) => (
-                          <article key={rental.id} className="dash-attn-row">
-                            <div className="dash-attn-thumb" aria-hidden="true">
-                              {vehicle?.image ? (
-                                <img src={vehicle.image} alt="" />
-                              ) : (
-                                <span>
-                                  {(vehicle?.make || '?').slice(0, 1)}
-                                  {(vehicle?.series || '').slice(0, 1)}
-                                </span>
-                              )}
-                            </div>
-                            <div className="dash-attn-meta">
-                              <strong>
-                                {vehicle?.make} — {vehicle?.series}
-                              </strong>
-                              <span>
-                                {vehicle?.plateNo} · {customerName(rental)}
-                              </span>
-                              <span className="dash-attn-time">
-                                Until{' '}
-                                {rental.rental?.periodToLabel ||
-                                  formatDateTime(rental.rental?.periodTo)}
-                              </span>
-                            </div>
-                    <button
-                      type="button"
-                              className="btn-outline btn-sm"
-                              onClick={() => requestRentCompleted(vehicle)}
+                    <div
+                      className="dash-attn-filters"
+                      role="group"
+                      aria-label="Needs attention filter"
                     >
-                              Complete
-                    </button>
-                          </article>
-                        )}
-                      />
+                      {[
+                        { id: 'upcoming', label: 'Upcoming', count: upcomingScheduled.length },
+                        { id: 'onRent', label: 'On rent', count: onRentQueue.length },
+                        { id: 'maintenance', label: 'Maintenance', count: maintenanceVehicles.length },
+                        { id: 'pending', label: 'Waiting for approval', count: pendingApprovalCount },
+                      ].map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          className={`dash-attn-filter-btn${attentionFilter === opt.id ? ' is-active' : ''}`}
+                          aria-pressed={attentionFilter === opt.id}
+                          onClick={() => setAttentionFilter(opt.id)}
+                        >
+                          {opt.label}
+                          {opt.count > 0 ? ` (${opt.count})` : ''}
+                        </button>
+                      ))}
+                    </div>
 
-                      <DashAttentionCard
-                        tone="maintenance"
-                        title="Maintenance"
-                        emptyLabel="No units under maintenance."
-                        items={maintenanceVehicles}
-                        expanded={dashQueueExpanded.maintenance}
-                        onToggleExpand={() =>
-                          setDashQueueExpanded((prev) => ({
-                            ...prev,
-                            maintenance: !prev.maintenance,
-                          }))
-                        }
-                        renderItem={(v) => (
-                          <article key={v.id} className="dash-attn-row">
-                            <div className="dash-attn-thumb" aria-hidden="true">
-                              {v.image ? (
-                                <img src={v.image} alt="" />
-                              ) : (
-                                <span>
-                                  {(v.make || '?').slice(0, 1)}
-                                  {(v.series || '').slice(0, 1)}
-                                </span>
-                              )}
-                            </div>
-                            <div className="dash-attn-meta">
-                      <strong>
-                        {v.make} — {v.series}
-                      </strong>
-                      <span>
-                                {v.plateNo} · {v.bodyType}
-                      </span>
-                            </div>
-                            <button
-                              type="button"
-                              className="btn-ghost btn-sm"
-                              onClick={() => setTab('manage')}
-                            >
-                              Manage
-                            </button>
-                          </article>
-                        )}
-                      />
+                    <div className="dash-attn-body">
+                      {attentionFilter === 'upcoming' && (
+                        upcomingScheduled.length === 0 ? (
+                          <p className="dash-attn-empty">No upcoming rentals.</p>
+                        ) : (
+                          <div className="dash-attn-list">
+                            {upcomingScheduled.map(({ rental, vehicle, isPastDue }) => {
+                              const startLabel =
+                                rental.rental?.periodFromLabel ||
+                                formatDateTime(rental.rental?.periodFrom)
+                              const remaining = isPastDue
+                                ? null
+                                : formatTimeRemaining(rental.rental?.periodFrom, Date.now(), {
+                                    mode: 'untilStart',
+                                  })
+                              return (
+                              <article key={rental.id} className="dash-attn-row">
+                                <div className="dash-attn-thumb" aria-hidden="true">
+                                  {vehicle?.image ? (
+                                    <img src={vehicle.image} alt="" />
+                                  ) : (
+                                    <span>
+                                      {(vehicle?.make || '?').slice(0, 1)}
+                                      {(vehicle?.series || '').slice(0, 1)}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="dash-attn-meta">
+                                  <strong>
+                                    {vehicle?.make} — {vehicle?.series}
+                                  </strong>
+                                  <span>
+                                    {vehicle?.plateNo} · {customerName(rental)}
+                                  </span>
+                                  <span className="dash-attn-time">
+                                    {startLabel}
+                                    {isPastDue ? (
+                                      ' · activating…'
+                                    ) : remaining ? (
+                                      <>
+                                        {' · '}
+                                        <span className="dash-attn-remaining">{remaining}</span>
+                                      </>
+                                    ) : null}
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  className="btn-outline btn-sm btn-danger-outline"
+                                  onClick={() => requestCancelRental(rental, vehicle)}
+                                >
+                                  Cancel
+                                </button>
+                              </article>
+                              )
+                            })}
+                          </div>
+                        )
+                      )}
 
-                      <div className="dash-attn-card dash-attn-pending">
+                      {attentionFilter === 'onRent' && (
+                        onRentQueue.length === 0 ? (
+                          <p className="dash-attn-empty">No active rentals.</p>
+                        ) : (
+                          <div className="dash-attn-list">
+                            {onRentQueue.map(({ rental, vehicle }) => {
+                              const untilLabel =
+                                rental.rental?.periodToLabel ||
+                                formatDateTime(rental.rental?.periodTo)
+                              const remaining = formatTimeRemaining(rental.rental?.periodTo)
+                              const isOverdue =
+                                remaining && remaining.startsWith('Overdue')
+                              return (
+                              <article key={rental.id} className="dash-attn-row">
+                                <div className="dash-attn-thumb" aria-hidden="true">
+                                  {vehicle?.image ? (
+                                    <img src={vehicle.image} alt="" />
+                                  ) : (
+                                    <span>
+                                      {(vehicle?.make || '?').slice(0, 1)}
+                                      {(vehicle?.series || '').slice(0, 1)}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="dash-attn-meta">
+                                  <strong>
+                                    {vehicle?.make} — {vehicle?.series}
+                                  </strong>
+                                  <span>
+                                    {vehicle?.plateNo} · {customerName(rental)}
+                                  </span>
+                                  <span className="dash-attn-time">
+                                    Until {untilLabel}
+                                    {remaining ? (
+                                      <>
+                                        {' · '}
+                                        <span
+                                          className={
+                                            isOverdue
+                                              ? 'dash-attn-remaining is-overdue'
+                                              : 'dash-attn-remaining'
+                                          }
+                                        >
+                                          {remaining}
+                                        </span>
+                                      </>
+                                    ) : null}
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  className="btn-outline btn-sm"
+                                  onClick={() => requestRentCompleted(vehicle)}
+                                >
+                                  Complete
+                                </button>
+                              </article>
+                              )
+                            })}
+                          </div>
+                        )
+                      )}
+
+                      {attentionFilter === 'maintenance' && (
+                        maintenanceVehicles.length === 0 ? (
+                          <p className="dash-attn-empty">No units under maintenance.</p>
+                        ) : (
+                          <div className="dash-attn-list">
+                            {maintenanceVehicles.map((v) => (
+                              <article key={v.id} className="dash-attn-row">
+                                <div className="dash-attn-thumb" aria-hidden="true">
+                                  {v.image ? (
+                                    <img src={v.image} alt="" />
+                                  ) : (
+                                    <span>
+                                      {(v.make || '?').slice(0, 1)}
+                                      {(v.series || '').slice(0, 1)}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="dash-attn-meta">
+                                  <strong>
+                                    {v.make} — {v.series}
+                                  </strong>
+                                  <span>
+                                    {v.plateNo} · {v.bodyType}
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  className="btn-ghost btn-sm"
+                                  onClick={() => setTab('manage')}
+                                >
+                                  Manage
+                                </button>
+                              </article>
+                            ))}
+                          </div>
+                        )
+                      )}
+
+                      {attentionFilter === 'pending' && (
                         <PendingApprovals
                           vehicles={vehicles}
                           onChanged={reloadData}
-                          compact
+                          embedded
                         />
-                      </div>
+                      )}
                     </div>
                   </section>
                 </div>
@@ -2245,7 +2335,9 @@ export default function AdminPanel() {
                                   ? 'On Rent'
                                   : r.rentalLifecycle === 'scheduled'
                                     ? 'Scheduled'
-                                    : 'Done'}
+                                    : r.rentalLifecycle === 'cancelled'
+                                      ? 'Cancelled'
+                                      : 'Done'}
                     </span>
                             </span>
                           </button>
@@ -2548,8 +2640,18 @@ export default function AdminPanel() {
               vehicles={vehicles}
               adminName={profile.displayName}
               dataReady={ready && !loadError}
+              onOwnerUpdate={(ownerId, patch) => {
+                updateOwner(ownerId, patch)
+                if (patch.name) {
+                  vehicles
+                    .filter((v) => v.ownerId === ownerId)
+                    .forEach((v) => updateVehicle(v.id, { ownerName: patch.name }))
+                }
+              }}
             />
           )}
+
+          {tab === 'employees' && <EmployeesPanel />}
 
           {tab === 'history' && (
             <section className="admin-history-section">
@@ -2670,7 +2772,13 @@ export default function AdminPanel() {
 
                     <div className="history-aside">
                       <span className={`history-life history-life-${life}`}>
-                        {life === 'active' ? 'On rent' : life === 'scheduled' ? 'Scheduled' : 'Completed'}
+                        {life === 'active'
+                          ? 'On rent'
+                          : life === 'scheduled'
+                            ? 'Scheduled'
+                            : life === 'cancelled'
+                              ? 'Cancelled'
+                              : 'Completed'}
                       </span>
                       <span className="history-open-hint" aria-hidden="true">
                         View
@@ -2940,9 +3048,8 @@ export default function AdminPanel() {
                       <span className="settings-eyebrow">Sync</span>
                       <h4 className="settings-card-title">Cloud connection (Render)</h4>
                       <p className="settings-card-copy">
-                        Option C: this desk keeps working offline with local SQLite. Cloud sync
-                        stays disabled until you deploy Render and set{' '}
-                        <code>VITE_RENDER_API_URL</code>.
+                        {describeCloudConnection()} Push local changes to Render, then pull mobile
+                        submissions into this desk.
                       </p>
                     </div>
 
@@ -2961,17 +3068,33 @@ export default function AdminPanel() {
                       </li>
                       <li>
                         <strong>Cloud sync enabled</strong>
-                        <span>{CLOUD_SYNC_ENABLED ? 'Yes' : 'No (by design until deploy)'}</span>
+                        <span>{CLOUD_SYNC_ENABLED ? 'Yes' : 'No — set VITE_CLOUD_SYNC_ENABLED=true'}</span>
                       </li>
                       <li>
                         <strong>Pending sync queue</strong>
                         <span>{systemStatus?.pendingSyncCount ?? '—'}</span>
                       </li>
                       <li>
-                        <strong>Pending approvals</strong>
+                        <strong>Waiting for approval</strong>
                         <span>{systemStatus?.pendingApprovalCount ?? pendingApprovalCount}</span>
                       </li>
                     </ul>
+
+                    <div className="settings-cloud-actions">
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        disabled={syncBusy || !online || !CLOUD_SYNC_ENABLED}
+                        onClick={() => void handleCloudSync()}
+                      >
+                        {syncBusy ? 'Syncing…' : 'Sync now'}
+                      </button>
+                      {syncMessage && (
+                        <p className="settings-data-message" role="status">
+                          {syncMessage}
+                        </p>
+                      )}
+                    </div>
                   </article>
 
                   <article className="settings-card settings-session-card">
@@ -2998,6 +3121,7 @@ export default function AdminPanel() {
       {previewVehicle && (
         <VehicleModal
           vehicle={previewVehicle}
+          large
           eyebrow={formatStatusLabel(getDisplayStatus(previewVehicle, rentals))}
           cancelLabel="Close"
           confirmLabel="Edit"
@@ -3170,6 +3294,12 @@ function VehicleFields({
   const disabled = locked || orcrBusy
   const crScanning = orcrBusy && orcrDocHint === 'cr'
   const orScanning = orcrBusy && orcrDocHint === 'or'
+  const hasCustomImage = Boolean(
+    String(data.image || '').trim() &&
+      data.image !== logo &&
+      !String(data.image || '').endsWith('logonobg.png'),
+  )
+  const previewImage = hasCustomImage ? data.image : logo
 
   return (
     <>
@@ -3363,6 +3493,24 @@ function VehicleFields({
         {errors.transmission && <span className="error-msg">{errors.transmission}</span>}
       </label>
       <label className="field">
+        <span className="field-label">Fleet status</span>
+        <select
+          value={data.status === 'Under Maintenance' ? 'Under Maintenance' : 'Available'}
+          onChange={(e) => onChange('status', e.target.value)}
+          disabled={disabled || data.status === 'Rented'}
+        >
+          <option value="Available">Available</option>
+          <option value="Under Maintenance">In maintenance</option>
+        </select>
+        {data.status === 'Rented' ? (
+          <span className="edit-section-copy">Status is managed while this vehicle is on rent.</span>
+        ) : (
+          <span className="edit-section-copy">
+            In maintenance vehicles are hidden from Rent Car selection.
+          </span>
+        )}
+      </label>
+      <label className="field">
         <span className="field-label">Plate No. *</span>
         <input
           type="text"
@@ -3475,19 +3623,24 @@ function VehicleFields({
         />
             <span>Choose Image</span>
           </label>
+          {hasCustomImage ? (
+            <button
+              type="button"
+              className="btn-ghost btn-sm edit-image-remove"
+              onClick={() => onChange('image', '')}
+            >
+              Remove photo
+            </button>
+          ) : null}
         </div>
 
         <div className="edit-image-preview-wrap">
-          {data.image ? (
-            <div className="admin-image-preview edit-image-preview">
-            <img src={data.image} alt="Preview" />
+          <div className={`admin-image-preview edit-image-preview${hasCustomImage ? '' : ' edit-image-default'}`}>
+            <img src={previewImage} alt={hasCustomImage ? 'Vehicle preview' : 'Default Alatas logo'} />
+            {!hasCustomImage ? (
+              <span className="edit-image-default-label">Default logo</span>
+            ) : null}
           </div>
-          ) : (
-            <div className="admin-image-preview edit-image-preview edit-image-default">
-              <img src={addVehiclePlaceholder} alt="Add vehicle photo placeholder" />
-              <span className="edit-image-default-label">Add vehicle photo</span>
-            </div>
-        )}
         </div>
 
         {errors.image && <span className="error-msg">{errors.image}</span>}

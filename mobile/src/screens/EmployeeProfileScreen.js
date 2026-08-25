@@ -1,26 +1,31 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Alert, Modal, ActivityIndicator, TextInput, Platform, DeviceEventEmitter } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { User, Mail, Phone, LogOut, Camera, MonitorSmartphone, Palette, ChevronRight, X, RefreshCw, Image as ImageIcon, Trash2, Save, CheckCircle2 } from 'lucide-react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Image, Alert, Modal, ActivityIndicator, TextInput, Platform, DeviceEventEmitter } from 'react-native';
+import ScreenLayout, { ScreenHeader } from '../components/ScreenLayout';
+import { User, LogOut, Camera, MonitorSmartphone, Palette, ChevronRight, X, RefreshCw, Image as ImageIcon, Trash2, Save, CheckCircle2 } from 'lucide-react-native';
 
 import { useTheme } from '../context/ThemeContext';
+import { useFleet } from '../context/FleetContext';
+import { useAuth } from '../context/AuthContext';
+import { pickProfilePhoto } from '../utils/profilePhoto';
+import { ACCENT } from '../theme/colors';
+
+function defaultProfile(user) {
+  return {
+    name: user?.displayName || 'Employee',
+  };
+}
 
 export default function EmployeeProfileScreen() {
   const { activeTheme, setActiveTheme, isDark, theme } = useTheme();
+  const { user, updateDisplayName } = useAuth();
+  const { syncNow, lastSynced, online, apiUrl, queueLength, loadAll } = useFleet();
 
   const [profileImage, setProfileImage] = useState(null);
-  
-  // Profile Data
-  const [profileData, setProfileData] = useState({
-    name: 'Employee User',
-    email: 'employee@alatas.com',
-    phone: '+63 900 123 4567'
-  });
+  const [profileData, setProfileData] = useState(() => defaultProfile(user));
+  const [editForm, setEditForm] = useState({ ...defaultProfile(user) });
+  const [profileSavedVisible, setProfileSavedVisible] = useState(false);
 
-  // Edit Form State
-  const [editForm, setEditForm] = useState({ ...profileData });
-
-  const [lastSynced, setLastSynced] = useState(null);
+  const [lastSyncedLabel, setLastSyncedLabel] = useState(null);
   
   // Modals
   const [syncConfirmVisible, setSyncConfirmVisible] = useState(false);
@@ -30,6 +35,12 @@ export default function EmployeeProfileScreen() {
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
   const [pictureModalVisible, setPictureModalVisible] = useState(false);
+
+  useEffect(() => {
+    const next = defaultProfile(user);
+    setProfileData(next);
+    setEditForm(next);
+  }, [user?.username, user?.displayName]);
   
   const handleUpdatePicture = () => {
     setPictureModalVisible(true);
@@ -40,22 +51,31 @@ export default function EmployeeProfileScreen() {
     setPictureModalVisible(false);
   };
 
+  const choosePhoto = async (useCamera) => {
+    const uri = await pickProfilePhoto(useCamera);
+    if (uri) setPhoto(uri);
+  };
+
   const initiateSync = () => {
     setSyncConfirmVisible(true);
   };
 
-  const confirmSync = () => {
+  const confirmSync = async () => {
     setSyncConfirmVisible(false);
-    setTimeout(() => {
-      setSyncLoadingVisible(true);
-      setTimeout(() => {
-        setSyncLoadingVisible(false);
-        setLastSynced(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-        setTimeout(() => {
-          setSyncSuccessVisible(true);
-        }, 300);
-      }, 2000);
-    }, 400);
+    setSyncLoadingVisible(true);
+    try {
+      await syncNow();
+      await loadAll();
+      const stamp = lastSynced
+        ? lastSynced.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      setLastSyncedLabel(stamp);
+      setSyncSuccessVisible(true);
+    } catch (err) {
+      Alert.alert('Sync failed', err?.message || 'Could not sync with cloud.');
+    } finally {
+      setSyncLoadingVisible(false);
+    }
   };
 
   const openEditProfile = () => {
@@ -63,13 +83,19 @@ export default function EmployeeProfileScreen() {
     setEditModalVisible(true);
   };
 
-  const saveProfile = () => {
-    if (!editForm.name || !editForm.email || !editForm.phone) {
-      Alert.alert("Validation Error", "All fields are required.");
+  const saveProfile = async () => {
+    if (!editForm.name?.trim()) {
+      Alert.alert('Validation Error', 'Display name is required.');
       return;
     }
-    setProfileData(editForm);
-    setEditModalVisible(false);
+    try {
+      const next = await updateDisplayName(editForm.name);
+      setProfileData({ name: next });
+      setEditModalVisible(false);
+      setTimeout(() => setProfileSavedVisible(true), 300);
+    } catch (err) {
+      Alert.alert('Could not save', err?.message || 'Please try again.');
+    }
   };
 
   const handleLogout = () => {
@@ -82,12 +108,12 @@ export default function EmployeeProfileScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.bg }]}>
-      <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
-        <Text style={[styles.headerTitle, { color: theme.textMain }]}>Employee Profile</Text>
-      </View>
-      
-      <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
+    <>
+    <ScreenLayout
+      scroll
+      contentContainerStyle={styles.container}
+      header={<ScreenHeader title="Profile" subtitle="Employee account" />}
+    >
         
         {/* Profile Card */}
         <View style={styles.profileHeader}>
@@ -102,23 +128,20 @@ export default function EmployeeProfileScreen() {
             </View>
           </TouchableOpacity>
           <Text style={[styles.name, { color: theme.textMain }]}>{profileData.name}</Text>
-          <Text style={styles.role}>@alatas_employee</Text>
+          <Text style={styles.role}>@{user?.username || 'employee'}</Text>
         </View>
 
-        {/* Contact Info */}
+        {/* Display name */}
         <View style={[styles.sectionBlock, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <Text style={[styles.sectionTitle, { color: theme.textMain }]}>Contact Information</Text>
+          <Text style={[styles.sectionTitle, { color: theme.textMain }]}>Display name</Text>
           <View style={styles.infoRow}>
-            <View style={[styles.infoIconBox, { backgroundColor: theme.iconBg }]}>
-              <Mail color="#64748b" size={18} />
+            <View style={[styles.infoIconBox, { backgroundColor: theme.accentSoft || '#fef2f2' }]}>
+              <User color={ACCENT} size={18} />
             </View>
-            <Text style={[styles.infoText, { color: theme.textMain }]}>{profileData.email}</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <View style={[styles.infoIconBox, { backgroundColor: theme.iconBg }]}>
-              <Phone color="#64748b" size={18} />
-            </View>
-            <Text style={[styles.infoText, { color: theme.textMain }]}>{profileData.phone}</Text>
+            <Text style={[styles.infoText, { color: theme.textMain, flex: 1 }]}>{profileData.name}</Text>
+            <TouchableOpacity onPress={openEditProfile} hitSlop={8}>
+              <Text style={{ color: ACCENT, fontWeight: '700', fontSize: 13 }}>Edit</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -128,17 +151,17 @@ export default function EmployeeProfileScreen() {
           
           <TouchableOpacity style={styles.settingRow} onPress={initiateSync}>
             <View style={styles.settingRowLeft}>
-              <View style={[styles.infoIconBox, { backgroundColor: '#eff6ff' }]}>
-                <MonitorSmartphone color="#3b82f6" size={18} />
+              <View style={[styles.infoIconBox, { backgroundColor: '#fef2f2' }]}>
+                <MonitorSmartphone color="#b32025" size={18} />
               </View>
               <View>
                 <Text style={[styles.settingTitle, { color: theme.textMain }]}>Sync to Desktop</Text>
                 <Text style={[styles.settingDesc, { color: theme.textSub }]}>
-                  {lastSynced ? `Last synced: ${lastSynced}` : 'Tap to sync data'}
+                  {lastSyncedLabel ? `Last synced: ${lastSyncedLabel}` : `${online ? 'Online' : 'Offline'} · ${apiUrl}${queueLength ? ` · ${queueLength} queued` : ''}`}
                 </Text>
               </View>
             </View>
-            <RefreshCw color="#3b82f6" size={20} />
+            <RefreshCw color="#b32025" size={20} />
           </TouchableOpacity>
 
           <View style={[styles.divider, { backgroundColor: theme.border }]} />
@@ -159,16 +182,13 @@ export default function EmployeeProfileScreen() {
 
         {/* Actions */}
         <View style={styles.actionsSection}>
-          <TouchableOpacity style={[styles.actionButton, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={openEditProfile}>
-            <Text style={[styles.actionButtonText, { color: theme.textMain }]}>Edit Profile</Text>
-          </TouchableOpacity>
           <TouchableOpacity style={[styles.actionButton, styles.logoutButton]} onPress={handleLogout}>
             <LogOut color="#ef4444" size={20} />
             <Text style={styles.logoutText}>Log Out</Text>
           </TouchableOpacity>
         </View>
 
-      </ScrollView>
+    </ScreenLayout>
 
       {/* Sync Confirmation Modal */}
       <Modal
@@ -179,8 +199,8 @@ export default function EmployeeProfileScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <View style={[styles.modalIconBox, { backgroundColor: '#eff6ff' }]}>
-              <MonitorSmartphone color="#3b82f6" size={32} />
+            <View style={[styles.modalIconBox, { backgroundColor: '#fef2f2' }]}>
+              <MonitorSmartphone color="#b32025" size={32} />
             </View>
             <Text style={styles.modalTitle}>Enable Desktop Sync?</Text>
             <Text style={styles.modalDesc}>
@@ -206,7 +226,7 @@ export default function EmployeeProfileScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.loadingModalContent}>
-            <ActivityIndicator size="large" color="#3b82f6" />
+            <ActivityIndicator size="large" color="#b32025" />
             <Text style={styles.loadingText}>Synchronizing Data...</Text>
             <Text style={styles.loadingSubtext}>Please do not close the app.</Text>
           </View>
@@ -229,16 +249,16 @@ export default function EmployeeProfileScreen() {
               </TouchableOpacity>
             </View>
 
-            <TouchableOpacity style={styles.menuItem} onPress={() => setPhoto('https://i.pravatar.cc/300?img=11')}>
+            <TouchableOpacity style={styles.menuItem} onPress={() => choosePhoto(false)}>
               <View style={styles.menuItemLeft}>
-                <View style={[styles.menuIconBox, { backgroundColor: '#eff6ff' }]}>
-                  <ImageIcon color="#3b82f6" size={20} />
+                <View style={[styles.menuIconBox, { backgroundColor: '#fef2f2' }]}>
+                  <ImageIcon color="#b32025" size={20} />
                 </View>
                 <Text style={[styles.menuItemTitle, { color: theme.textMain }]}>Choose from Gallery</Text>
               </View>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.menuItem} onPress={() => setPhoto('https://i.pravatar.cc/300?img=12')}>
+            <TouchableOpacity style={styles.menuItem} onPress={() => choosePhoto(true)}>
               <View style={styles.menuItemLeft}>
                 <View style={[styles.menuIconBox, { backgroundColor: '#f5f3ff' }]}>
                   <Camera color="#8b5cf6" size={20} />
@@ -301,57 +321,45 @@ export default function EmployeeProfileScreen() {
             </View>
             
             <View style={[styles.formGroup, { width: '100%' }]}>
-              <Text style={[styles.inputLabel, { color: theme.textMain }]}>Full Name</Text>
+              <Text style={[styles.inputLabel, { color: theme.textMain }]}>Display name</Text>
               <TextInput 
                 style={[styles.input, { backgroundColor: theme.bg, borderColor: theme.border, color: theme.textMain, width: '100%' }]} 
                 value={editForm.name}
                 onChangeText={(t) => setEditForm({ ...editForm, name: t })}
+                placeholder="Your display name"
+                placeholderTextColor={theme.textSub}
               />
             </View>
 
-            <View style={[styles.formGroup, { width: '100%' }]}>
-              <Text style={[styles.inputLabel, { color: theme.textMain }]}>Email / Username</Text>
-              <TextInput 
-                style={[styles.input, { backgroundColor: theme.bg, borderColor: theme.border, color: theme.textMain, width: '100%' }]} 
-                value={editForm.email}
-                autoCapitalize="none"
-                keyboardType="email-address"
-                onChangeText={(t) => setEditForm({ ...editForm, email: t })}
-              />
-            </View>
-
-            <View style={[styles.formGroup, { width: '100%' }]}>
-              <Text style={[styles.inputLabel, { color: theme.textMain }]}>Phone Number</Text>
-              <View style={[styles.phoneInputContainer, { borderColor: theme.border, backgroundColor: theme.bg }]}>
-                <View style={[styles.phonePrefixBox, { backgroundColor: theme.iconBg, borderRightColor: theme.border }]}>
-                  <Text style={[styles.phonePrefixText, { color: theme.textSub }]}>+63</Text>
-                </View>
-                <TextInput 
-                  style={[styles.phoneInput, { backgroundColor: theme.bg, color: theme.textMain }]} 
-                  value={editForm.phone}
-                  placeholder="900 000 0000"
-                  placeholderTextColor={theme.textSub}
-                  keyboardType="phone-pad"
-                  maxLength={10}
-                  onChangeText={(text) => {
-                    let sanitized = text.replace(/[^\d]/g, '');
-                    if (sanitized.startsWith('0')) sanitized = sanitized.substring(1);
-                    setEditForm({ ...editForm, phone: sanitized });
-                  }}
-                />
-              </View>
-            </View>
-
-            <TouchableOpacity style={[styles.saveBtn, { width: '100%' }]} onPress={() => {
-              saveProfile();
-              setEditModalVisible(false);
-              setTimeout(() => {
-                setSyncSuccessVisible(true);
-              }, 300);
-            }}>
+            <TouchableOpacity style={[styles.saveBtn, { width: '100%', backgroundColor: ACCENT }]} onPress={saveProfile}>
               <Save color="#fff" size={20} />
               <Text style={styles.saveBtnText}>Save Changes</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Profile Saved Modal */}
+      <Modal
+        visible={profileSavedVisible}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setProfileSavedVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+            <View style={[styles.modalIconBox, { backgroundColor: isDark ? '#064e3b' : '#ecfdf5' }]}>
+              <CheckCircle2 color="#10b981" size={36} />
+            </View>
+            <Text style={[styles.modalTitle, { color: theme.textMain }]}>Profile Updated</Text>
+            <Text style={[styles.modalDesc, { color: theme.textSub }]}>
+              Your display name has been saved.
+            </Text>
+            <View style={styles.modalActionRow}>
+              <TouchableOpacity style={[styles.confirmBtn, { backgroundColor: ACCENT }]} onPress={() => setProfileSavedVisible(false)}>
+                <Text style={styles.confirmBtnText}>Done</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -377,7 +385,7 @@ export default function EmployeeProfileScreen() {
               {['Light', 'Dark', 'System Default'].map((t) => (
                 <TouchableOpacity 
                   key={t}
-                  style={[styles.themeOptionBtn, activeTheme === t && styles.themeOptionActive, { backgroundColor: activeTheme === t ? '#eff6ff' : theme.bg }]}
+                  style={[styles.themeOptionBtn, activeTheme === t && styles.themeOptionActive, { backgroundColor: activeTheme === t ? '#fef2f2' : theme.bg }]}
                   onPress={() => {
                     setActiveTheme(t);
                     setThemeModalVisible(false);
@@ -405,7 +413,7 @@ export default function EmployeeProfileScreen() {
             </View>
             <Text style={[styles.modalTitle, { color: theme.textMain }]}>Confirm Logout</Text>
             <Text style={[styles.modalDesc, { color: theme.textSub }]}>
-              Are you sure you want to securely log out of your administrator account? You will need to sign in again.
+              Are you sure you want to log out of your employee account? You will need to sign in again.
             </Text>
             <View style={styles.modalActionRow}>
               <TouchableOpacity style={styles.cancelBtn} onPress={() => setLogoutModalVisible(false)}>
@@ -419,33 +427,12 @@ export default function EmployeeProfileScreen() {
         </View>
       </Modal>
 
-    </SafeAreaView>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-  },
-  header: {
-    paddingHorizontal: 20,
-    paddingTop: 40,
-    paddingBottom: 20,
-    borderBottomWidth: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.02,
-    shadowRadius: 8,
-    elevation: 2,
-    zIndex: 10,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: '800',
-    letterSpacing: -0.5,
-  },
   container: {
-    flex: 1,
     padding: 20,
   },
   profileHeader: {
@@ -477,7 +464,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 0,
     right: 4,
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#b32025',
     width: 32,
     height: 32,
     borderRadius: 16,
@@ -494,7 +481,7 @@ const styles = StyleSheet.create({
   },
   role: {
     fontSize: 15,
-    color: '#3b82f6',
+    color: '#b32025',
     fontWeight: '600',
   },
   sectionBlock: {
@@ -690,9 +677,9 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 16,
     borderRadius: 16,
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#b32025',
     alignItems: 'center',
-    shadowColor: '#3b82f6',
+    shadowColor: '#b32025',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -777,7 +764,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   saveBtn: {
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#b32025',
     flexDirection: 'row',
     paddingVertical: 16,
     borderRadius: 16,
@@ -785,7 +772,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     marginTop: 10,
-    shadowColor: '#3b82f6',
+    shadowColor: '#b32025',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -814,7 +801,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   themeOptionActive: {
-    borderColor: '#3b82f6',
+    borderColor: '#b32025',
   },
   themeOptionText: {
     fontSize: 13,
@@ -822,6 +809,6 @@ const styles = StyleSheet.create({
     color: '#64748b',
   },
   themeOptionTextActive: {
-    color: '#3b82f6',
+    color: '#b32025',
   },
 });

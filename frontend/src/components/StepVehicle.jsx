@@ -22,6 +22,7 @@ export default function StepVehicle({ selectedId, onSelect, error }) {
     return vehicles.filter((v) => {
       if (archived.has(String(v.id))) return false
       if (booked.has(v.id)) return false
+      if (v.status === 'Under Maintenance') return false
       return getDisplayStatus(v, rentals) === 'Available'
     })
   }, [vehicles, bookedVehicleIds, rentals, archiveTick])

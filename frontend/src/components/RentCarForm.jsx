@@ -5,7 +5,7 @@ import StepVehicle from './StepVehicle'
 import StepRentalDetails from './StepRentalDetails'
 import StepPhoto from './StepPhoto'
 import StepTerms from './StepTerms'
-import StepCarCondition from './StepCarCondition'
+import StepCarCondition, { CAR_PHOTO_SLOTS } from './StepCarCondition'
 import StepSummary from './StepSummary'
 import LoadingScreen from './LoadingScreen'
 import { useVehicles } from '../context/VehicleContext'
@@ -52,13 +52,6 @@ const initialRental = {
   feeHours: null,
 }
 
-const initialCarPhotos = {
-  front: '',
-  rear: '',
-  left: '',
-  right: '',
-}
-
 const AUTO_CAPITALIZE_KEYS = new Set([
   'firstName',
   'middleName',
@@ -81,8 +74,8 @@ export default function RentCarForm({ onDirtyChange }) {
   const [photo, setPhoto] = useState('')
   const [licensePhoto, setLicensePhoto] = useState('')
   const [signature, setSignature] = useState('')
+  const [carPhotos, setCarPhotos] = useState({})
   const [termsAccepted, setTermsAccepted] = useState(false)
-  const [carPhotos, setCarPhotos] = useState(initialCarPhotos)
   const [errors, setErrors] = useState({})
   const [phase, setPhase] = useState('form') // form | loading
   const [submitError, setSubmitError] = useState('')
@@ -98,7 +91,7 @@ export default function RentCarForm({ onDirtyChange }) {
       Boolean(licensePhoto) ||
       Boolean(signature) ||
       termsAccepted ||
-      Object.values(carPhotos).some(Boolean) ||
+      CAR_PHOTO_SLOTS.some((slot) => Boolean(carPhotos[slot.key])) ||
       Object.values(personal).some((v) => String(v || '').trim()) ||
       Boolean(rental.duration) ||
       Boolean(rental.rentalType) ||
@@ -242,14 +235,7 @@ export default function RentCarForm({ onDirtyChange }) {
       if (!termsAccepted) nextErrors.terms = 'You must accept the terms to continue'
     }
 
-    if (currentStep === 6) {
-      ;['front', 'rear', 'left', 'right'].forEach((key) => {
-        if (!carPhotos[key]) nextErrors[key] = 'Photo required'
-      })
-      if (Object.keys(nextErrors).some((k) => ['front', 'rear', 'left', 'right'].includes(k))) {
-        nextErrors.carPhotos = 'Add all 4 pre-rental car photos'
-      }
-    }
+    // Step 6 (car photos) is optional — no validation required.
 
     setErrors(nextErrors)
     return Object.keys(nextErrors).length === 0
@@ -263,8 +249,8 @@ export default function RentCarForm({ onDirtyChange }) {
     setPhoto('')
     setLicensePhoto('')
     setSignature('')
+    setCarPhotos({})
     setTermsAccepted(false)
-    setCarPhotos(initialCarPhotos)
     setErrors({})
     setSubmitError('')
     setSubmitting(false)
@@ -289,11 +275,13 @@ export default function RentCarForm({ onDirtyChange }) {
       const compressedSignature = signature
         ? (await compressSignatureDataUrl(signature, 640, 0.92)) || signature
         : ''
-      const compressedCarPhotos = {
-        front: (await compressImageDataUrl(carPhotos.front || '')) || '',
-        rear: (await compressImageDataUrl(carPhotos.rear || '')) || '',
-        left: (await compressImageDataUrl(carPhotos.left || '')) || '',
-        right: (await compressImageDataUrl(carPhotos.right || '')) || '',
+
+      const compressedCarPhotos = {}
+      for (const slot of CAR_PHOTO_SLOTS) {
+        const raw = carPhotos[slot.key]
+        if (!raw) continue
+        const compressed = await compressImageDataUrl(raw)
+        if (compressed) compressedCarPhotos[slot.key] = compressed
       }
 
       const vehicleImage =
@@ -403,9 +391,7 @@ export default function RentCarForm({ onDirtyChange }) {
     return <LoadingScreen onDone={handleReset} />
   }
 
-  const nextDisabled =
-    (step === 5 && (!termsAccepted || !signature)) ||
-    (step === 6 && !Object.values(carPhotos).every(Boolean))
+  const nextDisabled = step === 5 && (!termsAccepted || !signature)
 
   return (
     <div className="encoder-card rent-car-panel">
@@ -465,7 +451,11 @@ export default function RentCarForm({ onDirtyChange }) {
           />
         )}
         {step === 6 && (
-          <StepCarCondition photos={carPhotos} onChange={updateCarPhoto} errors={errors} />
+          <StepCarCondition
+            photos={carPhotos}
+            onChange={updateCarPhoto}
+            errors={errors}
+          />
         )}
         {step === 7 && (
           <StepSummary

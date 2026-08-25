@@ -1,19 +1,21 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Send, Image as ImageIcon } from 'lucide-react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList, Platform } from 'react-native';
+import ScreenLayout, { ScreenHeader, useTabBarContentPadding } from '../components/ScreenLayout';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import { Send, Image as ImageIcon, MessageSquare } from 'lucide-react-native';
 import { useTheme } from '../context/ThemeContext';
-
-const mockMessages = [
-  { id: '1', text: 'Hello, please check the new Toyota Corolla today.', sender: 'admin', time: '09:00 AM' },
-  { id: '2', text: 'Will do, boss. Heading to the yard now.', sender: 'employee', time: '09:15 AM' },
-  { id: '3', text: 'Make sure to capture the interior clearly, particularly the dashboard.', sender: 'admin', time: '09:20 AM' },
-];
 
 export default function EmployeeChatScreen() {
   const { theme } = useTheme();
-  const [messages, setMessages] = useState(mockMessages);
+  const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
+  let tabBarHeight = 0;
+  try {
+    tabBarHeight = useBottomTabBarHeight();
+  } catch {
+    tabBarHeight = 0;
+  }
+  const listBottomPad = useTabBarContentPadding(8);
 
   const handleSend = () => {
     if (inputText.trim()) {
@@ -40,7 +42,7 @@ export default function EmployeeChatScreen() {
         <View 
           style={[
             styles.messageBubble, 
-            isMe ? [styles.messageBubbleMe, { backgroundColor: '#3b82f6' }] : [styles.messageBubbleAdmin, { backgroundColor: theme.card, borderColor: theme.border }]
+            isMe ? [styles.messageBubbleMe, { backgroundColor: '#b32025' }] : [styles.messageBubbleAdmin, { backgroundColor: theme.card, borderColor: theme.border }]
           ]}
         >
           <Text style={[styles.messageText, { color: isMe ? '#fff' : theme.textMain }]}>{item.text}</Text>
@@ -51,28 +53,40 @@ export default function EmployeeChatScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.bg }]}>
-      <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
-        <View style={styles.adminAvatarSmall}>
-          <Text style={styles.adminAvatarTextSmall}>A</Text>
-        </View>
-        <View>
-          <Text style={[styles.headerTitle, { color: theme.textMain }]}>Admin</Text>
-          <Text style={[styles.headerSubtitle, { color: '#10b981' }]}>Online</Text>
-        </View>
-      </View>
-
-      <KeyboardAvoidingView 
-        style={styles.container} 
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-      >
+    <ScreenLayout
+      scroll={false}
+      keyboard
+      keyboardVerticalOffset={Platform.OS === 'ios' ? tabBarHeight : 0}
+      header={
+        <ScreenHeader>
+          <View style={styles.headerRow}>
+            <View style={styles.adminAvatarSmall}>
+              <Text style={styles.adminAvatarTextSmall}>A</Text>
+            </View>
+            <View>
+              <Text style={[styles.headerTitle, { color: theme.textMain }]}>Admin</Text>
+              <Text style={[styles.headerSubtitle, { color: '#10b981' }]}>Online</Text>
+            </View>
+          </View>
+        </ScreenHeader>
+      }
+    >
         <FlatList
+          style={styles.flex}
           data={messages}
           keyExtractor={(item) => item.id}
           renderItem={renderMessage}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[styles.listContent, { paddingBottom: listBottomPad, flexGrow: 1 }]}
           showsVerticalScrollIndicator={false}
+          ListEmptyComponent={
+            <View style={styles.emptyChat}>
+              <MessageSquare color={theme.textSub} size={40} strokeWidth={1.5} />
+              <Text style={[styles.emptyTitle, { color: theme.textMain }]}>No messages yet</Text>
+              <Text style={[styles.emptyDesc, { color: theme.textSub }]}>
+                Team chat is not connected to the server yet. Messages you send stay on this device only.
+              </Text>
+            </View>
+          }
         />
 
         <View style={[styles.inputContainer, { backgroundColor: theme.card, borderTopColor: theme.border }]}>
@@ -95,18 +109,13 @@ export default function EmployeeChatScreen() {
             <Send color="#fff" size={20} style={{ marginLeft: 2 }} />
           </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+    </ScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1 },
-  container: { flex: 1 },
-  header: {
-    flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 15, paddingBottom: 15,
-    borderBottomWidth: 1,
-  },
+  flex: { flex: 1 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   adminAvatarSmall: {
     width: 40, height: 40, borderRadius: 20, backgroundColor: '#1e293b',
     justifyContent: 'center', alignItems: 'center', marginRight: 12
@@ -138,7 +147,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10, fontSize: 15,
   },
   sendBtn: {
-    width: 40, height: 40, borderRadius: 20, backgroundColor: '#3b82f6',
+    width: 40, height: 40, borderRadius: 20, backgroundColor: '#b32025',
     justifyContent: 'center', alignItems: 'center', marginLeft: 12
   }
 });

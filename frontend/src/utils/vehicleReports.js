@@ -1,4 +1,5 @@
 import { safeSetItem } from './storage'
+import { pushVehicleReportsToCloud } from '../api/vehicleReportsApi'
 
 const REPORTS_KEY = 'alatas-vehicle-reports'
 
@@ -34,6 +35,7 @@ export function loadReportStore() {
 
 function saveReportStore(store) {
   safeSetItem(REPORTS_KEY, JSON.stringify(store))
+  void pushVehicleReportsToCloud(store).catch(() => {})
   return store
 }
 

@@ -1,4 +1,9 @@
-import { fetchRentals, replaceRentals, addRental as postRental } from '../api/backend'
+import {
+  fetchRentals,
+  replaceRentals,
+  addRental as postRental,
+  submitPendingRental as postPendingRental,
+} from '../api/backend'
 import { enqueueOfflineOp } from '../utils/offlineQueue'
 
 export async function loadRentals() {
@@ -23,6 +28,16 @@ export async function addRental(rental) {
   } catch (err) {
     console.warn('Unable to add rental to backend', err)
     enqueueOfflineOp({ type: 'rentals-add', payload: rental })
+    return null
+  }
+}
+
+export async function submitPendingRental(rental) {
+  try {
+    return await postPendingRental(rental)
+  } catch (err) {
+    console.warn('Unable to submit pending rental to backend', err)
+    enqueueOfflineOp({ type: 'pending-rental', payload: rental })
     return null
   }
 }

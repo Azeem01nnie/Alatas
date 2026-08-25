@@ -46,6 +46,30 @@ export async function pushToCloud(changes, lastPulledAt = 0) {
   })
 }
 
+export async function fetchCloudPendingRentals() {
+  if (!isCloudConfigured()) return []
+  return cloudRequest('/api/pending-rentals')
+}
+
+export async function acceptCloudPendingRental(id) {
+  if (!isCloudConfigured()) {
+    throw new Error('Cloud URL is not configured')
+  }
+  return cloudRequest(`/api/pending-rentals/${encodeURIComponent(id)}/accept`, {
+    method: 'POST',
+  })
+}
+
+export async function rejectCloudPendingRental(id, reason = '') {
+  if (!isCloudConfigured()) {
+    throw new Error('Cloud URL is not configured')
+  }
+  return cloudRequest(`/api/pending-rentals/${encodeURIComponent(id)}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  })
+}
+
 export async function fetchCloudSystemStatus() {
   if (!isCloudConfigured()) {
     return { configured: false, enabled: false }
@@ -56,4 +80,32 @@ export async function fetchCloudSystemStatus() {
   } catch (err) {
     return { configured: true, enabled: CLOUD_SYNC_ENABLED, reachable: false, error: err.message }
   }
+}
+
+export async function fetchCloudEmployees() {
+  if (!isCloudConfigured()) return []
+  return cloudRequest('/api/employees')
+}
+
+export async function createCloudEmployee(employee) {
+  if (!isCloudConfigured()) throw new Error('Cloud URL is not configured')
+  return cloudRequest('/api/employees', {
+    method: 'POST',
+    body: JSON.stringify(employee),
+  })
+}
+
+export async function updateCloudEmployee(id, patch) {
+  if (!isCloudConfigured()) throw new Error('Cloud URL is not configured')
+  return cloudRequest(`/api/employees/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  })
+}
+
+export async function deleteCloudEmployee(id) {
+  if (!isCloudConfigured()) throw new Error('Cloud URL is not configured')
+  return cloudRequest(`/api/employees/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  })
 }

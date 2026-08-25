@@ -4,6 +4,12 @@ import {
   rejectPendingRental as rejectPendingRentalApi,
   fetchPendingRentals,
 } from '../api/backend'
+import {
+  acceptCloudPendingRental,
+  fetchCloudPendingRentals,
+  isCloudConfigured,
+  rejectCloudPendingRental,
+} from '../api/cloudSync'
 
 function customerName(rental) {
   const p = rental?.personal
@@ -18,7 +24,7 @@ function formatDateTime(value) {
   return d.toLocaleString()
 }
 
-export default function PendingApprovals({ vehicles, onChanged, compact = false }) {
+export default function PendingApprovals({ vehicles, onChanged, compact = false, embedded = false }) {
   const [pending, setPending] = useState([])
   const [busyId, setBusyId] = useState(null)
   const [rejectId, setRejectId] = useState(null)
@@ -27,7 +33,21 @@ export default function PendingApprovals({ vehicles, onChanged, compact = false 
 
   const loadPending = useCallback(async () => {
     try {
-      const rows = await fetchPendingRentals()
+      let rows = []
+      if (isCloudConfigured()) {
+        const [localRows, cloudRows] = await Promise.all([
+          fetchPendingRentals().catch(() => []),
+          fetchCloudPendingRentals().catch(() => []),
+        ])
+        const byId = new Map()
+        ;[...(Array.isArray(localRows) ? localRows : []), ...(Array.isArray(cloudRows) ? cloudRows : [])]
+          .forEach((r) => {
+            if (r?.id) byId.set(String(r.id), r)
+          })
+        rows = [...byId.values()]
+      } else {
+        rows = await fetchPendingRentals()
+      }
       setPending(Array.isArray(rows) ? rows : [])
       setError('')
     } catch (err) {
@@ -50,7 +70,15 @@ export default function PendingApprovals({ vehicles, onChanged, compact = false 
     setBusyId(id)
     setError('')
     try {
-      await acceptPendingRentalApi(id)
+      if (isCloudConfigured()) {
+        try {
+          await acceptCloudPendingRental(id)
+        } catch {
+          await acceptPendingRentalApi(id)
+        }
+      } else {
+        await acceptPendingRentalApi(id)
+      }
       await loadPending()
       if (onChanged) await onChanged()
     } catch (err) {
@@ -64,7 +92,15 @@ export default function PendingApprovals({ vehicles, onChanged, compact = false 
     setBusyId(id)
     setError('')
     try {
-      await rejectPendingRentalApi(id, rejectReason)
+      if (isCloudConfigured()) {
+        try {
+          await rejectCloudPendingRental(id, rejectReason)
+        } catch {
+          await rejectPendingRentalApi(id, rejectReason)
+        }
+      } else {
+        await rejectPendingRentalApi(id, rejectReason)
+      }
       setRejectId(null)
       setRejectReason('')
       await loadPending()
@@ -76,6 +112,56 @@ export default function PendingApprovals({ vehicles, onChanged, compact = false 
     }
   }
 
+  if (embedded) {
+    if (pending.length === 0) {
+      return <p className="dash-attn-empty">No rentals waiting for approval.</p>
+    }
+
+    return (
+      <>
+        {error ? <p className="pending-approvals-error">{error}</p> : null}
+        <ul className="pending-approvals-list">
+          {pending.map((rental) => {
+            const vehicle = vehicleFor(rental)
+            const isBusy = busyId === rental.id
+            return (
+              <li key={rental.id} className="pending-approvals-item dash-attn-row">
+                <div className="pending-approvals-meta dash-attn-meta">
+                  <strong>
+                    {vehicle?.make || 'Vehicle'} — {vehicle?.series || ''}
+                  </strong>
+                  <span>
+                    {vehicle?.plateNo || 'No plate'} · {customerName(rental)}
+                  </span>
+                  <span className="dash-attn-time">
+                    {formatDateTime(rental.rental?.periodFrom)}
+                  </span>
+                </div>
+                {rejectId === rental.id ? (
+                  <div className="pending-approvals-reject-form">
+                    <input
+                      type="text"
+                      value={rejectReason}
+                      onChange={(e) => setRejectReason(e.target.value)}
+                      placeholder="Reason (optional)"
+                    />
+                    <button type="button" className="btn-outline btn-sm" disabled={isBusy} onClick={() => { setRejectId(null); setRejectReason('') }}>Cancel</button>
+                    <button type="button" className="btn-danger btn-sm" disabled={isBusy} onClick={() => handleReject(rental.id)}>Reject</button>
+                  </div>
+                ) : (
+                  <div className="pending-approvals-actions">
+                    <button type="button" className="btn-primary btn-sm" disabled={isBusy} onClick={() => handleAccept(rental.id)}>Accept</button>
+                    <button type="button" className="btn-outline btn-sm" disabled={isBusy} onClick={() => setRejectId(rental.id)}>Reject</button>
+                  </div>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      </>
+    )
+  }
+
   if (compact && pending.length === 0) {
     return null
   }
@@ -85,7 +171,7 @@ export default function PendingApprovals({ vehicles, onChanged, compact = false 
       <>
         <header className="dash-attn-head">
           <div className="dash-attn-head-copy">
-            <h4 className="dash-attn-title">Pending approval</h4>
+            <h4 className="dash-attn-title">Waiting for approval</h4>
             <p className="dash-attn-note">Accept or reject before the rental becomes active.</p>
           </div>
           <span className="dash-attn-count" aria-label={`${pending.length} items`}>
@@ -140,8 +226,8 @@ export default function PendingApprovals({ vehicles, onChanged, compact = false 
       {!compact ? (
         <header className="pending-approvals-head">
           <div>
-            <h3>Pending approvals</h3>
-            <p>Review field or mobile submissions before they become active rentals.</p>
+            <h3>Waiting for approval</h3>
+            <p>Review field, mobile, or desktop submissions before they become active rentals.</p>
           </div>
           <span className="pending-approvals-badge">{pending.length}</span>
         </header>

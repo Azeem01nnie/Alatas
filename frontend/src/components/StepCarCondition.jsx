@@ -223,7 +223,7 @@ export default function StepCarCondition({ photos, onChange, errors = {} }) {
     <section className="step-panel">
       <h2 className="step-title">Pre-rental Car Photos</h2>
       <p className="step-subtitle">
-        Take or upload 4 photos of the vehicle before rental for condition transparency.
+        Optional — add vehicle photos here now, or leave blank and capture them later on mobile.
       </p>
 
       <div className="photo-upload-grid photo-upload-grid-4">

@@ -1,14 +1,14 @@
 /**
  * Cloud connection defaults for Alatas Option C.
- * Desktop reads VITE_* vars; phone is not wired yet.
+ * Desktop uses VITE_* vars; mobile talks directly to Render.
  */
 export const CLOUD_CONNECTION = {
   /** Set after Render deploy, e.g. https://alatas-api.onrender.com */
   renderApiUrl: import.meta.env.VITE_RENDER_API_URL || '',
   /** Must be explicitly true to call Render from the UI */
   syncEnabled: import.meta.env.VITE_CLOUD_SYNC_ENABLED === 'true',
-  /** Phone / WatermelonDB — not connected in this phase */
-  mobileConnected: false,
+  /** Phone connects directly to Render API */
+  mobileConnected: true,
 }
 
 export function describeCloudConnection() {

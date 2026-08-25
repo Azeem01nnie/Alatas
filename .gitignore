@@ -13,3 +13,11 @@ release/
 !.vscode/extensions.json
 _ocr_out.txt
 _parse_check.mjs
+
+# Local SQLite data (can exceed GitHub 100MB limit)
+backend/sqlite/*.db
+backend/sqlite/*.db-shm
+backend/sqlite/*.db-wal
+render-backend/sqlite/*.db
+render-backend/sqlite/*.db-shm
+render-backend/sqlite/*.db-wal

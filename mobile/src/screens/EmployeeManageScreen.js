@@ -1,20 +1,28 @@
-import React, { useState, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, Animated, LayoutAnimation, Platform, UIManager, TextInput, Alert } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { UserPlus, Settings, Trash2, Mail, Shield, UserCircle, X, AlertTriangle, Eye, EyeOff, UserCheck, UserMinus, Key, Briefcase, ChevronRight, CheckCircle } from 'lucide-react-native';
-
-const initialEmployees = [
-  { id: '1', name: 'John Doe', username: 'johndoe', phone: '+639123456789', active: true, role: 'Inspector' },
-  { id: '2', name: 'Sarah Smith', username: 'sarahsmith', phone: '+639987654321', active: true, role: 'Manager' },
-  { id: '3', name: 'Mike Ross', username: 'mikeross', phone: '+639112223333', active: false, role: 'Inspector' },
-];
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, LayoutAnimation, Platform, UIManager, TextInput, ActivityIndicator, Alert } from 'react-native';
+import ScreenLayout, { ScreenHeader } from '../components/ScreenLayout';
+import { UserPlus, Settings, Trash2, Mail, Shield, UserCircle, X, AlertTriangle, Eye, EyeOff, UserCheck, UserMinus, Key, Briefcase, ChevronRight, CheckCircle, Search, Users } from 'lucide-react-native';
 
 import { useTheme } from '../context/ThemeContext';
+import {
+  fetchEmployees,
+  createEmployee,
+  updateEmployee,
+  deleteEmployee,
+} from '../api/employees';
+import { formatApiError } from '../api/client';
+import { useConnectivity } from '../hooks/useConnectivity';
+import { enqueueOfflineOp, flushOfflineQueue, getOfflineQueueLength } from '../utils/offlineQueue';
 
 export default function EmployeeManageScreen() {
-  const { theme } = useTheme();
-  const [employees, setEmployees] = useState(initialEmployees);
-  
+  const { theme, isDark } = useTheme();
+  const { online } = useConnectivity();
+  const [employees, setEmployees] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [queueLength, setQueueLength] = useState(0);
+
   // Modals state
   const [addModalVisible, setAddModalVisible] = useState(false);
   const [confirmAddModalVisible, setConfirmAddModalVisible] = useState(false);
@@ -85,6 +93,44 @@ export default function EmployeeManageScreen() {
     );
   };
 
+  const showSuccess = (title, desc) => {
+    setTimeout(() => {
+      setSuccessModalTitle(title);
+      setSuccessModalDesc(desc);
+      setSuccessModalVisible(true);
+    }, 300);
+  };
+
+  const refreshQueueLength = useCallback(async () => {
+    setQueueLength(await getOfflineQueueLength());
+  }, []);
+
+  const loadEmployees = useCallback(async () => {
+    setLoading(true);
+    try {
+      if (online) {
+        await flushOfflineQueue({
+          'employee-create': (payload) => createEmployee(payload),
+          'employee-update': (payload) => updateEmployee(payload.id, payload.patch),
+          'employee-delete': (payload) => deleteEmployee(payload.id),
+        });
+        await refreshQueueLength();
+        const rows = await fetchEmployees();
+        setEmployees(Array.isArray(rows) ? rows : []);
+      } else {
+        await refreshQueueLength();
+      }
+    } catch (err) {
+      Alert.alert('Could not load employees', formatApiError(err, 'employees'));
+    } finally {
+      setLoading(false);
+    }
+  }, [online, refreshQueueLength]);
+
+  useEffect(() => {
+    loadEmployees();
+  }, [loadEmployees]);
+
   const openSettingsMenu = (emp) => {
     setSelectedEmployee(emp);
     setSettingsMenuVisible(true);
@@ -108,48 +154,93 @@ export default function EmployeeManageScreen() {
     setTimeout(() => setChangePasswordModalVisible(true), 150);
   };
 
-  const executeToggleStatus = () => {
-    if (selectedEmployee) {
-      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      const wasActive = selectedEmployee.active;
-      setEmployees(prev => prev.map(emp => 
-        emp.id === selectedEmployee.id ? { ...emp, active: !emp.active } : emp
-      ));
+  const executeToggleStatus = async () => {
+    if (!selectedEmployee || saving) return;
+    const wasActive = selectedEmployee.active;
+    const id = selectedEmployee.id;
+    setSaving(true);
+    try {
+      if (!online) {
+        await enqueueOfflineOp({
+          type: 'employee-update',
+          payload: { id, patch: { active: !wasActive } },
+        });
+        await refreshQueueLength();
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setEmployees((prev) =>
+          prev.map((emp) => (emp.id === id ? { ...emp, active: !wasActive } : emp)),
+        );
+      } else {
+        const updated = await updateEmployee(id, { active: !wasActive });
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setEmployees((prev) => prev.map((emp) => (emp.id === updated.id ? updated : emp)));
+      }
       setToggleStatusModalVisible(false);
-      setTimeout(() => {
-        setSuccessModalTitle(wasActive ? 'Account Frozen' : 'Account Activated');
-        setSuccessModalDesc(`The account has been successfully ${wasActive ? 'frozen' : 'activated'}.`);
-        setSuccessModalVisible(true);
-      }, 300);
+      showSuccess(
+        wasActive ? 'Account Frozen' : 'Account Activated',
+        `The account has been successfully ${wasActive ? 'frozen' : 'activated'}.`,
+      );
       setSelectedEmployee(null);
+    } catch (err) {
+      Alert.alert('Update failed', err?.message || 'Could not update employee status.');
+    } finally {
+      setSaving(false);
     }
   };
 
-  const executeChangeRole = () => {
-    if (selectedEmployee && updateRole) {
-      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      setEmployees(prev => prev.map(emp => 
-        emp.id === selectedEmployee.id ? { ...emp, role: updateRole } : emp
-      ));
+  const executeChangeRole = async () => {
+    if (!selectedEmployee || !updateRole || saving) return;
+    const id = selectedEmployee.id;
+    setSaving(true);
+    try {
+      if (!online) {
+        await enqueueOfflineOp({
+          type: 'employee-update',
+          payload: { id, patch: { role: updateRole } },
+        });
+        await refreshQueueLength();
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setEmployees((prev) =>
+          prev.map((emp) => (emp.id === id ? { ...emp, role: updateRole } : emp)),
+        );
+      } else {
+        const updated = await updateEmployee(id, { role: updateRole });
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setEmployees((prev) => prev.map((emp) => (emp.id === updated.id ? updated : emp)));
+      }
       setChangeRoleModalVisible(false);
-      setTimeout(() => {
-        setSuccessModalTitle('Role Updated');
-        setSuccessModalDesc(`Employee's role has been successfully changed to ${updateRole}.`);
-        setSuccessModalVisible(true);
-      }, 300);
+      showSuccess('Role Updated', `Employee's role has been successfully changed to ${updateRole}.`);
       setSelectedEmployee(null);
+    } catch (err) {
+      Alert.alert('Update failed', err?.message || 'Could not update role.');
+    } finally {
+      setSaving(false);
     }
   };
 
-  const executeChangePassword = () => {
-    if (selectedEmployee && isUpdatePasswordValid()) {
+  const executeChangePassword = async () => {
+    if (!selectedEmployee || !isUpdatePasswordValid() || saving) return;
+    const id = selectedEmployee.id;
+    setSaving(true);
+    try {
+      if (!online) {
+        await enqueueOfflineOp({
+          type: 'employee-update',
+          payload: { id, patch: { password: updatePassword } },
+        });
+        await refreshQueueLength();
+      } else {
+        await updateEmployee(id, { password: updatePassword });
+      }
       setChangePasswordModalVisible(false);
-      setTimeout(() => {
-        setSuccessModalTitle('Password Changed');
-        setSuccessModalDesc(`The login credentials have been securely updated.`);
-        setSuccessModalVisible(true);
-      }, 300);
+      setUpdatePassword('');
+      setUpdateConfirmPassword('');
+      showSuccess('Password Changed', 'The login credentials have been securely updated.');
       setSelectedEmployee(null);
+    } catch (err) {
+      Alert.alert('Update failed', err?.message || 'Could not update password.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -158,17 +249,26 @@ export default function EmployeeManageScreen() {
     setDeleteModalVisible(true);
   };
 
-  const executeDelete = () => {
-    if (selectedEmployee) {
+  const executeDelete = async () => {
+    if (!selectedEmployee || saving) return;
+    const id = selectedEmployee.id;
+    setSaving(true);
+    try {
+      if (!online) {
+        await enqueueOfflineOp({ type: 'employee-delete', payload: { id } });
+        await refreshQueueLength();
+      } else {
+        await deleteEmployee(id);
+      }
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      setEmployees(prev => prev.filter(emp => emp.id !== selectedEmployee.id));
+      setEmployees((prev) => prev.filter((emp) => emp.id !== id));
       setDeleteModalVisible(false);
-      setTimeout(() => {
-        setSuccessModalTitle('Employee Removed');
-        setSuccessModalDesc(`The employee account has been permanently removed from the system.`);
-        setSuccessModalVisible(true);
-      }, 300);
+      showSuccess('Employee Removed', 'The employee account has been permanently removed from the system.');
       setSelectedEmployee(null);
+    } catch (err) {
+      Alert.alert('Delete failed', err?.message || 'Could not remove employee.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -181,68 +281,169 @@ export default function EmployeeManageScreen() {
     setConfirmAddModalVisible(true);
   };
 
-  const executeAdd = () => {
-    const newEmp = {
-      id: Date.now().toString(),
-      name: newName,
-      username: newUsername,
+  const executeAdd = async () => {
+    if (saving) return;
+    const payload = {
+      name: newName.trim(),
+      username: newUsername.trim(),
       phone: '+63' + newPhone,
       active: true,
-      role: newRole
+      role: newRole,
+      password: newPassword,
     };
+    setSaving(true);
+    try {
+      let created;
+      if (!online) {
+        created = {
+          id: `local-${Date.now()}`,
+          name: payload.name,
+          username: payload.username,
+          phone: payload.phone,
+          active: true,
+          role: payload.role,
+          createdAt: new Date().toISOString(),
+        };
+        await enqueueOfflineOp({ type: 'employee-create', payload });
+        await refreshQueueLength();
+      } else {
+        created = await createEmployee(payload);
+      }
 
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setEmployees([newEmp, ...employees]);
-    
-    // Reset and close
-    setNewName('');
-    setNewUsername('');
-    setNewPhone('');
-    setNewPassword('');
-    setConfirmPassword('');
-    setNewRole('Inspector');
-    setShowPassword(false);
-    setShowErrors(false);
-    
-    setConfirmAddModalVisible(false);
-    setAddModalVisible(false);
-    setTimeout(() => {
-      setSuccessModalTitle('Employee Added');
-      setSuccessModalDesc(`The new employee has been successfully added to the system.`);
-      setSuccessModalVisible(true);
-    }, 300);
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setEmployees((prev) => [created, ...prev.filter((emp) => emp.id !== created.id)]);
+
+      setNewName('');
+      setNewUsername('');
+      setNewPhone('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setNewRole('Inspector');
+      setShowPassword(false);
+      setShowErrors(false);
+
+      setConfirmAddModalVisible(false);
+      setAddModalVisible(false);
+      showSuccess(
+        'Employee Added',
+        online
+          ? 'The new employee has been successfully added to the system.'
+          : 'Saved offline and will sync when you are back online.',
+      );
+    } catch (err) {
+      Alert.alert('Create failed', err?.message || 'Could not add employee.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const filteredEmployees = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return employees;
+    return employees.filter((emp) =>
+      emp.name.toLowerCase().includes(q) ||
+      emp.username.toLowerCase().includes(q) ||
+      emp.role.toLowerCase().includes(q)
+    );
+  }, [employees, searchQuery]);
+
+  const activeCount = employees.filter((e) => e.active).length;
+  const inactiveCount = employees.length - activeCount;
+
+  const roleColor = (role) => {
+    if (role === 'Manager') return '#8b5cf6';
+    if (role === 'Inspector') return '#b32025';
+    return '#64748b';
   };
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.bg }]}>
-      <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
-        <View>
-          <Text style={[styles.headerTitle, { color: theme.textMain }]}>Manage Employees</Text>
-          <Text style={[styles.headerSubtitle, { color: theme.textSub }]}>{employees.length} team members</Text>
+    <>
+    <ScreenLayout
+      scroll
+      contentContainerStyle={styles.scrollInner}
+      header={
+        <ScreenHeader style={{ paddingBottom: 14 }}>
+          <View style={styles.headerTopRow}>
+          <View style={styles.headerTextWrap}>
+            <Text style={[styles.headerTitle, { color: theme.textMain }]}>Employees</Text>
+            <Text style={[styles.headerSubtitle, { color: theme.textSub }]}>
+              {loading
+                ? 'Loading…'
+                : `${employees.length} team members${!online ? ' · offline' : ''}${queueLength ? ` · ${queueLength} queued` : ''}`}
+            </Text>
+          </View>
+          <TouchableOpacity style={styles.addButton} onPress={() => setAddModalVisible(true)} activeOpacity={0.8}>
+            <UserPlus color="#fff" size={18} />
+            <Text style={styles.addButtonText}>Add</Text>
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity style={styles.addButton} onPress={() => setAddModalVisible(true)} activeOpacity={0.8}>
-          <UserPlus color="#fff" size={20} />
-          <Text style={styles.addButtonText}>Add New</Text>
-        </TouchableOpacity>
-      </View>
 
-      <ScrollView style={styles.container} contentContainerStyle={styles.scrollInner}>
-        {employees.map((employee) => (
+        <View style={[styles.searchBar, { backgroundColor: theme.bg, borderColor: theme.border }]}>
+          <Search color={theme.textSub} size={18} />
+          <TextInput
+            style={[styles.searchInput, { color: theme.textMain }]}
+            placeholder="Search by name, username, or role"
+            placeholderTextColor={theme.textSub}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <X color={theme.textSub} size={18} />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        <View style={styles.statsRow}>
+          <View style={[styles.statChip, { backgroundColor: isDark ? '#064e3b' : '#ecfdf5', borderColor: isDark ? '#065f46' : '#a7f3d0' }]}>
+            <Users color="#10b981" size={14} />
+            <Text style={[styles.statChipText, { color: '#10b981' }]}>{activeCount} active</Text>
+          </View>
+          <View style={[styles.statChip, { backgroundColor: isDark ? '#334155' : '#f1f5f9', borderColor: theme.border }]}>
+            <Text style={[styles.statChipText, { color: theme.textSub }]}>{inactiveCount} inactive</Text>
+          </View>
+        </View>
+        </ScreenHeader>
+      }
+    >
+        {loading ? (
+          <View style={[styles.emptyState, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <ActivityIndicator color="#b32025" size="large" />
+            <Text style={[styles.emptyTitle, { color: theme.textMain }]}>Loading employees…</Text>
+          </View>
+        ) : filteredEmployees.length === 0 ? (
+          <View style={[styles.emptyState, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <UserCircle color={theme.textSub} size={48} strokeWidth={1.5} />
+            <Text style={[styles.emptyTitle, { color: theme.textMain }]}>
+              {searchQuery ? 'No matches found' : 'No employees yet'}
+            </Text>
+            <Text style={[styles.emptyDesc, { color: theme.textSub }]}>
+              {searchQuery ? 'Try a different search term.' : 'Tap Add to create your first team member.'}
+            </Text>
+          </View>
+        ) : filteredEmployees.map((employee) => (
           <View key={employee.id} style={[styles.employeeCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <View style={styles.cardTop}>
               <View style={styles.avatarContainer}>
-                <UserCircle color={theme.textSub} size={48} strokeWidth={1.5} />
-                <View style={[styles.statusIndicator, { backgroundColor: employee.active ? '#10b981' : theme.iconBg }]} />
+                <View style={[styles.avatarCircle, { backgroundColor: theme.iconBg }]}>
+                  <UserCircle color={theme.textSub} size={40} strokeWidth={1.5} />
+                </View>
+                <View style={[styles.statusIndicator, { backgroundColor: employee.active ? '#10b981' : '#94a3b8', borderColor: theme.card }]} />
               </View>
               <View style={styles.employeeInfo}>
-                <Text style={[styles.employeeName, { color: theme.textMain }]}>{employee.name}</Text>
+                <View style={styles.nameRow}>
+                  <Text style={[styles.employeeName, { color: theme.textMain }]}>{employee.name}</Text>
+                  <View style={[styles.roleBadge, { backgroundColor: isDark ? '#450a0a' : '#fef2f2' }]}>
+                    <Text style={[styles.roleBadgeText, { color: roleColor(employee.role) }]}>{employee.role}</Text>
+                  </View>
+                </View>
                 <View style={styles.infoRow}>
                   <Mail color={theme.textSub} size={14} />
                   <Text style={[styles.employeeEmail, { color: theme.textSub }]}>@{employee.username}</Text>
                 </View>
                 <View style={styles.infoRow}>
-                  <Shield color="#3b82f6" size={14} />
-                  <Text style={[styles.employeeRole, { color: theme.textMain }]}>{employee.role}</Text>
+                  <Shield color={roleColor(employee.role)} size={14} />
+                  <Text style={[styles.employeePhone, { color: theme.textSub }]}>{employee.phone}</Text>
                 </View>
               </View>
             </View>
@@ -250,26 +451,27 @@ export default function EmployeeManageScreen() {
             <View style={[styles.cardDivider, { backgroundColor: theme.border }]} />
             
             <View style={styles.employeeActions}>
-              <View style={styles.statusToggleGroup}>
+              <View style={[styles.statusToggleGroup, { backgroundColor: theme.iconBg }]}>
+                <View style={[styles.statusDot, { backgroundColor: employee.active ? '#10b981' : '#94a3b8' }]} />
                 <Text style={[styles.statusText, { color: employee.active ? '#10b981' : theme.textSub }]}>
-                  {employee.active ? 'Active Account' : 'Inactive Account'}
+                  {employee.active ? 'Active' : 'Inactive'}
                 </Text>
               </View>
               <View style={styles.actionButtonsRow}>
                 <TouchableOpacity 
-                  style={[styles.iconBtn, { backgroundColor: theme.iconBg }]} 
+                  style={[styles.iconBtn, { backgroundColor: theme.iconBg, borderColor: theme.border }]} 
                   onPress={() => openSettingsMenu(employee)}
                 >
                   <Settings color={theme.textSub} size={20} />
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.iconBtn, styles.deleteBtn]} onPress={() => confirmDelete(employee)}>
+                <TouchableOpacity style={[styles.iconBtn, styles.deleteBtn, { borderColor: isDark ? '#7f1d1d' : '#fee2e2' }]} onPress={() => confirmDelete(employee)}>
                   <Trash2 color="#ef4444" size={20} />
                 </TouchableOpacity>
               </View>
             </View>
           </View>
         ))}
-      </ScrollView>
+    </ScreenLayout>
 
       {/* Floating Add Employee Modal */}
       <Modal
@@ -282,8 +484,8 @@ export default function EmployeeManageScreen() {
           <View style={[styles.centerModalContent, { backgroundColor: theme.card }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: theme.textMain }]}>Add New Employee</Text>
-              <TouchableOpacity onPress={() => setAddModalVisible(false)} style={styles.closeIcon}>
-                <X color="#64748b" size={24} />
+              <TouchableOpacity onPress={() => setAddModalVisible(false)} style={[styles.closeIcon, { backgroundColor: theme.iconBg }]}>
+                <X color={theme.textSub} size={24} />
               </TouchableOpacity>
             </View>
             
@@ -394,10 +596,13 @@ export default function EmployeeManageScreen() {
                   {['Manager', 'Inspector', 'Staff'].map(role => (
                     <TouchableOpacity 
                       key={role}
-                      style={[styles.roleOption, newRole === role && styles.roleOptionActive]}
+                      style={[
+                        styles.roleOption,
+                        { backgroundColor: newRole === role ? (isDark ? '#450a0a' : '#fef2f2') : theme.iconBg, borderColor: newRole === role ? '#b32025' : 'transparent' },
+                      ]}
                       onPress={() => setNewRole(role)}
                     >
-                      <Text style={[styles.roleOptionText, newRole === role && styles.roleOptionTextActive]}>
+                      <Text style={[styles.roleOptionText, { color: theme.textSub }, newRole === role && styles.roleOptionTextActive]}>
                         {role}
                       </Text>
                     </TouchableOpacity>
@@ -426,8 +631,8 @@ export default function EmployeeManageScreen() {
       >
         <View style={styles.deleteModalOverlay}>
           <View style={[styles.deleteModalContent, { backgroundColor: theme.card }]}>
-            <View style={[styles.warningIconContainer, { backgroundColor: '#eff6ff' }]}>
-              <UserPlus color="#3b82f6" size={32} />
+            <View style={[styles.warningIconContainer, { backgroundColor: '#fef2f2' }]}>
+              <UserPlus color="#b32025" size={32} />
             </View>
             <Text style={[styles.deleteModalTitle, { color: theme.textMain }]}>Confirm Addition</Text>
             <Text style={[styles.deleteModalDesc, { color: theme.textSub }]}>
@@ -436,13 +641,13 @@ export default function EmployeeManageScreen() {
             
             <View style={styles.deleteActionRow}>
               <TouchableOpacity 
-                style={styles.cancelBtn} 
+                style={[styles.cancelBtn, { backgroundColor: theme.iconBg }]} 
                 onPress={() => setConfirmAddModalVisible(false)}
               >
-                <Text style={styles.cancelBtnText}>Review Details</Text>
+                <Text style={[styles.cancelBtnText, { color: theme.textSub }]}>Review Details</Text>
               </TouchableOpacity>
               <TouchableOpacity 
-                style={[styles.confirmDeleteBtn, { backgroundColor: '#3b82f6', shadowColor: '#3b82f6' }]} 
+                style={[styles.confirmDeleteBtn, { backgroundColor: '#b32025', shadowColor: '#b32025' }]} 
                 onPress={executeAdd}
               >
                 <Text style={styles.confirmDeleteBtnText}>Yes, Add Employee</Text>
@@ -463,15 +668,15 @@ export default function EmployeeManageScreen() {
           <View style={[styles.centerModalContent, { backgroundColor: theme.card }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: theme.textMain }]}>Manage {selectedEmployee?.name}</Text>
-              <TouchableOpacity onPress={() => setSettingsMenuVisible(false)} style={styles.closeIcon}>
-                <X color="#64748b" size={24} />
+              <TouchableOpacity onPress={() => setSettingsMenuVisible(false)} style={[styles.closeIcon, { backgroundColor: theme.iconBg }]}>
+                <X color={theme.textSub} size={24} />
               </TouchableOpacity>
             </View>
 
-            <TouchableOpacity style={styles.menuItem} onPress={openChangeRole}>
+            <TouchableOpacity style={[styles.menuItem, { borderBottomColor: theme.border }]} onPress={openChangeRole}>
               <View style={styles.menuItemLeft}>
-                <View style={[styles.menuIconBox, { backgroundColor: '#eff6ff' }]}>
-                  <Briefcase color="#3b82f6" size={20} />
+                <View style={[styles.menuIconBox, { backgroundColor: '#fef2f2' }]}>
+                  <Briefcase color="#b32025" size={20} />
                 </View>
                 <View>
                   <Text style={[styles.menuItemTitle, { color: theme.textMain }]}>Change Role</Text>
@@ -481,7 +686,7 @@ export default function EmployeeManageScreen() {
               <ChevronRight color="#cbd5e1" size={20} />
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.menuItem} onPress={openChangePassword}>
+            <TouchableOpacity style={[styles.menuItem, { borderBottomColor: theme.border }]} onPress={openChangePassword}>
               <View style={styles.menuItemLeft}>
                 <View style={[styles.menuIconBox, { backgroundColor: '#f5f3ff' }]}>
                   <Key color="#8b5cf6" size={20} />
@@ -525,8 +730,8 @@ export default function EmployeeManageScreen() {
           <View style={[styles.centerModalContent, { backgroundColor: theme.card }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: theme.textMain }]}>Change Role</Text>
-              <TouchableOpacity onPress={() => setChangeRoleModalVisible(false)} style={styles.closeIcon}>
-                <X color="#64748b" size={24} />
+              <TouchableOpacity onPress={() => setChangeRoleModalVisible(false)} style={[styles.closeIcon, { backgroundColor: theme.iconBg }]}>
+                <X color={theme.textSub} size={24} />
               </TouchableOpacity>
             </View>
             <View style={styles.formGroup}>
@@ -535,10 +740,13 @@ export default function EmployeeManageScreen() {
                 {['Manager', 'Inspector', 'Staff'].map(role => (
                   <TouchableOpacity 
                     key={role}
-                    style={[styles.roleOption, updateRole === role && styles.roleOptionActive]}
+                    style={[
+                      styles.roleOption,
+                      { backgroundColor: updateRole === role ? (isDark ? '#450a0a' : '#fef2f2') : theme.iconBg, borderColor: updateRole === role ? '#b32025' : 'transparent' },
+                    ]}
                     onPress={() => setUpdateRole(role)}
                   >
-                    <Text style={[styles.roleOptionText, updateRole === role && styles.roleOptionTextActive]}>
+                    <Text style={[styles.roleOptionText, { color: theme.textSub }, updateRole === role && styles.roleOptionTextActive]}>
                       {role}
                     </Text>
                   </TouchableOpacity>
@@ -567,8 +775,8 @@ export default function EmployeeManageScreen() {
           <View style={[styles.centerModalContent, { backgroundColor: theme.card }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: theme.textMain }]}>Change Password</Text>
-              <TouchableOpacity onPress={() => setChangePasswordModalVisible(false)} style={styles.closeIcon}>
-                <X color="#64748b" size={24} />
+              <TouchableOpacity onPress={() => setChangePasswordModalVisible(false)} style={[styles.closeIcon, { backgroundColor: theme.iconBg }]}>
+                <X color={theme.textSub} size={24} />
               </TouchableOpacity>
             </View>
             
@@ -663,10 +871,10 @@ export default function EmployeeManageScreen() {
             
             <View style={styles.deleteActionRow}>
               <TouchableOpacity 
-                style={styles.cancelBtn} 
+                style={[styles.cancelBtn, { backgroundColor: theme.iconBg }]} 
                 onPress={() => setToggleStatusModalVisible(false)}
               >
-                <Text style={styles.cancelBtnText}>Cancel</Text>
+                <Text style={[styles.cancelBtnText, { color: theme.textSub }]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity 
                 style={[styles.confirmDeleteBtn, { backgroundColor: selectedEmployee?.active ? '#f97316' : '#10b981', shadowColor: selectedEmployee?.active ? '#f97316' : '#10b981' }]} 
@@ -700,10 +908,10 @@ export default function EmployeeManageScreen() {
             
             <View style={styles.deleteActionRow}>
               <TouchableOpacity 
-                style={styles.cancelBtn} 
+                style={[styles.cancelBtn, { backgroundColor: theme.iconBg }]} 
                 onPress={() => setDeleteModalVisible(false)}
               >
-                <Text style={styles.cancelBtnText}>Cancel</Text>
+                <Text style={[styles.cancelBtnText, { color: theme.textSub }]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity 
                 style={styles.confirmDeleteBtn} 
@@ -746,53 +954,85 @@ export default function EmployeeManageScreen() {
         </View>
       </Modal>
 
-    </SafeAreaView>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#f8fafc',
   },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 40,
-    paddingBottom: 20,
-    backgroundColor: '#ffffff',
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.02,
     shadowRadius: 8,
     elevation: 2,
-    zIndex: 10,
+  },
+  headerTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  headerTextWrap: {
+    flex: 1,
+    marginRight: 12,
   },
   headerTitle: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: '800',
-    color: '#0f172a',
     letterSpacing: -0.5,
   },
   headerSubtitle: {
     fontSize: 14,
-    color: '#64748b',
     marginTop: 2,
     fontWeight: '500',
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    padding: 0,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  statChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  statChipText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   addButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#3b82f6',
-    paddingHorizontal: 16,
+    backgroundColor: '#b32025',
+    paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 12,
-    gap: 8,
-    shadowColor: '#3b82f6',
+    gap: 6,
+    shadowColor: '#b32025',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 8,
@@ -808,20 +1048,35 @@ const styles = StyleSheet.create({
   },
   scrollInner: {
     padding: 20,
-    paddingBottom: 40,
+  },
+  emptyState: {
+    alignItems: 'center',
+    padding: 32,
+    borderRadius: 20,
+    borderWidth: 1,
+    marginTop: 8,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginTop: 16,
+    marginBottom: 6,
+  },
+  emptyDesc: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
   },
   employeeCard: {
-    backgroundColor: '#ffffff',
     borderRadius: 20,
-    padding: 20,
-    marginBottom: 16,
+    padding: 18,
+    marginBottom: 14,
     borderWidth: 1,
-    borderColor: '#f1f5f9',
     shadowColor: '#64748b',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.06,
-    shadowRadius: 16,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    elevation: 3,
   },
   cardTop: {
     flexDirection: 'row',
@@ -830,27 +1085,48 @@ const styles = StyleSheet.create({
   },
   avatarContainer: {
     position: 'relative',
-    marginRight: 16,
+    marginRight: 14,
+  },
+  avatarCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   statusIndicator: {
     position: 'absolute',
-    bottom: 2,
-    right: 2,
+    bottom: 0,
+    right: 0,
     width: 12,
     height: 12,
     borderRadius: 6,
     borderWidth: 2,
-    borderColor: '#ffffff',
   },
   employeeInfo: {
     flex: 1,
     gap: 4,
   },
-  employeeName: {
-    fontSize: 18,
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  roleBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  roleBadgeText: {
+    fontSize: 11,
     fontWeight: '700',
-    color: '#1e293b',
+  },
+  employeeName: {
+    fontSize: 17,
+    fontWeight: '700',
     letterSpacing: -0.3,
+    flex: 1,
   },
   infoRow: {
     flexDirection: 'row',
@@ -861,15 +1137,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#64748b',
   },
-  employeeRole: {
+  employeePhone: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#3b82f6',
   },
   cardDivider: {
     height: 1,
-    backgroundColor: '#f1f5f9',
-    marginBottom: 16,
+    marginVertical: 14,
   },
   employeeActions: {
     flexDirection: 'row',
@@ -879,11 +1152,15 @@ const styles = StyleSheet.create({
   statusToggleGroup: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    backgroundColor: '#f8fafc',
+    gap: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 12,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   statusText: {
     fontSize: 13,
@@ -895,14 +1172,11 @@ const styles = StyleSheet.create({
   },
   iconBtn: {
     padding: 10,
-    backgroundColor: '#f8fafc',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#f1f5f9',
   },
   deleteBtn: {
     backgroundColor: '#fef2f2',
-    borderColor: '#fee2e2',
   },
   
   // Floating Center Modal
@@ -939,7 +1213,6 @@ const styles = StyleSheet.create({
   },
   closeIcon: {
     padding: 6,
-    backgroundColor: '#f1f5f9',
     borderRadius: 20,
   },
   formScroll: {
@@ -1021,14 +1294,8 @@ const styles = StyleSheet.create({
   roleOption: {
     paddingHorizontal: 16,
     paddingVertical: 10,
-    backgroundColor: '#f1f5f9',
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  roleOptionActive: {
-    backgroundColor: '#eff6ff',
-    borderColor: '#3b82f6',
   },
   roleOptionText: {
     fontSize: 14,
@@ -1036,15 +1303,15 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   roleOptionTextActive: {
-    color: '#3b82f6',
+    color: '#b32025',
   },
   primaryActionBtn: {
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#b32025',
     paddingVertical: 16,
     borderRadius: 16,
     alignItems: 'center',
     marginTop: 12,
-    shadowColor: '#3b82f6',
+    shadowColor: '#b32025',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -1113,7 +1380,6 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 16,
     borderRadius: 16,
-    backgroundColor: '#f1f5f9',
     alignItems: 'center',
   },
   cancelBtnText: {
@@ -1163,7 +1429,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
   },
   menuItemLeft: {
     flexDirection: 'row',
