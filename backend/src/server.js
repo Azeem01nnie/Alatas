@@ -113,7 +113,11 @@ async function flushQueueToCloud() {
 
       if (!response.ok) {
         const text = await response.text().catch(() => '')
-        throw new Error(`Cloud push failed (${response.status}): ${text}`)
+        const brief =
+          response.status === 520 || response.status >= 500
+            ? `Cloud host unavailable (${response.status}). Render may be waking up or restarting — retry in a minute.`
+            : `Cloud push failed (${response.status})`
+        throw new Error(brief + (text.includes('<!DOCTYPE') ? '' : `: ${text.slice(0, 120)}`))
       }
 
       markQueueItemSynced(item.id)
@@ -605,8 +609,11 @@ app.put('/api/vehicles', (req, res) => {
   }
 })
 
-app.get('/api/rentals', (_req, res) => {
+app.get('/api/rentals', async (_req, res) => {
   try {
+    await pullFromCloudToLocal().catch((err) => {
+      console.warn('[local-api] rental pull skipped', err?.message || err)
+    })
     res.json(getRentals())
   } catch (err) {
     sendError(res, err)
@@ -658,15 +665,18 @@ app.post('/api/rentals/pending', (req, res) => {
   }
 })
 
-app.get('/api/pending-rentals', (_req, res) => {
+app.get('/api/pending-rentals', async (_req, res) => {
   try {
+    await pullFromCloudToLocal().catch((err) => {
+      console.warn('[local-api] pending rental pull skipped', err?.message || err)
+    })
     res.json(getPendingRentals())
   } catch (err) {
     sendError(res, err)
   }
 })
 
-app.post('/api/pending-rentals/:id/accept', (req, res) => {
+app.post('/api/pending-rentals/:id/accept', async (req, res) => {
   try {
     const accepted = acceptPendingRental(req.params.id)
     enqueueSyncItem({
@@ -674,13 +684,28 @@ app.post('/api/pending-rentals/:id/accept', (req, res) => {
       action: 'update',
       payload: accepted,
     })
+
+    if (CLOUD_SYNC_ENABLED && RENDER_API_URL) {
+      try {
+        await fetch(
+          `${RENDER_API_URL}/api/pending-rentals/${encodeURIComponent(req.params.id)}/accept`,
+          { method: 'POST', headers: { 'Content-Type': 'application/json' } },
+        )
+      } catch (err) {
+        console.warn('[local-api] could not sync rental accept to cloud', err?.message || err)
+      }
+      await flushQueueToCloud().catch((err) => {
+        console.warn('[local-api] queue flush after accept skipped', err?.message || err)
+      })
+    }
+
     res.json(accepted)
   } catch (err) {
     sendError(res, err, err.message.includes('not found') ? 404 : 409)
   }
 })
 
-app.post('/api/pending-rentals/:id/reject', (req, res) => {
+app.post('/api/pending-rentals/:id/reject', async (req, res) => {
   try {
     const reason = req.body?.reason || ''
     const rejected = rejectPendingRental(req.params.id, reason)
@@ -689,6 +714,25 @@ app.post('/api/pending-rentals/:id/reject', (req, res) => {
       action: 'update',
       payload: rejected,
     })
+
+    if (CLOUD_SYNC_ENABLED && RENDER_API_URL) {
+      try {
+        await fetch(
+          `${RENDER_API_URL}/api/pending-rentals/${encodeURIComponent(req.params.id)}/reject`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason }),
+          },
+        )
+      } catch (err) {
+        console.warn('[local-api] could not sync rental reject to cloud', err?.message || err)
+      }
+      await flushQueueToCloud().catch((err) => {
+        console.warn('[local-api] queue flush after reject skipped', err?.message || err)
+      })
+    }
+
     res.json(rejected)
   } catch (err) {
     sendError(res, err, err.message.includes('not found') ? 404 : 409)
@@ -833,10 +877,32 @@ app.post('/api/sync/cloud/pull', async (_req, res) => {
 app.post('/api/sync/cloud/run', async (_req, res) => {
   try {
     const flush = await flushQueueToCloud()
-    if (!flush.ok) {
-      return res.status(502).json({ ok: false, flush })
+    let pull = { ok: true, skipped: true }
+    try {
+      pull = await pullFromCloudToLocal()
+    } catch (err) {
+      pull = {
+        ok: false,
+        error:
+          err?.message?.includes('520') || err?.message?.includes('502')
+            ? 'Cloud host unavailable. Local data is unchanged — retry sync shortly.'
+            : err?.message || 'Cloud pull failed',
+      }
     }
-    const pull = await pullFromCloudToLocal()
+
+    if (!flush.ok || pull.ok === false) {
+      // Soft failure: local DB is fine; cloud was unreachable.
+      return res.status(200).json({
+        ok: false,
+        flush,
+        pull,
+        message:
+          flush.error ||
+          pull.error ||
+          'Cloud temporarily unavailable. Your local desk data is safe — try Sync again in a minute.',
+      })
+    }
+
     res.json({ ok: true, flush, pull })
   } catch (err) {
     sendError(res, err)

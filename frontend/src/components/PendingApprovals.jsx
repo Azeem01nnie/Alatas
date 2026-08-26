@@ -3,6 +3,7 @@ import {
   acceptPendingRental as acceptPendingRentalApi,
   rejectPendingRental as rejectPendingRentalApi,
   fetchPendingRentals,
+  fetchRentals,
 } from '../api/backend'
 import {
   acceptCloudPendingRental,
@@ -34,6 +35,37 @@ function formatDateTime(value) {
   return d.toLocaleString()
 }
 
+function isStillPending(rental) {
+  if (!rental) return false
+  return rental.approvalStatus === 'pending' || rental.rentalLifecycle === 'pending_approval'
+}
+
+/** Merge pending lists without letting stale cloud rows revive locally approved rentals. */
+function mergePendingLists(localPending, cloudPending, localRentals) {
+  const localById = new Map(
+    (Array.isArray(localRentals) ? localRentals : [])
+      .filter((r) => r?.id)
+      .map((r) => [String(r.id), r]),
+  )
+  const byId = new Map()
+
+  for (const row of Array.isArray(cloudPending) ? cloudPending : []) {
+    if (!row?.id) continue
+    const key = String(row.id)
+    const local = localById.get(key)
+    // Desk already accepted/rejected this rental — ignore stale cloud pending.
+    if (local && !isStillPending(local)) continue
+    byId.set(key, row)
+  }
+
+  // Local pending always wins / is included (covers local-only submissions).
+  for (const row of Array.isArray(localPending) ? localPending : []) {
+    if (row?.id) byId.set(String(row.id), row)
+  }
+
+  return [...byId.values()]
+}
+
 export default function PendingApprovals({ vehicles, onChanged, compact = false, embedded = false }) {
   const [pending, setPending] = useState([])
   const [busyId, setBusyId] = useState(null)
@@ -45,16 +77,12 @@ export default function PendingApprovals({ vehicles, onChanged, compact = false,
     try {
       let rows = []
       if (isCloudConfigured()) {
-        const [localRows, cloudRows] = await Promise.all([
+        const [localRows, cloudRows, localRentals] = await Promise.all([
           fetchPendingRentals().catch(() => []),
           fetchCloudPendingRentals().catch(() => []),
+          fetchRentals().catch(() => []),
         ])
-        const byId = new Map()
-        ;[...(Array.isArray(localRows) ? localRows : []), ...(Array.isArray(cloudRows) ? cloudRows : [])]
-          .forEach((r) => {
-            if (r?.id) byId.set(String(r.id), r)
-          })
-        rows = [...byId.values()]
+        rows = mergePendingLists(localRows, cloudRows, localRentals)
       } else {
         rows = await fetchPendingRentals()
       }
@@ -67,7 +95,7 @@ export default function PendingApprovals({ vehicles, onChanged, compact = false,
 
   useEffect(() => {
     loadPending()
-    const timer = window.setInterval(loadPending, 30_000)
+    const timer = window.setInterval(loadPending, 5_000)
     return () => window.clearInterval(timer)
   }, [loadPending])
 
@@ -80,14 +108,19 @@ export default function PendingApprovals({ vehicles, onChanged, compact = false,
     setBusyId(id)
     setError('')
     try {
+      // Prefer local desk DB first (source of truth for this PC), then mirror to cloud.
+      try {
+        await acceptPendingRentalApi(id)
+      } catch (localErr) {
+        if (!isCloudConfigured()) throw localErr
+        await acceptCloudPendingRental(id)
+      }
       if (isCloudConfigured()) {
         try {
           await acceptCloudPendingRental(id)
         } catch {
-          await acceptPendingRentalApi(id)
+          // Already accepted locally; cloud may lag or already be accepted.
         }
-      } else {
-        await acceptPendingRentalApi(id)
       }
       await loadPending()
       if (onChanged) await onChanged()
@@ -102,14 +135,18 @@ export default function PendingApprovals({ vehicles, onChanged, compact = false,
     setBusyId(id)
     setError('')
     try {
+      try {
+        await rejectPendingRentalApi(id, rejectReason)
+      } catch (localErr) {
+        if (!isCloudConfigured()) throw localErr
+        await rejectCloudPendingRental(id, rejectReason)
+      }
       if (isCloudConfigured()) {
         try {
           await rejectCloudPendingRental(id, rejectReason)
         } catch {
-          await rejectPendingRentalApi(id, rejectReason)
+          // ignore cloud mirror failures after local success
         }
-      } else {
-        await rejectPendingRentalApi(id, rejectReason)
       }
       setRejectId(null)
       setRejectReason('')
@@ -161,7 +198,9 @@ export default function PendingApprovals({ vehicles, onChanged, compact = false,
                   </div>
                 ) : (
                   <div className="pending-approvals-actions">
-                    <button type="button" className="btn-primary btn-sm" disabled={isBusy} onClick={() => handleAccept(rental.id)}>Accept</button>
+                    <button type="button" className="btn-primary btn-sm" disabled={isBusy} onClick={() => handleAccept(rental.id)}>
+                      {isBusy ? 'Accepting…' : 'Accept'}
+                    </button>
                     <button type="button" className="btn-outline btn-sm" disabled={isBusy} onClick={() => setRejectId(rental.id)}>Reject</button>
                   </div>
                 )}
@@ -218,7 +257,9 @@ export default function PendingApprovals({ vehicles, onChanged, compact = false,
                   </div>
                 ) : (
                   <div className="pending-approvals-actions">
-                    <button type="button" className="btn-primary btn-sm" disabled={isBusy} onClick={() => handleAccept(rental.id)}>Accept</button>
+                    <button type="button" className="btn-primary btn-sm" disabled={isBusy} onClick={() => handleAccept(rental.id)}>
+                      {isBusy ? 'Accepting…' : 'Accept'}
+                    </button>
                     <button type="button" className="btn-outline btn-sm" disabled={isBusy} onClick={() => setRejectId(rental.id)}>Reject</button>
                   </div>
                 )}

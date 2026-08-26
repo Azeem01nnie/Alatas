@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --watch src/server.js",
+    "dev": "node --watch-path=./src src/server.js",
     "start": "node src/server.js",
     "build": "wget https://github.com/benbjohnson/litestream/releases/download/v0.3.13/litestream-v0.3.13-linux-amd64.tar.gz && tar -xzf litestream-v0.3.13-linux-amd64.tar.gz && chmod +x litestream"
   },

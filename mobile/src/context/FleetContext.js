@@ -180,17 +180,21 @@ export function FleetProvider({ children }) {
     const fleetCount = vehicles.length;
     const brands = new Set(vehicles.map((v) => v.make).filter(Boolean)).size;
 
-    const upcoming = rentals.filter(
-      (r) =>
-        r.rentalLifecycle === 'scheduled' &&
-        r.approvalStatus !== 'pending' &&
-        r.approvalStatus !== 'rejected',
-    );
-    const photosNeeded = upcoming.filter((r) => {
+    const photoEligible = rentals.filter((r) => {
+      if (r.approvalStatus === 'rejected') return false;
+      const life = r.rentalLifecycle;
+      if (life === 'cancelled' || life === 'completed' || life === 'active') return false;
+      return (
+        life === 'scheduled' ||
+        life === 'pending_approval' ||
+        r.approvalStatus === 'pending'
+      );
+    });
+    const photosNeeded = photoEligible.filter((r) => {
       const cp = r.carPhotos || {};
       return !['front', 'rear', 'left', 'right'].every((key) => Boolean(cp[key]));
     }).length;
-    const photosDone = upcoming.filter((r) => {
+    const photosDone = photoEligible.filter((r) => {
       const cp = r.carPhotos || {};
       return ['front', 'rear', 'left', 'right'].every((key) => Boolean(cp[key]));
     }).length;

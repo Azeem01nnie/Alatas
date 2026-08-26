@@ -8,6 +8,21 @@ export class ApiError extends Error {
   }
 }
 
+function extractErrorText(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  if (text.startsWith('{') || text.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(text);
+      if (typeof parsed?.error === 'string' && parsed.error.trim()) return parsed.error.trim();
+      if (typeof parsed?.message === 'string' && parsed.message.trim()) return parsed.message.trim();
+    } catch {
+      // keep raw text
+    }
+  }
+  return text;
+}
+
 /** User-safe message — never show raw HTML error pages in the UI. */
 export function formatApiError(err, context = '') {
   const status = err?.status;
@@ -31,12 +46,14 @@ export function formatApiError(err, context = '') {
     return status ? `Server error (${status})` : 'Server error';
   }
   if (raw.startsWith('API ')) {
-    const trimmed = raw.replace(/^API \d+:\s*/, '').trim();
+    const trimmed = extractErrorText(raw.replace(/^API \d+:\s*/, '').trim());
     if (!trimmed || trimmed.startsWith('<')) {
       return status ? `Server error (${status})` : 'Server error';
     }
     return trimmed.length > 140 ? `${trimmed.slice(0, 140)}…` : trimmed;
   }
+  const fromBody = extractErrorText(body);
+  if (fromBody) return fromBody.length > 140 ? `${fromBody.slice(0, 140)}…` : fromBody;
   return raw.length > 140 ? `${raw.slice(0, 140)}…` : raw;
 }
 

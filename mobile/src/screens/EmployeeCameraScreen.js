@@ -43,7 +43,10 @@ export default function EmployeeCameraScreen() {
     user?.username?.trim() ||
     'Employee';
 
-  const upcoming = useMemo(() => buildUpcomingNotices(rentals), [rentals]);
+  const upcoming = useMemo(
+    () => buildUpcomingNotices(rentals, { includePendingForPhotos: true }),
+    [rentals],
+  );
   const needingPhotos = useMemo(
     () => upcoming.filter((item) => item.needsCarPhotos),
     [upcoming],
@@ -154,10 +157,12 @@ export default function EmployeeCameraScreen() {
         accountName,
       );
       Alert.alert(
-        result?.queued ? 'Queued offline' : 'Submitted for desk review',
+        result?.queued ? 'Queued offline' : 'Vehicle photos saved',
         result?.queued
           ? `Saved as ${accountName}. Will sync when you are back online.`
-          : `Photos saved under ${accountName}. Desk can see who took them when reviewing.`,
+          : selected?.waitingApproval
+            ? `Photos saved under ${accountName}. The rental is still waiting for desk approval.`
+            : `Photos saved under ${accountName}. Desk can see who took them when reviewing.`,
         [{ text: 'OK', onPress: resetFlow }],
       );
     } catch (err) {
@@ -195,9 +200,9 @@ export default function EmployeeCameraScreen() {
         ) : needingPhotos.length === 0 ? (
           <View style={[styles.emptyCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <Car color={theme.textSub} size={36} />
-            <Text style={[styles.emptyTitle, { color: theme.textMain }]}>No upcoming rentals need photos</Text>
+            <Text style={[styles.emptyTitle, { color: theme.textMain }]}>No rentals need photos</Text>
             <Text style={[styles.emptySub, { color: theme.textSub }]}>
-              When desk schedules a rental, it appears here for pre-rental photos.
+              Field rentals appear here right away so you can add vehicle photos — even before desk approval.
             </Text>
           </View>
         ) : (

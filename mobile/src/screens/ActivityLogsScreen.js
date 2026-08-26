@@ -1,19 +1,21 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, ActivityIndicator, TextInput, RefreshControl,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import ScreenLayout, { ScreenHeader, useTabBarContentPadding } from '../components/ScreenLayout';
 import { X, CheckCircle, XCircle } from 'lucide-react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useFleet } from '../context/FleetContext';
 import { buildActivityLogs, isUpcomingRental, isWaitingForApproval, rentalHasCarPhotos, getCarPhotosAddedBy } from '../utils/vehicleMapper';
 import RentalReviewContent from '../components/RentalReviewContent';
+import { formatApiError } from '../api/client';
 import { ACCENT } from '../theme/colors';
 
 export default function ActivityLogsScreen() {
   const { theme } = useTheme();
   const navigation = useNavigation();
+  const route = useRoute();
   const { rentals, pendingRentals, loading, loadAll, acceptPending, rejectPending } = useFleet();
   const [filter, setFilter] = useState('All');
   const [selectedLog, setSelectedLog] = useState(null);
@@ -22,6 +24,7 @@ export default function ActivityLogsScreen() {
   const [declineRemarks, setDeclineRemarks] = useState('');
   const [successModalVisible, setSuccessModalVisible] = useState(false);
   const [successModalType, setSuccessModalType] = useState('');
+  const [actionError, setActionError] = useState('');
 
   const logs = useMemo(
     () => buildActivityLogs(rentals, pendingRentals),
@@ -30,9 +33,30 @@ export default function ActivityLogsScreen() {
 
   const filteredLogs = filter === 'All' ? logs : logs.filter((log) => log.status === filter);
 
+  // Deep-link from Admin Dashboard Waiting for approval → open Approve/Decline modal
+  useEffect(() => {
+    const openRentalId = route.params?.openRentalId;
+    const nextFilter = route.params?.filter;
+    if (nextFilter) setFilter(nextFilter);
+    if (!openRentalId || !logs.length) return;
+
+    const match = logs.find(
+      (log) =>
+        String(log.rental?.id) === String(openRentalId) ||
+        String(log.id) === String(openRentalId),
+    );
+    if (match) {
+      setSelectedLog(match);
+      setIsDeclining(false);
+      setDeclineRemarks('');
+    }
+    navigation.setParams({ openRentalId: undefined, filter: undefined });
+  }, [route.params?.openRentalId, route.params?.filter, logs, navigation]);
+
   const handleAction = async (type) => {
     if (!selectedLog?.rental?.id) return;
     setActionState('processing');
+    setActionError('');
     try {
       if (type === 'approve') {
         await acceptPending(selectedLog.rental.id);
@@ -47,9 +71,30 @@ export default function ActivityLogsScreen() {
       setSuccessModalVisible(true);
     } catch (err) {
       setActionState(null);
-      setSelectedLog(null);
-      setIsDeclining(false);
+      setActionError(formatApiError(err, type === 'approve' ? 'approve rental' : 'decline rental'));
     }
+  };
+
+  const openLog = (log) => {
+    setActionError('');
+    if (isWaitingForApproval(log.rental) || log.status === 'Waiting for approval') {
+      setSelectedLog(log);
+      setIsDeclining(false);
+      setDeclineRemarks('');
+      return;
+    }
+    if (isUpcomingRental(log.rental)) {
+      const complete = rentalHasCarPhotos(log.rental);
+      navigation.navigate('CarPhotos', {
+        rentalId: log.rental?.id,
+        vehicleLabel: log.vehicle,
+        existingPhotos: log.rental?.carPhotos || {},
+        addedByName: getCarPhotosAddedBy(log.rental),
+        readOnly: complete,
+      });
+      return;
+    }
+    setSelectedLog(log);
   };
 
   const getStatusBadgeStyle = (status) => {
@@ -98,20 +143,7 @@ export default function ActivityLogsScreen() {
             <TouchableOpacity
               key={log.id}
               style={[styles.logCard, { backgroundColor: theme.card, borderColor: theme.border }]}
-              onPress={() => {
-                if (isUpcomingRental(log.rental)) {
-                  const complete = rentalHasCarPhotos(log.rental);
-                  navigation.navigate('CarPhotos', {
-                    rentalId: log.rental?.id,
-                    vehicleLabel: log.vehicle,
-                    existingPhotos: log.rental?.carPhotos || {},
-                    addedByName: getCarPhotosAddedBy(log.rental),
-                    readOnly: complete,
-                  });
-                  return;
-                }
-                setSelectedLog(log);
-              }}
+              onPress={() => openLog(log)}
             >
               <View style={styles.logHeader}>
                 <Text style={[styles.logTime, { color: theme.textSub }]}>{log.time}</Text>
@@ -119,7 +151,11 @@ export default function ActivityLogsScreen() {
               </View>
               <Text style={[styles.logEmployee, { color: theme.textMain }]}>{log.employee} • {log.vehicle}</Text>
               <Text style={[styles.logText, { color: theme.textSub }]}>{log.text}</Text>
-              <Text style={[styles.viewDetailsText, { color: theme.textSub }]}>Tap to review</Text>
+              <Text style={[styles.viewDetailsText, { color: theme.textSub }]}>
+                {log.status === 'Waiting for approval' || isWaitingForApproval(log.rental)
+                  ? 'Tap to Approve or Decline'
+                  : 'Tap to review'}
+              </Text>
             </TouchableOpacity>
           ))}
           {filteredLogs.length === 0 && !loading ? (
@@ -158,6 +194,10 @@ export default function ActivityLogsScreen() {
               </View>
 
               <RentalReviewContent rental={selectedLog?.rental} theme={theme} />
+
+              {actionError ? (
+                <Text style={[styles.actionError, { color: '#ef4444' }]}>{actionError}</Text>
+              ) : null}
 
               {selectedLog?.status === 'Waiting for approval' || isWaitingForApproval(selectedLog?.rental) ? (
                 <View style={styles.actionContainer}>
@@ -265,6 +305,7 @@ const styles = StyleSheet.create({
   submitterName: { fontSize: 18, fontWeight: '700', marginBottom: 4 },
   submitterProof: { fontSize: 13, fontWeight: '700', marginTop: 8 },
   submitterContext: { fontSize: 14, color: '#64748b' },
+  actionError: { fontSize: 14, fontWeight: '600', marginBottom: 12, lineHeight: 20 },
   sectionHeading: { fontSize: 16, fontWeight: '700', marginBottom: 12 },
   gridImage: { width: '100%', height: 180, borderRadius: 12, marginBottom: 24 },
   detailText: { fontSize: 15, lineHeight: 24, marginBottom: 24 },

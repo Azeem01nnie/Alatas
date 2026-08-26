@@ -996,14 +996,29 @@ export default function AdminPanel() {
     try {
       const result = await runCloudSync()
       await reloadData()
-      const flushed = result?.flush?.flushed ?? 0
-      const vehicles = result?.pull?.applied?.vehicles ?? 0
-      const rentals = result?.pull?.applied?.rentals ?? 0
-      setSyncMessage(`Sync complete — pushed ${flushed} item(s), pulled ${vehicles} vehicle(s) and ${rentals} rental update(s).`)
+      if (result?.ok === false) {
+        setSyncMessage(
+          result.message ||
+            result.flush?.error ||
+            'Cloud temporarily unavailable. Local desk data is fine — retry Sync shortly.',
+        )
+      } else {
+        const flushed = result?.flush?.flushed ?? 0
+        const vehicles = result?.pull?.applied?.vehicles ?? 0
+        const rentals = result?.pull?.applied?.rentals ?? 0
+        setSyncMessage(
+          `Sync complete — pushed ${flushed} item(s), pulled ${vehicles} vehicle(s) and ${rentals} rental update(s).`,
+        )
+      }
       const status = await fetchSystemStatus()
       setSystemStatus(status)
     } catch (err) {
-      setSyncMessage(err?.message || 'Cloud sync failed.')
+      const raw = String(err?.message || 'Cloud sync failed.')
+      setSyncMessage(
+        raw.includes('<!DOCTYPE') || raw.includes('520') || raw.includes('502')
+          ? 'Cloud host (Render) is temporarily down. Local data is safe — try Sync again in a minute.'
+          : raw.slice(0, 240),
+      )
     } finally {
       setSyncBusy(false)
     }

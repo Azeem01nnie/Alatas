@@ -127,14 +127,22 @@ export default function AdminDashboardScreen() {
               <TouchableOpacity
                 key={log.id}
                 style={[styles.recentCard, styles.waitingCard, { backgroundColor: theme.card, borderColor: '#d97706' }]}
-                onPress={() => navigation.navigate('Logs')}
+                onPress={() =>
+                  navigation.navigate('Logs', {
+                    openRentalId: log.rental?.id || log.id,
+                    filter: 'Waiting for approval',
+                  })
+                }
               >
                 <View style={styles.recentCardBody}>
                   <Text style={[styles.recentCardTitle, { color: theme.textMain }]}>
                     {log.vehicle} · Waiting for approval
                   </Text>
                   <Text style={[styles.recentCardSub, { color: theme.textSub }]} numberOfLines={2}>
-                    {log.text}
+                    {log.text || 'Tap to Approve or Decline'}
+                  </Text>
+                  <Text style={[styles.recentCardSub, { color: '#b45309', marginTop: 4, fontWeight: '600' }]}>
+                    Tap to Approve or Decline
                   </Text>
                 </View>
                 <ChevronRight color="#d97706" size={20} />

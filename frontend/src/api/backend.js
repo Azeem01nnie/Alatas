@@ -12,7 +12,22 @@ async function request(path, options = {}) {
   })
   if (!response.ok) {
     const errorText = await response.text().catch(() => '')
-    throw new Error(`Backend request failed: ${response.status} ${response.statusText} ${errorText}`)
+    let detail = errorText
+    try {
+      const parsed = JSON.parse(errorText)
+      detail = parsed.message || parsed.error || parsed.flush?.error || errorText
+    } catch {
+      // ignore
+    }
+    if (typeof detail === 'string' && (detail.includes('<!DOCTYPE') || detail.includes('<html'))) {
+      detail =
+        response.status === 520 || response.status >= 500
+          ? 'Cloud host (Render) is temporarily unavailable. Try again in a minute.'
+          : `Server error (${response.status})`
+    }
+    throw new Error(
+      String(detail || `Backend request failed: ${response.status} ${response.statusText}`).slice(0, 240),
+    )
   }
   return response.json()
 }

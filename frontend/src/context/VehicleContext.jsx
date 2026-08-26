@@ -112,17 +112,48 @@ export function VehicleProvider({ children }) {
 
   const reloadData = useCallback(async () => {
     const [vehiclesData, rentalsData] = await Promise.all([loadVehicles(), loadRentals()])
-    setVehicles(Array.isArray(vehiclesData) ? vehiclesData : [])
-    setRentals(
-      Array.isArray(rentalsData) ? rentalsData.map(normalizeRental) : [],
-    )
+    const nextVehicles = Array.isArray(vehiclesData) ? vehiclesData : []
+    const nextRentals = Array.isArray(rentalsData)
+      ? rentalsData.map(normalizeRental)
+      : []
+    setVehicles(nextVehicles)
+    setRentals(nextRentals)
     hasLoaded.current = true
     setLoadError(null)
     return {
-      vehicles: Array.isArray(vehiclesData) ? vehiclesData : [],
-      rentals: Array.isArray(rentalsData) ? rentalsData.map(normalizeRental) : [],
+      vehicles: nextVehicles,
+      rentals: nextRentals,
     }
   }, [])
+
+  // Keep desk fleet in sync with mobile approvals / field submissions (read-only refresh).
+  useEffect(() => {
+    if (!ready) return undefined
+    let cancelled = false
+    const timer = window.setInterval(async () => {
+      try {
+        const [vehiclesData, rentalsData] = await Promise.all([loadVehicles(), loadRentals()])
+        if (cancelled) return
+        const nextVehicles = Array.isArray(vehiclesData) ? vehiclesData : []
+        const nextRentals = Array.isArray(rentalsData)
+          ? rentalsData.map(normalizeRental)
+          : []
+        setVehicles((prev) =>
+          JSON.stringify(prev) === JSON.stringify(nextVehicles) ? prev : nextVehicles,
+        )
+        setRentals((prev) =>
+          JSON.stringify(prev) === JSON.stringify(nextRentals) ? prev : nextRentals,
+        )
+        hasLoaded.current = true
+      } catch (err) {
+        console.warn('Periodic rental refresh failed', err)
+      }
+    }, 5_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [ready])
 
   const replaceAllData = useCallback(async ({ vehicles: nextVehicles, rentals: nextRentals }) => {
     const vehiclesPayload = Array.isArray(nextVehicles) ? nextVehicles : []

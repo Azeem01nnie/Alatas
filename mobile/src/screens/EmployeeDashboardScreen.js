@@ -1,3 +1,11 @@
+import { buildUpcomingNotices, buildWaitingApprovalNotices, getCarPhotosAddedBy, rentalHasCarPhotos } from '../utils/vehicleMapper';
+import { useFleet } from '../context/FleetContext';
+import { useAuth } from '../context/AuthContext';
+import { ACCENT } from '../theme/colors';
+import { useTheme } from '../context/ThemeContext';
+import { Bell, ChevronRight, X, Image as ImageIcon, ListTodo } from 'lucide-react-native';
+import ScreenLayout, { ScreenHeader } from '../components/ScreenLayout';
+import { useNavigation } from '@react-navigation/native';
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   View,
@@ -9,14 +17,6 @@ import {
   Modal,
   RefreshControl,
 } from 'react-native';
-import ScreenLayout, { ScreenHeader } from '../components/ScreenLayout';
-import { useNavigation } from '@react-navigation/native';
-import { Bell, ChevronRight, X, Image as ImageIcon, ListTodo } from 'lucide-react-native';
-import { useTheme } from '../context/ThemeContext';
-import { ACCENT } from '../theme/colors';
-import { useFleet } from '../context/FleetContext';
-import { useAuth } from '../context/AuthContext';
-import { buildUpcomingNotices, getCarPhotosAddedBy, rentalHasCarPhotos } from '../utils/vehicleMapper';
 
 function PhotoStatusLabel({ label, needsPhotos }) {
   return (
@@ -47,13 +47,18 @@ function isMine(rental, accountName, username) {
 export default function EmployeeDashboardScreen() {
   const { theme, isDark } = useTheme();
   const { user } = useAuth();
-  const { metrics, rentals, loadAll } = useFleet();
+  const { metrics, rentals, pendingRentals, loadAll } = useFleet();
   const navigation = useNavigation();
   const [notificationsVisible, setNotificationsVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   const accountName = user?.displayName?.trim() || user?.username?.trim() || '';
   const username = user?.username?.trim() || '';
+
+  const waitingNotices = useMemo(
+    () => buildWaitingApprovalNotices(rentals, pendingRentals, { forEmployee: true }),
+    [rentals, pendingRentals],
+  );
 
   const upcomingNotices = useMemo(
     () => buildUpcomingNotices(rentals),
@@ -65,7 +70,7 @@ export default function EmployeeDashboardScreen() {
     return (rentals || [])
       .filter((rental) => rentalHasCarPhotos(rental) && isMine(rental, accountName, username))
       .map((rental) => {
-        const notice = buildUpcomingNotices([rental])[0];
+        const notice = buildUpcomingNotices([rental], { includePendingForPhotos: true })[0];
         const plate = rental.vehicle?.plateNo || rental.vehicle?.plate || rental.vehicleId || '—';
         const by = getCarPhotosAddedBy(rental);
         return {
@@ -78,6 +83,13 @@ export default function EmployeeDashboardScreen() {
       })
       .sort((a, b) => String(b.id).localeCompare(String(a.id)));
   }, [rentals, accountName, username]);
+
+  const openCameraForRental = useCallback(
+    (rentalId) => {
+      navigation.navigate('Camera', { rentalId });
+    },
+    [navigation],
+  );
 
   const displayMetrics = useMemo(
     () => ({
@@ -158,6 +170,37 @@ export default function EmployeeDashboardScreen() {
         {renderMetrics()}
 
         <View style={styles.sectionContainer}>
+          <Text style={[styles.sectionTitle, { color: theme.textMain }]}>Waiting for approval</Text>
+          {waitingNotices.length === 0 ? (
+            <Text style={[styles.emptyHint, { color: theme.textSub }]}>
+              No rentals waiting for desk approval.
+            </Text>
+          ) : (
+            waitingNotices.map((log) => (
+              <TouchableOpacity
+                key={`wait-${log.id}`}
+                style={[styles.recentCard, styles.waitingCard, { backgroundColor: theme.card, borderColor: '#d97706' }]}
+                onPress={() => openCameraForRental(log.rental?.id)}
+                activeOpacity={0.85}
+              >
+                <View style={styles.recentCardBody}>
+                  <View style={styles.upcomingTitleRow}>
+                    <Text style={[styles.recentCardTitle, { color: theme.textMain }]}>
+                      {log.vehicle} · Waiting for approval
+                    </Text>
+                    <PhotoStatusLabel label={log.photoLabel} needsPhotos={log.needsCarPhotos} />
+                  </View>
+                  <Text style={[styles.recentCardSub, { color: theme.textSub }]} numberOfLines={2}>
+                    {log.text}
+                  </Text>
+                </View>
+                <ChevronRight color="#d97706" size={20} />
+              </TouchableOpacity>
+            ))
+          )}
+        </View>
+
+        <View style={styles.sectionContainer}>
           <Text style={[styles.sectionTitle, { color: theme.textMain }]}>Upcoming</Text>
           {upcomingNotices.length === 0 ? (
             <Text style={[styles.emptyHint, { color: theme.textSub }]}>
@@ -168,11 +211,7 @@ export default function EmployeeDashboardScreen() {
               <TouchableOpacity
                 key={log.id}
                 style={[styles.recentCard, styles.upcomingCard, { backgroundColor: theme.card, borderColor: ACCENT }]}
-                onPress={() =>
-                  navigation.navigate('Camera', {
-                    rentalId: log.rental?.id,
-                  })
-                }
+                onPress={() => openCameraForRental(log.rental?.id)}
               >
                 <View style={styles.recentCardBody}>
                   <View style={styles.upcomingTitleRow}>
@@ -229,37 +268,71 @@ export default function EmployeeDashboardScreen() {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: theme.textMain }]}>Upcoming</Text>
+              <Text style={[styles.modalTitle, { color: theme.textMain }]}>Needs attention</Text>
               <TouchableOpacity onPress={() => setNotificationsVisible(false)}>
                 <X color={theme.textSub} size={24} />
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.notificationList}>
-              {upcomingNotices.length === 0 ? (
+              {waitingNotices.length === 0 && upcomingNotices.length === 0 ? (
                 <Text style={[styles.emptyHint, { color: theme.textSub, padding: 16 }]}>
-                  No upcoming rentals.
+                  Nothing waiting right now.
                 </Text>
               ) : (
-                upcomingNotices.map((log) => (
-                  <TouchableOpacity
-                    key={`up-${log.id}`}
-                    style={[styles.notificationItem, { borderBottomColor: theme.border }]}
-                    onPress={() => {
-                      setNotificationsVisible(false);
-                      navigation.navigate('Camera', {
-                        rentalId: log.rental?.id,
-                      });
-                    }}
-                  >
-                    <View style={styles.notifTextContainer}>
-                      <Text style={[styles.notifText, { color: theme.textMain }]}>
-                        {log.vehicle} — {log.photoLabel}
+                <>
+                  {waitingNotices.length > 0 ? (
+                    <>
+                      <Text style={[styles.notifSectionLabel, { color: theme.textSub }]}>
+                        Waiting for approval
                       </Text>
-                      <Text style={[styles.notifTime, { color: theme.textSub }]}>{log.time}</Text>
-                    </View>
-                    <ChevronRight color={theme.textSub} size={18} />
-                  </TouchableOpacity>
-                ))
+                      {waitingNotices.map((log) => (
+                        <TouchableOpacity
+                          key={`wait-n-${log.id}`}
+                          style={[styles.notificationItem, { borderBottomColor: theme.border }]}
+                          onPress={() => {
+                            setNotificationsVisible(false);
+                            openCameraForRental(log.rental?.id);
+                          }}
+                        >
+                          <View style={styles.notifTextContainer}>
+                            <Text style={[styles.notifText, { color: theme.textMain }]}>
+                              {log.vehicle} — {log.photoLabel}
+                            </Text>
+                            <Text style={[styles.notifTime, { color: theme.textSub }]}>
+                              Add photos only · desk approves the rental
+                            </Text>
+                          </View>
+                          <ChevronRight color="#d97706" size={18} />
+                        </TouchableOpacity>
+                      ))}
+                    </>
+                  ) : null}
+                  {upcomingNotices.length > 0 ? (
+                    <>
+                      <Text style={[styles.notifSectionLabel, { color: theme.textSub, marginTop: waitingNotices.length ? 12 : 0 }]}>
+                        Upcoming
+                      </Text>
+                      {upcomingNotices.map((log) => (
+                        <TouchableOpacity
+                          key={`up-${log.id}`}
+                          style={[styles.notificationItem, { borderBottomColor: theme.border }]}
+                          onPress={() => {
+                            setNotificationsVisible(false);
+                            openCameraForRental(log.rental?.id);
+                          }}
+                        >
+                          <View style={styles.notifTextContainer}>
+                            <Text style={[styles.notifText, { color: theme.textMain }]}>
+                              {log.vehicle} — {log.photoLabel}
+                            </Text>
+                            <Text style={[styles.notifTime, { color: theme.textSub }]}>{log.time}</Text>
+                          </View>
+                          <ChevronRight color={theme.textSub} size={18} />
+                        </TouchableOpacity>
+                      ))}
+                    </>
+                  ) : null}
+                </>
               )}
             </ScrollView>
           </View>
@@ -327,6 +400,7 @@ const styles = StyleSheet.create({
   recentCardTitle: { fontSize: 16, fontWeight: '600' },
   recentCardSub: { fontSize: 14 },
   upcomingCard: { borderWidth: 1.5 },
+  waitingCard: { borderWidth: 1.5 },
   photoLabel: {
     paddingHorizontal: 8,
     paddingVertical: 3,

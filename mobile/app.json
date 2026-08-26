@@ -1,34 +1,46 @@
 {
   "expo": {
-    "name": "mobile",
-    "slug": "mobile",
+    "name": "Alatas",
+    "slug": "alatas",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/logonobg.png",
-    "splash": {
-      "image": "./assets/splash_logonobg.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
+    "icon": "./assets/icon.png",
+    "scheme": "alatas",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.uryzei.alatas",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Allow Alatas to use the camera for field inspections.",
+        "NSPhotoLibraryUsageDescription": "Allow Alatas to access photos for field inspections."
+      }
     },
     "android": {
-      "package": "com.uryzei.mobile"
+      "package": "com.uryzei.alatas",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_MEDIA_IMAGES"
+      ]
     },
     "web": {
-      "favicon": "./assets/logonobg.png"
+      "favicon": "./assets/icon.png"
     },
     "plugins": [
+      "expo-dev-client",
       [
-        "@morrowdigital/watermelondb-expo-plugin",
+        "expo-splash-screen",
         {
-          "iosJsi": false,
-          "androidJsi": false
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff"
         }
       ],
-
       [
         "expo-image-picker",
         {
@@ -39,9 +51,28 @@
       [
         "expo-build-properties",
         {
-          "android": {}
+          "android": {
+            "minSdkVersion": 24,
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36,
+            "packagingOptions": {
+              "pickFirst": [
+                "**/libc++_shared.so"
+              ]
+            }
+          },
+          "ios": {
+            "deploymentTarget": "16.4"
+          }
         }
       ]
-    ]
+    ],
+    "extra": {
+      "apiUrl": "https://alatas.onrender.com",
+      "eas": {
+        "projectId": "97d8ea44-5319-4229-9895-87620cce3229"
+      }
+    },
+    "owner": "azeemabdu01"
   }
 }

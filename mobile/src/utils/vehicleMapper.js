@@ -169,8 +169,21 @@ export function getCarPhotosAddedBy(rental) {
   return null;
 }
 
+/** Photos can be taken before desk approves the rental (pending) or once scheduled. */
+export function canAddVehiclePhotos(rental) {
+  if (!rental) return false;
+  if (rental.approvalStatus === 'rejected') return false;
+  const life = rental.rentalLifecycle;
+  if (life === 'cancelled' || life === 'completed' || life === 'active') return false;
+  return (
+    life === 'scheduled' ||
+    life === 'pending_approval' ||
+    rental.approvalStatus === 'pending'
+  );
+}
+
 export function rentalNeedsCarPhotos(rental) {
-  if (!rental || rental.rentalLifecycle !== 'scheduled') return false;
+  if (!canAddVehiclePhotos(rental)) return false;
   return !rentalHasCarPhotos(rental);
 }
 
@@ -180,7 +193,7 @@ export function isWaitingForApproval(rental) {
   return rental.approvalStatus === 'pending' || rental.rentalLifecycle === 'pending_approval';
 }
 
-export function buildWaitingApprovalNotices(rentals, pendingRentals) {
+export function buildWaitingApprovalNotices(rentals, pendingRentals, { forEmployee = false } = {}) {
   const pendingIds = new Set((pendingRentals || []).map((r) => String(r.id)));
   const merged = [
     ...(pendingRentals || []),
@@ -198,15 +211,32 @@ export function buildWaitingApprovalNotices(rentals, pendingRentals) {
       rental.personal?.submittedBy ||
       getCarPhotosAddedBy(rental) ||
       null;
+    const needsPhotos = rentalNeedsCarPhotos(rental);
+    const photoBy = getCarPhotosAddedBy(rental);
+
+    let text;
+    if (forEmployee) {
+      text = needsPhotos
+        ? `${name} · add vehicle photos now (desk still approves the rental)`
+        : photoBy
+          ? `${name} · photos by ${photoBy} · awaiting desk approval`
+          : `${name} · awaiting desk approval`;
+    } else {
+      text = submittedBy
+        ? `${name} · submitted / photos by ${submittedBy}`
+        : name
+          ? `${name} · tap to review and approve`
+          : 'Tap to review and approve';
+    }
+
     return {
       ...log,
       status: 'Waiting for approval',
       submittedBy,
-      text: submittedBy
-        ? `${name} · submitted / photos by ${submittedBy}`
-        : name
-          ? `${name} · tap to review and approve`
-          : 'Tap to review and approve',
+      text,
+      needsCarPhotos: needsPhotos,
+      photoLabel: needsPhotos ? 'Vehicle photos needed' : 'Vehicle photos added',
+      carPhotosAddedBy: photoBy,
     };
   });
 }
@@ -218,29 +248,43 @@ export function isUpcomingRental(rental) {
   return true;
 }
 
-export function buildUpcomingNotices(rentals) {
+export function buildUpcomingNotices(rentals, { includePendingForPhotos = false } = {}) {
   return (rentals || [])
-    .filter(isUpcomingRental)
+    .filter((rental) =>
+      includePendingForPhotos
+        ? isUpcomingRental(rental) || canAddVehiclePhotos(rental)
+        : isUpcomingRental(rental),
+    )
     .map((rental) => {
       const log = rentalToActivityLog(rental);
       const needsPhotos = rentalNeedsCarPhotos(rental);
+      const waiting = isWaitingForApproval(rental);
       const periodFrom = rental.rental?.periodFromLabel || rental.rental?.periodFrom || '';
       return {
         ...log,
-        status: 'Upcoming',
+        status: waiting ? 'Waiting for approval' : 'Upcoming',
         text: needsPhotos
-          ? 'Add pre-rental car photos before the rental starts.'
+          ? waiting
+            ? 'Add vehicle photos now. Rental still needs desk approval.'
+            : 'Add pre-rental car photos before the rental starts.'
           : getCarPhotosAddedBy(rental)
-            ? `Scheduled · photos added by ${getCarPhotosAddedBy(rental)}`
-            : periodFrom
-              ? `Scheduled · starts ${periodFrom}`
-              : 'Scheduled rental',
+            ? waiting
+              ? `Photos by ${getCarPhotosAddedBy(rental)} · rental still awaiting desk approval`
+              : `Scheduled · photos added by ${getCarPhotosAddedBy(rental)}`
+            : waiting
+              ? 'Submitted · awaiting desk approval'
+              : periodFrom
+                ? `Scheduled · starts ${periodFrom}`
+                : 'Scheduled rental',
         needsCarPhotos: needsPhotos,
         photoLabel: needsPhotos ? 'Vehicle photos needed' : 'Vehicle photos added',
         carPhotosAddedBy: getCarPhotosAddedBy(rental),
+        waitingApproval: waiting,
       };
     })
     .sort((a, b) => {
+      // Photos needed first, then soonest start
+      if (a.needsCarPhotos !== b.needsCarPhotos) return a.needsCarPhotos ? -1 : 1;
       const ta = new Date(a.rental?.rental?.periodFrom || 0).getTime();
       const tb = new Date(b.rental?.rental?.periodFrom || 0).getTime();
       return ta - tb;

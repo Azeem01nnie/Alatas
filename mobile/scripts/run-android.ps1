@@ -76,8 +76,12 @@ Write-Host "Tip: use 'npm run android' instead of 'npx expo run:android' (JDK 17
 Set-Location (Join-Path $PSScriptRoot '..')
 
 function Repair-MainApplicationKt {
-  $mainApp = 'android\app\src\main\java\com\uryzei\mobile\MainApplication.kt'
-  if (-not (Test-Path $mainApp)) { return }
+  $candidates = @(
+    'android\app\src\main\java\com\uryzei\alatas\MainApplication.kt',
+    'android\app\src\main\java\com\uryzei\mobile\MainApplication.kt'
+  )
+  $mainApp = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+  if (-not $mainApp) { return }
 
   $content = Get-Content $mainApp -Raw
   $fixed = $content -replace '(?m)^import com\.nozbe\.watermelondb\.jsi\.WatermelonDBJSIPackage;\r?\n', '' `
@@ -92,6 +96,7 @@ if ($Rebuild) {
   Write-Host "`n>>> Uninstalling old app from device/emulator..."
   $adb = Get-Command adb -ErrorAction SilentlyContinue
   if ($adb) {
+    & $adb.Source uninstall com.uryzei.alatas 2>$null | Out-Null
     & $adb.Source uninstall com.uryzei.mobile 2>$null | Out-Null
   } else {
     Write-Host "    (adb not found - skip uninstall; uninstall manually from emulator if needed)"
