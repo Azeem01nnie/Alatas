@@ -100,10 +100,11 @@ function vehicleIsBlocked(vehicleId, ignoreRentalId = null) {
     return { blocked: true, reason: 'Vehicle already has an active or scheduled rental.' }
   }
 
-  if (vehicle.status === 'Rented' || vehicle.status === 'Under Maintenance') {
-    return { blocked: true, reason: `Vehicle is ${vehicle.status}.` }
+  if (vehicle.status === 'Under Maintenance') {
+    return { blocked: true, reason: 'Vehicle is Under Maintenance.' }
   }
 
+  // Stale "Rented" with no active/scheduled rental — allow desk/mobile approval to proceed.
   return { blocked: false }
 }
 
@@ -178,7 +179,7 @@ function rejectPendingRental(id, reason = '') {
   const row = {
     ...existing,
     approvalStatus: 'rejected',
-    rentalLifecycle: 'rejected',
+    rentalLifecycle: 'cancelled',
     rejectionReason: String(reason || '').trim() || 'Rejected by admin',
     updatedAt: now,
   }
