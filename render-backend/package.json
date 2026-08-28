@@ -8,7 +8,7 @@
     "start": "node src/server.js",
     "render:start": "node scripts/render-start.js",
     "render-start": "npm run render:start",
-    "build": "node -e \"console.log('[build] render-backend ready')\""
+    "build": "npm rebuild better-sqlite3 && node scripts/verify-sqlite.js"
   },
   "engines": {
     "node": ">=20"

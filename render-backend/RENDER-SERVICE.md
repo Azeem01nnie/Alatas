@@ -9,7 +9,10 @@
 |--------|--------|
 | Root Directory | `render-backend` *(optional — repo root also works via Electron redirect)* |
 | Build Command | `npm install` |
-| Start Command | `npm run render:start` *(use a colon `:` not hyphen `-`)* |
+| **Build Command** | `npm install && npm run build` |
+| **Start Command** | `npm run render:start` *(use a colon `:` not hyphen `-`)* |
+
+If deploy crashes with **Segmentation fault**, clear the Render **build cache** (Settings → Clear build cache) and redeploy — stale cached native modules from the wrong root folder can break `better-sqlite3`.
 | Node version | `20` (`.node-version` in repo) |
 
 ## Env vars on Render

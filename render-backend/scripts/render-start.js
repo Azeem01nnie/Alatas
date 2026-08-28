@@ -1,9 +1,8 @@
 /**
- * Render start entry — no bash required (avoids CRLF / chmod issues on Windows repos).
+ * Render start entry — sets data dir then loads the API (single process).
  */
 import fs from 'fs'
 import path from 'path'
-import { spawn } from 'child_process'
 import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -27,13 +26,4 @@ const dataDir = resolveDataDir()
 fs.mkdirSync(dataDir, { recursive: true })
 process.env.ALATAS_DATA_DIR = dataDir
 
-const child = spawn(process.execPath, ['src/server.js'], {
-  cwd: root,
-  stdio: 'inherit',
-  env: process.env,
-})
-
-child.on('exit', (code, signal) => {
-  if (signal) process.kill(process.pid, signal)
-  process.exit(code ?? 1)
-})
+await import('../src/server.js')

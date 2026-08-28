@@ -6,7 +6,7 @@ services:
     name: alatas-api
     runtime: node
     rootDir: render-backend
-    buildCommand: npm install
+    buildCommand: npm install && npm run build
     startCommand: npm run render:start
     healthCheckPath: /api/health
     envVars:

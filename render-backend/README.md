@@ -30,7 +30,7 @@ Health check: `http://127.0.0.1:4000/api/health`
 
 1. Create a **Web Service** pointing at this repo
 2. **Root Directory:** `render-backend` ← required (repo root is the Electron desktop app)
-3. Build command: `npm install`
+3. Build command: `npm install && npm run build`
 4. Start command: `npm run render:start` *(colon, not hyphen)*
 5. *(Optional, paid plan)* Add a persistent disk mounted at `/var/data` and set `ALATAS_DATA_DIR=/var/data`
 6. Set environment variables:
