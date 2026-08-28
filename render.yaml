@@ -1,21 +1,16 @@
 # Render Blueprint — deploy the cloud API (not the Electron desktop app).
-# Dashboard: New → Blueprint → connect this repo, or set Root Directory manually.
+# Free tier: no persistent disk — SQLite lives in render-backend/sqlite (ephemeral on redeploy).
+# Paid tier: uncomment the disk block and set ALATAS_DATA_DIR=/var/data in the dashboard.
 services:
   - type: web
     name: alatas-api
     runtime: node
     rootDir: render-backend
-    buildCommand: npm install && npm run build
-    startCommand: ./start.sh
+    buildCommand: npm install
+    startCommand: npm run render:start
     healthCheckPath: /api/health
     envVars:
       - key: HOST
         value: 0.0.0.0
-      - key: ALATAS_DATA_DIR
-        value: /var/data
       - key: NODE_VERSION
         value: "20"
-    disk:
-      name: alatas-data
-      mountPath: /var/data
-      sizeGB: 1

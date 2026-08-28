@@ -6,7 +6,11 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "build": "bash scripts/install-litestream.sh || echo Litestream skipped — Express will run without R2 backup"
+    "render:start": "node scripts/render-start.js",
+    "build": "node -e \"console.log('[build] render-backend ready')\""
+  },
+  "engines": {
+    "node": ">=20"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",
