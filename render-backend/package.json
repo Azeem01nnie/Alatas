@@ -7,6 +7,7 @@
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
     "render:start": "node scripts/render-start.js",
+    "render-start": "npm run render:start",
     "build": "node -e \"console.log('[build] render-backend ready')\""
   },
   "engines": {
