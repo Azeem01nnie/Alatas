@@ -24,11 +24,16 @@ Health check: `http://127.0.0.1:4000/api/health`
 
 ## Render deploy (when ready)
 
-1. Create a **Web Service** pointing at this folder
-2. Build command: `npm install && npm run build`
-3. Start command: `./start.sh`
-4. Add a persistent disk mounted at `/var/data`
-5. Set environment variables:
+**Option A — Blueprint (recommended):** In Render → **New** → **Blueprint** → connect this repo. It reads `/render.yaml` at the repo root and sets `rootDir: render-backend` automatically.
+
+**Option B — Manual Web Service:**
+
+1. Create a **Web Service** pointing at this repo
+2. **Root Directory:** `render-backend` ← required (repo root is the Electron desktop app)
+3. Build command: `npm install && npm run build`
+4. Start command: `./start.sh`
+5. Add a persistent disk mounted at `/var/data`
+6. Set environment variables:
    - `PORT` (Render sets this automatically)
    - `HOST=0.0.0.0`
    - `R2_BUCKET_NAME`, `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
