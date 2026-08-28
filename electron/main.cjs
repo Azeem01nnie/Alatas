@@ -1,3 +1,16 @@
+// On Render the service may start from repo root via `node electron/main.cjs`.
+// Redirect to the cloud API in render-backend/ instead of loading Electron.
+if (process.env.RENDER || process.env.RENDER_SERVICE_ID) {
+  const { spawnSync } = require('child_process')
+  const path = require('path')
+  const result = spawnSync(process.execPath, ['scripts/render-start.js'], {
+    cwd: path.join(__dirname, '..', 'render-backend'),
+    stdio: 'inherit',
+    env: process.env,
+  })
+  process.exit(result.status ?? 1)
+}
+
 const { app, BrowserWindow, shell, dialog } = require('electron')
 const path = require('path')
 const fs = require('fs')
