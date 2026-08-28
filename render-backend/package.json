@@ -8,13 +8,13 @@
     "start": "node src/server.js",
     "render:start": "node scripts/render-start.js",
     "render-start": "npm run render:start",
-    "build": "npm rebuild better-sqlite3 && node scripts/verify-sqlite.js"
+    "build": "node scripts/verify-sqlite.js"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
-    "better-sqlite3": "^13.0.3",
+    "better-sqlite3": "11.8.1",
     "cors": "^2.8.5",
     "express": "^5.1.0"
   }
