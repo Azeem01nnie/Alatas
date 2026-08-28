@@ -1,6 +1,6 @@
 export default ({ config }) => {
   const cloudUrl = (
-    process.env.EXPO_PUBLIC_API_URL || 'https://alatas.onrender.com'
+    process.env.EXPO_PUBLIC_API_URL || 'https://alatas-q5ks.onrender.com'
   ).replace(/\/$/, '')
 
   const apiUrl =

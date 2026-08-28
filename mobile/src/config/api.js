@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 
 const CLOUD_URL = (
-  process.env.EXPO_PUBLIC_API_URL || 'https://alatas.onrender.com'
+  process.env.EXPO_PUBLIC_API_URL || 'https://alatas-q5ks.onrender.com'
 ).replace(/\/$/, '');
 
 function devLocalUrl() {
