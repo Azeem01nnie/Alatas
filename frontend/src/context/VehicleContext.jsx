@@ -14,8 +14,15 @@ import { replaceVehicles as apiReplaceVehicles, replaceRentals as apiReplaceRent
 const VehicleContext = createContext(null)
 
 function normalizeRental(r) {
-  const base = r.approvalStatus ? r : { ...r, approvalStatus: 'accepted' }
+  const approvalStatus = r.approvalStatus || 'accepted'
+  const base = { ...r, approvalStatus }
   if (base.rentalLifecycle) return base
+  if (approvalStatus === 'pending') {
+    return { ...base, rentalLifecycle: 'pending_approval' }
+  }
+  if (approvalStatus === 'rejected') {
+    return { ...base, rentalLifecycle: 'cancelled' }
+  }
   return { ...base, rentalLifecycle: 'completed' }
 }
 
@@ -126,25 +133,21 @@ export function VehicleProvider({ children }) {
     }
   }, [])
 
-  // Keep desk fleet in sync with mobile approvals / field submissions (read-only refresh).
+  // Refresh rentals for mobile approvals — do not replace vehicles here (avoids
+  // overwriting a desk photo edit with a stale cloud/local snapshot mid-save).
   useEffect(() => {
     if (!ready) return undefined
     let cancelled = false
     const timer = window.setInterval(async () => {
       try {
-        const [vehiclesData, rentalsData] = await Promise.all([loadVehicles(), loadRentals()])
+        const rentalsData = await loadRentals()
         if (cancelled) return
-        const nextVehicles = Array.isArray(vehiclesData) ? vehiclesData : []
         const nextRentals = Array.isArray(rentalsData)
           ? rentalsData.map(normalizeRental)
           : []
-        setVehicles((prev) =>
-          JSON.stringify(prev) === JSON.stringify(nextVehicles) ? prev : nextVehicles,
-        )
         setRentals((prev) =>
           JSON.stringify(prev) === JSON.stringify(nextRentals) ? prev : nextRentals,
         )
-        hasLoaded.current = true
       } catch (err) {
         console.warn('Periodic rental refresh failed', err)
       }
@@ -264,18 +267,24 @@ export function VehicleProvider({ children }) {
   }, [])
 
   const addVehicle = (vehicle) => {
+    const now = new Date().toISOString()
     const entry = {
       ...vehicle,
       status: vehicle.status || 'Available',
       id: `v-${Date.now()}`,
+      createdAt: vehicle.createdAt || now,
+      updatedAt: now,
     }
     setVehicles((prev) => [...prev, entry])
     return entry
   }
 
   const updateVehicle = (id, data) => {
+    const now = new Date().toISOString()
     setVehicles((prev) =>
-      prev.map((v) => (v.id === id ? { ...v, ...data, id: v.id } : v)),
+      prev.map((v) =>
+        v.id === id ? { ...v, ...data, id: v.id, updatedAt: now } : v,
+      ),
     )
   }
 

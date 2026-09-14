@@ -26,6 +26,7 @@ import {
   addChatMessage,
   getChatThreads,
   setChatThreadArchived,
+  deleteChatThread,
   mergeChatMessages,
 } from './sqlite-db.js'
 import {
@@ -62,6 +63,11 @@ function sendError(res, err, status = 500) {
 
 function rentalUpdatedAt(rental) {
   const ts = rental.updatedAt || rental.createdAt || rental.encodedAt
+  return ts ? new Date(ts).getTime() : 0
+}
+
+function vehicleUpdatedAt(vehicle) {
+  const ts = vehicle?.updatedAt || vehicle?.createdAt
   return ts ? new Date(ts).getTime() : 0
 }
 
@@ -145,7 +151,13 @@ function applySyncChanges(changes) {
     const current = getVehicles()
     const byId = new Map(current.map((v) => [String(v.id), v]))
     for (const vehicle of vehicleUpdates) {
-      if (vehicle?.id) byId.set(String(vehicle.id), vehicle)
+      if (!vehicle?.id) continue
+      const key = String(vehicle.id)
+      const existing = byId.get(key)
+      // Prefer newer local desk edits over stale cloud fleet snapshots.
+      if (!existing || vehicleUpdatedAt(vehicle) >= vehicleUpdatedAt(existing)) {
+        byId.set(key, vehicle)
+      }
     }
     replaceVehicles([...byId.values()])
   }
@@ -279,6 +291,55 @@ async function pushEmployeeMutationToCloud(method, path, body) {
   return response.json()
 }
 
+async function pullPendingRentalsFromCloud() {
+  if (!CLOUD_SYNC_ENABLED || !RENDER_API_URL) {
+    return { ok: true, skipped: true, pulled: 0 }
+  }
+
+  const response = await fetch(`${RENDER_API_URL}/api/pending-rentals`)
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    throw new Error(`Cloud pending pull failed (${response.status}): ${text}`)
+  }
+
+  const remote = await response.json()
+  if (!Array.isArray(remote) || !remote.length) {
+    return { ok: true, pulled: 0 }
+  }
+
+  const current = getRentals()
+  const byId = new Map(current.map((r) => [String(r.id), r]))
+  let applied = 0
+
+  for (const rental of remote) {
+    if (!rental?.id) continue
+    const key = String(rental.id)
+    const existing = byId.get(key)
+    // Keep a newer local accept/reject; otherwise upsert cloud pending.
+    if (
+      existing &&
+      existing.approvalStatus !== 'pending' &&
+      existing.rentalLifecycle !== 'pending_approval' &&
+      rentalUpdatedAt(existing) >= rentalUpdatedAt(rental)
+    ) {
+      continue
+    }
+    byId.set(key, {
+      ...rental,
+      approvalStatus: 'pending',
+      rentalLifecycle: rental.rentalLifecycle || 'pending_approval',
+    })
+    applied += 1
+  }
+
+  if (applied) {
+    // Pass full set so replaceRentals does not need to "preserve" — all rows included.
+    replaceRentals([...byId.values()])
+  }
+
+  return { ok: true, pulled: applied }
+}
+
 async function pullFromCloudToLocal() {
   if (!CLOUD_SYNC_ENABLED) {
     return { ok: true, skipped: true, reason: 'Cloud sync not configured' }
@@ -300,7 +361,20 @@ async function pullFromCloudToLocal() {
     setSyncMeta('last_pulled_at', String(data.timestamp))
   }
 
-  return { ok: true, applied, timestamp: data.timestamp ?? Date.now() }
+  // Always re-fetch pending approvals — incremental sync can miss them after a local wipe.
+  const pendingPull = await pullPendingRentalsFromCloud().catch((err) => {
+    console.warn('[local-api] pending rentals pull skipped', err?.message || err)
+    return { pulled: 0 }
+  })
+
+  return {
+    ok: true,
+    applied: {
+      ...applied,
+      pendingRentals: pendingPull?.pulled || 0,
+    },
+    timestamp: data.timestamp ?? Date.now(),
+  }
 }
 
 app.get('/api/health', (_req, res) => {
@@ -552,6 +626,25 @@ app.patch('/api/chat/threads/:threadId', async (req, res) => {
   }
 })
 
+app.delete('/api/chat/threads/:threadId', async (req, res) => {
+  try {
+    const deleted = deleteChatThread(req.params.threadId)
+    if (CLOUD_SYNC_ENABLED && RENDER_API_URL) {
+      try {
+        await fetch(
+          `${RENDER_API_URL}/api/chat/threads/${encodeURIComponent(req.params.threadId)}`,
+          { method: 'DELETE' },
+        )
+      } catch (err) {
+        console.warn('[local-api] could not sync chat delete to cloud', err?.message || err)
+      }
+    }
+    res.json(deleted)
+  } catch (err) {
+    sendError(res, err, 400)
+  }
+})
+
 app.get('/api/chat/messages', async (req, res) => {
   try {
     await pullChatFromCloud().catch((err) => {
@@ -643,7 +736,7 @@ app.post('/api/rentals', (req, res) => {
   }
 })
 
-app.post('/api/rentals/pending', (req, res) => {
+app.post('/api/rentals/pending', async (req, res) => {
   try {
     if (!req.body || typeof req.body !== 'object') {
       return res.status(400).json({ error: 'Invalid rental payload' })
@@ -659,6 +752,22 @@ app.post('/api/rentals/pending', (req, res) => {
       action: 'create',
       payload: created,
     })
+
+    if (CLOUD_SYNC_ENABLED && RENDER_API_URL) {
+      try {
+        await fetch(`${RENDER_API_URL}/api/rentals/pending`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(created),
+        })
+      } catch (err) {
+        console.warn('[local-api] could not push pending rental to cloud', err?.message || err)
+      }
+      await flushQueueToCloud().catch((err) => {
+        console.warn('[local-api] queue flush after pending rental skipped', err?.message || err)
+      })
+    }
+
     res.status(201).json(created)
   } catch (err) {
     sendError(res, err)

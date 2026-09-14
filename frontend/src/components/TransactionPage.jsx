@@ -323,13 +323,23 @@ async function downloadContractPdf(transaction) {
   drawImageRow('CUSTOMER PHOTOS', customerImages)
 
   const carImageItems = [
-    ['front', 'Front'],
-    ['rear', 'Rear'],
-    ['left', 'Left side'],
-    ['right', 'Right side'],
+    ...[
+      ['front', 'Front'],
+      ['rear', 'Rear'],
+      ['left', 'Left side'],
+      ['right', 'Right side'],
+    ]
+      .filter(([key]) => carPhotos?.[key] && String(carPhotos[key]).startsWith('data:image'))
+      .map(([key, label]) => ({ src: carPhotos[key], label })),
+    ...(Array.isArray(carPhotos?.extras)
+      ? carPhotos.extras
+          .filter((item) => item?.uri && String(item.uri).startsWith('data:image'))
+          .map((item, index) => ({
+            src: item.uri,
+            label: item.label || `Extra ${index + 1}`,
+          }))
+      : []),
   ]
-    .filter(([key]) => carPhotos?.[key] && String(carPhotos[key]).startsWith('data:image'))
-    .map(([key, label]) => ({ src: carPhotos[key], label }))
   drawImageRow('PRE-RENTAL CAR PHOTOS', carImageItems)
 
   const safeName = name.replace(/[^\w\-]+/g, '_').slice(0, 40) || 'contract'
@@ -357,6 +367,9 @@ export default function TransactionPage({
     { key: 'left', label: 'Left side' },
     { key: 'right', label: 'Right side' },
   ]
+  const extraPhotos = Array.isArray(carPhotos?.extras)
+    ? carPhotos.extras.filter((item) => item?.uri && String(item.uri).startsWith('data:image'))
+    : []
 
   return (
     <section className="transaction-page">
@@ -423,6 +436,12 @@ export default function TransactionPage({
               <div className="transaction-photo-empty">No {slot.label.toLowerCase()} photo</div>
             )}
             <figcaption>{slot.label}</figcaption>
+          </figure>
+        ))}
+        {extraPhotos.map((item, index) => (
+          <figure key={item.id || `extra-${index}`} className="transaction-photo-card">
+            <img src={item.uri} alt={item.label || `Extra ${index + 1}`} />
+            <figcaption>{item.label || `Extra ${index + 1}`}</figcaption>
           </figure>
         ))}
       </div>

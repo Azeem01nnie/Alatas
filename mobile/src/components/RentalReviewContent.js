@@ -1,6 +1,7 @@
-import React from 'react';
-import { View, Text, StyleSheet, Image } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, Image, TouchableOpacity } from 'react-native';
 import { buildRentalReviewDetails } from '../utils/rentalReview';
+import FullImageViewer from './FullImageViewer';
 
 function DetailRow({ label, value, theme }) {
   return (
@@ -11,22 +12,27 @@ function DetailRow({ label, value, theme }) {
   );
 }
 
-function PhotoBlock({ title, uri, theme }) {
+function PhotoBlock({ title, uri, theme, onPress }) {
   if (!uri) return null;
   return (
     <View style={styles.photoBlock}>
       <Text style={[styles.sectionHeading, { color: theme.textMain }]}>{title}</Text>
-      <Image source={{ uri }} style={styles.gridImage} resizeMode="cover" />
+      <TouchableOpacity activeOpacity={0.9} onPress={() => onPress?.(uri, title)}>
+        <Image source={{ uri }} style={styles.gridImage} resizeMode="cover" />
+      </TouchableOpacity>
+      <Text style={[styles.tapHint, { color: theme.textSub }]}>Tap to view full size</Text>
     </View>
   );
 }
 
 export default function RentalReviewContent({ rental, theme }) {
   const details = buildRentalReviewDetails(rental);
+  const [viewer, setViewer] = useState({ uri: null, title: '' });
   if (!details) return null;
 
   const photoTakerName = details.carPhotosAddedBy || null;
   const submittedBy = details.submittedBy || null;
+  const openViewer = (uri, title) => setViewer({ uri, title: title || 'Photo' });
 
   return (
     <>
@@ -45,8 +51,8 @@ export default function RentalReviewContent({ rental, theme }) {
         ) : null}
       </View>
 
-      <PhotoBlock title="Holding license" uri={details.holdingLicenseUri} theme={theme} />
-      <PhotoBlock title="Customer photo" uri={details.customerPhotoUri} theme={theme} />
+      <PhotoBlock title="Holding license" uri={details.holdingLicenseUri} theme={theme} onPress={openViewer} />
+      <PhotoBlock title="Customer photo" uri={details.customerPhotoUri} theme={theme} onPress={openViewer} />
 
       {details.carPhotos.length > 0 ? (
         <View style={styles.photoBlock}>
@@ -57,13 +63,23 @@ export default function RentalReviewContent({ rental, theme }) {
           {details.carPhotos.map((item) => (
             <View key={item.key} style={styles.carPhotoItem}>
               <Text style={[styles.carPhotoLabel, { color: theme.textSub }]}>{item.title}</Text>
-              <Image source={{ uri: item.uri }} style={styles.gridImage} resizeMode="cover" />
+              <TouchableOpacity activeOpacity={0.9} onPress={() => openViewer(item.uri, item.title)}>
+                <Image source={{ uri: item.uri }} style={styles.gridImage} resizeMode="cover" />
+              </TouchableOpacity>
+              <Text style={[styles.tapHint, { color: theme.textSub }]}>Tap to view full size</Text>
             </View>
           ))}
         </View>
       ) : details.vehicleImageUri ? (
-        <PhotoBlock title="Vehicle photo" uri={details.vehicleImageUri} theme={theme} />
+        <PhotoBlock title="Vehicle photo" uri={details.vehicleImageUri} theme={theme} onPress={openViewer} />
       ) : null}
+
+      <FullImageViewer
+        visible={Boolean(viewer.uri)}
+        uri={viewer.uri}
+        title={viewer.title}
+        onClose={() => setViewer({ uri: null, title: '' })}
+      />
     </>
   );
 }
@@ -85,4 +101,5 @@ const styles = StyleSheet.create({
   carPhotoItem: { marginBottom: 12 },
   carPhotoLabel: { fontSize: 13, fontWeight: '600', marginBottom: 6 },
   gridImage: { width: '100%', height: 180, borderRadius: 12 },
+  tapHint: { fontSize: 11, fontWeight: '500', marginTop: 6 },
 });

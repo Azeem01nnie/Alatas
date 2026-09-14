@@ -53,8 +53,18 @@ function mergePendingLists(localPending, cloudPending, localRentals) {
     if (!row?.id) continue
     const key = String(row.id)
     const local = localById.get(key)
-    // Desk already accepted/rejected this rental — ignore stale cloud pending.
-    if (local && !isStillPending(local)) continue
+    if (local && !isStillPending(local)) {
+      const localStatus = local.approvalStatus
+      const localTs = new Date(local.updatedAt || local.createdAt || 0).getTime() || 0
+      const cloudTs = new Date(row.updatedAt || row.createdAt || 0).getTime() || 0
+      // Only hide cloud pending when desk has a real newer accept/reject.
+      if (
+        (localStatus === 'accepted' || localStatus === 'rejected') &&
+        localTs >= cloudTs
+      ) {
+        continue
+      }
+    }
     byId.set(key, row)
   }
 

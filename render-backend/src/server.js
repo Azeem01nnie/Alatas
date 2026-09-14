@@ -25,6 +25,7 @@ import {
   addChatMessage,
   getChatThreads,
   setChatThreadArchived,
+  deleteChatThread,
   mergeChatMessages,
 } from './sqlite-db.js'
 import {
@@ -185,6 +186,14 @@ app.patch('/api/chat/threads/:threadId', (req, res) => {
   try {
     const archived = Boolean(req.body?.archived)
     res.json(setChatThreadArchived(req.params.threadId, archived))
+  } catch (err) {
+    sendError(res, err, 400)
+  }
+})
+
+app.delete('/api/chat/threads/:threadId', (req, res) => {
+  try {
+    res.json(deleteChatThread(req.params.threadId))
   } catch (err) {
     sendError(res, err, 400)
   }
@@ -419,7 +428,14 @@ app.post('/api/sync/push', (req, res) => {
       const current = getVehicles()
       const byId = new Map(current.map((v) => [String(v.id), v]))
       for (const vehicle of vehicleUpdates) {
-        if (vehicle?.id) byId.set(String(vehicle.id), vehicle)
+        if (!vehicle?.id) continue
+        const key = String(vehicle.id)
+        const existing = byId.get(key)
+        const incomingTs = new Date(vehicle.updatedAt || vehicle.createdAt || 0).getTime() || 0
+        const existingTs = new Date(existing?.updatedAt || existing?.createdAt || 0).getTime() || 0
+        if (!existing || incomingTs >= existingTs) {
+          byId.set(key, vehicle)
+        }
       }
       replaceVehicles([...byId.values()])
     }

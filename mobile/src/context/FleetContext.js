@@ -139,6 +139,9 @@ export function FleetProvider({ children }) {
         prev.map((r) => {
           if (String(r.id) !== String(id)) return r;
           const merged = { ...(r.carPhotos || {}), ...carPhotos };
+          if (Array.isArray(carPhotos?.extras)) {
+            merged.extras = carPhotos.extras;
+          }
           const allComplete = ['front', 'rear', 'left', 'right'].every((key) => Boolean(merged[key]));
           const addedByName = addedBy ? String(addedBy).trim() : merged._addedBy || r.carPhotosAddedBy || null;
           if (allComplete && addedByName) {

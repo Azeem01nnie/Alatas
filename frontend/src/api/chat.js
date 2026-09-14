@@ -3,12 +3,14 @@ import {
   sendChatMessage,
   fetchChatThreads,
   setChatThreadArchivedRemote,
+  deleteChatThreadRemote,
 } from './backend'
 import {
   fetchCloudChatMessages,
   sendCloudChatMessage,
   fetchCloudChatThreads,
   setCloudChatThreadArchived,
+  deleteCloudChatThread,
   isCloudConfigured,
   CLOUD_SYNC_ENABLED,
 } from './cloudSync'
@@ -50,5 +52,14 @@ export async function setChatThreadArchived(threadId, archived) {
   } catch (err) {
     if (!preferCloudDirect()) throw err
     return setCloudChatThreadArchived(threadId, archived)
+  }
+}
+
+export async function deleteChatConversation(threadId) {
+  try {
+    return await deleteChatThreadRemote(threadId)
+  } catch (err) {
+    if (!preferCloudDirect()) throw err
+    return deleteCloudChatThread(threadId)
   }
 }

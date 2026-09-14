@@ -107,6 +107,7 @@ function createDb() {
     ['rentals', 'updatedAt', 'TEXT'],
     ['rentals', 'carPhotosAddedBy', 'TEXT'],
     ['vehicles', 'reportEntries', 'TEXT'],
+    ['vehicles', 'updatedAt', 'TEXT'],
   ].forEach(([table, column, typeSql]) => ensureColumn(db, table, column, typeSql))
 
   db.prepare(
@@ -127,11 +128,11 @@ const insertVehicleStmt = db.prepare(
   `INSERT INTO vehicles (
       id, make, series, bodyType, seats, transmission, plateNo,
       engineNo, chassisNo, status, image, ownerId, ownerName, ownershipType,
-      orcrImage, orImage, hrs5, hrs12, hrs24, exceedHour, createdAt, reportEntries
+      orcrImage, orImage, hrs5, hrs12, hrs24, exceedHour, createdAt, reportEntries, updatedAt
     ) VALUES (
       @id, @make, @series, @bodyType, @seats, @transmission, @plateNo,
       @engineNo, @chassisNo, @status, @image, @ownerId, @ownerName, @ownershipType,
-      @orcrImage, @orImage, @hrs5, @hrs12, @hrs24, @exceedHour, @createdAt, @reportEntries
+      @orcrImage, @orImage, @hrs5, @hrs12, @hrs24, @exceedHour, @createdAt, @reportEntries, @updatedAt
     )`,
 )
 
@@ -185,6 +186,8 @@ function mapVehicle(row) {
       hrs24: row.hrs24,
       exceedHour: row.exceedHour,
     },
+    createdAt: row.createdAt || null,
+    updatedAt: row.updatedAt || row.createdAt || null,
   }
 }
 
@@ -257,6 +260,7 @@ function replaceVehicles(vehicles) {
         reportEntries: serializeJson(
           Array.isArray(vehicle.reportEntries) ? vehicle.reportEntries : [],
         ),
+        updatedAt: vehicle.updatedAt || now,
       })
     }
   })
@@ -317,6 +321,22 @@ function rentalCarPhotosComplete(carPhotos) {
   return CAR_PHOTO_KEYS.every((key) => Boolean(carPhotos[key]))
 }
 
+function normalizeCarPhotoExtras(value) {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item, index) => {
+      if (!item || typeof item !== 'object') return null
+      const uri = typeof item.uri === 'string' ? item.uri.trim() : ''
+      if (!uri) return null
+      return {
+        id: String(item.id || `extra-${Date.now()}-${index}`),
+        uri,
+        label: item.label ? String(item.label).trim() : '',
+      }
+    })
+    .filter(Boolean)
+}
+
 function updateRentalCarPhotos(id, carPhotos, addedBy) {
   const key = String(id || '').trim()
   if (!key) throw new Error('Rental id is required')
@@ -327,12 +347,36 @@ function updateRentalCarPhotos(id, carPhotos, addedBy) {
     parseJson(row.carPhotos) && typeof parseJson(row.carPhotos) === 'object'
       ? parseJson(row.carPhotos)
       : {}
-  if (rentalCarPhotosComplete(existing)) {
-    throw new Error('Car photos are locked and cannot be changed')
+  const incoming = carPhotos && typeof carPhotos === 'object' ? carPhotos : {}
+  const locked = rentalCarPhotosComplete(existing)
+
+  if (locked) {
+    for (const photoKey of CAR_PHOTO_KEYS) {
+      if (
+        Object.prototype.hasOwnProperty.call(incoming, photoKey) &&
+        incoming[photoKey] &&
+        String(incoming[photoKey]) !== String(existing[photoKey] || '')
+      ) {
+        throw new Error('Required car photos are locked and cannot be changed')
+      }
+    }
   }
 
-  const incoming = carPhotos && typeof carPhotos === 'object' ? carPhotos : {}
-  const merged = { ...existing, ...incoming }
+  const merged = locked
+    ? {
+        ...existing,
+        extras: Object.prototype.hasOwnProperty.call(incoming, 'extras')
+          ? normalizeCarPhotoExtras(incoming.extras)
+          : normalizeCarPhotoExtras(existing.extras),
+      }
+    : {
+        ...existing,
+        ...incoming,
+        extras: Object.prototype.hasOwnProperty.call(incoming, 'extras')
+          ? normalizeCarPhotoExtras(incoming.extras)
+          : normalizeCarPhotoExtras(existing.extras),
+      }
+
   const now = new Date().toISOString()
   const allComplete = rentalCarPhotosComplete(merged)
   const addedByName =
@@ -356,11 +400,21 @@ function updateRentalCarPhotos(id, carPhotos, addedBy) {
 function replaceRentals(rentals) {
   const items = Array.isArray(rentals) ? rentals : []
   const now = new Date().toISOString()
+  // Autosave often omits pending field submissions — keep them unless the payload
+  // explicitly includes the same id (accept/reject/update).
+  const previousPending = getRentals().filter(
+    (r) =>
+      r.approvalStatus === 'pending' || r.rentalLifecycle === 'pending_approval',
+  )
+  const incomingIds = new Set(
+    items.map((r) => (r?.id != null ? String(r.id) : '')).filter(Boolean),
+  )
+  const preservedPending = previousPending.filter((r) => !incomingIds.has(String(r.id)))
 
   const run = db.transaction(() => {
     deleteRentalsStmt.run()
 
-    for (const rental of items) {
+    for (const rental of [...items, ...preservedPending]) {
       const row = toRentalRow(rental, now)
       if (!row.id) continue
       insertRentalStmt.run(row)
@@ -731,6 +785,15 @@ function isChatThreadArchived(threadId) {
   const row = db.prepare('SELECT archived FROM chat_threads WHERE threadId = ?').get(String(threadId || ''))
   return row?.archived === 1
 }
+
+function deleteChatThread(threadId) {
+  const key = String(threadId || '').trim()
+  if (!key) throw new Error('threadId is required')
+  const removed = db.prepare('DELETE FROM chat_messages WHERE threadId = ?').run(key)
+  db.prepare('DELETE FROM chat_threads WHERE threadId = ?').run(key)
+  return { ok: true, threadId: key, deletedMessages: removed.changes }
+}
+
 function mapChatMessage(row) {
   if (!row) return null
   return {
@@ -937,5 +1000,6 @@ export {
   addChatMessage,
   getChatThreads,
   setChatThreadArchived,
+  deleteChatThread,
   mergeChatMessages,
 }

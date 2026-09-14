@@ -50,10 +50,29 @@ export async function updateRentalCarPhotos(id, carPhotos, addedBy) {
   const existingPhotos =
     current.carPhotos && typeof current.carPhotos === 'object' ? current.carPhotos : {};
   const mergedPhotos = { ...existingPhotos, ...carPhotos };
+  if (Array.isArray(carPhotos?.extras)) {
+    mergedPhotos.extras = carPhotos.extras;
+  }
   const allComplete = ['front', 'rear', 'left', 'right'].every((key) => Boolean(mergedPhotos[key]));
+  const locked = ['front', 'rear', 'left', 'right'].every((key) => Boolean(existingPhotos[key]));
 
-  if (['front', 'rear', 'left', 'right'].every((key) => Boolean(existingPhotos[key]))) {
-    throw new Error('Car photos are locked and cannot be changed');
+  if (locked) {
+    for (const key of ['front', 'rear', 'left', 'right']) {
+      if (
+        carPhotos &&
+        Object.prototype.hasOwnProperty.call(carPhotos, key) &&
+        carPhotos[key] &&
+        carPhotos[key] !== existingPhotos[key]
+      ) {
+        throw new Error('Required car photos are locked and cannot be changed');
+      }
+    }
+    // Keep required sides; only allow extras update when locked.
+    mergedPhotos.front = existingPhotos.front;
+    mergedPhotos.rear = existingPhotos.rear;
+    mergedPhotos.left = existingPhotos.left;
+    mergedPhotos.right = existingPhotos.right;
+    if (existingPhotos._addedBy) mergedPhotos._addedBy = existingPhotos._addedBy;
   }
 
   list[index] = {

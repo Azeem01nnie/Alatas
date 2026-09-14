@@ -7,16 +7,27 @@ import {
   Image,
   Alert,
   ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
-import { Camera, ImagePlus, X, ChevronLeft, ChevronRight, Check, Lock } from 'lucide-react-native';
+import { Camera, ImagePlus, X, ChevronLeft, ChevronRight, Check, Lock, Plus } from 'lucide-react-native';
 import ScreenLayout, { ScreenHeader } from '../components/ScreenLayout';
+import FullImageViewer from '../components/FullImageViewer';
 import { useTheme } from '../context/ThemeContext';
 import { useFleet } from '../context/FleetContext';
 import { useAuth } from '../context/AuthContext';
-import { CAR_PHOTO_SLOTS, rentalHasCarPhotos, getCarPhotosAddedBy } from '../utils/vehicleMapper';
+import {
+  CAR_PHOTO_SLOTS,
+  rentalHasCarPhotos,
+  getCarPhotosAddedBy,
+  getCarPhotoExtras,
+} from '../utils/vehicleMapper';
 import { ACCENT } from '../theme/colors';
+
+function makeExtraId() {
+  return `extra-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
 
 export default function CarPhotosScreen() {
   const { theme } = useTheme();
@@ -45,7 +56,7 @@ export default function CarPhotosScreen() {
 
   const readOnlyParam = route.params?.readOnly;
   const initiallyComplete = rentalHasCarPhotos({ carPhotos: initialPhotos });
-  const readOnly = readOnlyParam ?? initiallyComplete;
+  const requiredLocked = readOnlyParam ?? initiallyComplete;
 
   const [step, setStep] = useState(0);
   const [photos, setPhotos] = useState(() => ({
@@ -54,7 +65,9 @@ export default function CarPhotosScreen() {
     left: initialPhotos.left || '',
     right: initialPhotos.right || '',
   }));
+  const [extras, setExtras] = useState(() => getCarPhotoExtras(initialPhotos));
   const [submitting, setSubmitting] = useState(false);
+  const [viewer, setViewer] = useState({ uri: null, title: '' });
 
   const slot = CAR_PHOTO_SLOTS[step];
   const currentPhoto = photos[slot.key];
@@ -67,35 +80,55 @@ export default function CarPhotosScreen() {
   }, [currentPhoto]);
 
   const addedByLabel = resolvedAddedBy;
+  const canEditRequired = !requiredLocked;
+  const canEditExtras = true;
 
-  const pickImage = async (useCamera) => {
-    if (readOnly) return;
-
+  const pickImageAsset = async (useCamera) => {
     const permission = useCamera
       ? await ImagePicker.requestCameraPermissionsAsync()
       : await ImagePicker.requestMediaLibraryPermissionsAsync();
 
     if (!permission.granted) {
       Alert.alert('Permission needed', 'Camera or gallery access is required.');
-      return;
+      return null;
     }
 
     const result = useCamera
       ? await ImagePicker.launchCameraAsync({ quality: 0.65, base64: true })
       : await ImagePicker.launchImageLibraryAsync({ quality: 0.65, base64: true });
 
-    if (!result.canceled && result.assets?.[0]) {
-      const asset = result.assets[0];
-      const dataUrl = asset.base64
-        ? `data:image/jpeg;base64,${asset.base64}`
-        : asset.uri;
-      setPhotos((prev) => ({ ...prev, [slot.key]: dataUrl }));
-    }
+    if (result.canceled || !result.assets?.[0]) return null;
+    const asset = result.assets[0];
+    return asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : asset.uri;
   };
 
-  const handleSubmit = async () => {
-    if (readOnly) return;
+  const pickRequiredImage = async (useCamera) => {
+    if (!canEditRequired) return;
+    const dataUrl = await pickImageAsset(useCamera);
+    if (dataUrl) setPhotos((prev) => ({ ...prev, [slot.key]: dataUrl }));
+  };
 
+  const addExtraPhoto = async (useCamera) => {
+    if (!canEditExtras) return;
+    const dataUrl = await pickImageAsset(useCamera);
+    if (!dataUrl) return;
+    setExtras((prev) => [
+      ...prev,
+      { id: makeExtraId(), uri: dataUrl, label: `Extra ${prev.length + 1}` },
+    ]);
+  };
+
+  const removeExtra = (id) => {
+    setExtras((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const buildPayload = (addedBy) => ({
+    ...photos,
+    extras,
+    _addedBy: addedBy,
+  });
+
+  const handleSubmit = async () => {
     if (!rentalId) {
       Alert.alert('Missing rental', 'Could not identify this rental.');
       return;
@@ -105,16 +138,18 @@ export default function CarPhotosScreen() {
       return;
     }
 
-    const addedBy = user?.displayName || user?.username || 'Mobile user';
+    const addedBy = user?.displayName || user?.username || resolvedAddedBy || 'Mobile user';
 
     setSubmitting(true);
     try {
-      const result = await uploadCarPhotos(rentalId, { ...photos, _addedBy: addedBy }, addedBy);
+      const result = await uploadCarPhotos(rentalId, buildPayload(addedBy), addedBy);
       Alert.alert(
         result?.queued ? 'Queued offline' : 'Photos saved',
         result?.queued
           ? 'Saved locally and will sync when you are back online.'
-          : 'Pre-rental car photos are synced to desktop.',
+          : extras.length
+            ? `Saved 4 required sides plus ${extras.length} optional photo(s).`
+            : 'Pre-rental car photos are synced to desktop.',
         [{ text: 'OK', onPress: () => navigation.goBack() }],
       );
     } catch (err) {
@@ -124,34 +159,33 @@ export default function CarPhotosScreen() {
     }
   };
 
+  const openViewer = (uri, title) => {
+    if (!uri) return;
+    setViewer({ uri, title: title || 'Photo' });
+  };
+
   return (
     <ScreenLayout
       scroll
       contentContainerStyle={styles.scrollContent}
       header={
         <ScreenHeader
-          title={readOnly ? 'Car photos (locked)' : 'Car photos'}
+          title={requiredLocked ? 'Car photos' : 'Car photos'}
           subtitle={`${vehicleLabel}${!online ? ` · Offline${queueLength ? ` · ${queueLength} queued` : ''}` : ''}`}
         />
       }
     >
-      {readOnly ? (
+      {requiredLocked ? (
         <View style={[styles.lockBanner, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <Lock color={ACCENT} size={18} />
           <View style={styles.lockBannerText}>
-            <Text style={[styles.lockTitle, { color: theme.textMain }]}>Photos locked</Text>
+            <Text style={[styles.lockTitle, { color: theme.textMain }]}>Required sides locked</Text>
             <Text style={[styles.lockSub, { color: theme.textSub }]}>
-              All vehicle photos were added and cannot be edited.
+              Front, rear, left, and right cannot be changed. You can still add optional photos.
             </Text>
             {addedByLabel ? (
-              <Text style={[styles.lockSub, { color: theme.textSub }]}>
-                Added by {addedByLabel}
-              </Text>
-            ) : (
-              <Text style={[styles.lockSub, { color: theme.textSub }]}>
-                Uploader was not recorded for this rental.
-              </Text>
-            )}
+              <Text style={[styles.lockSub, { color: theme.textSub }]}>Added by {addedByLabel}</Text>
+            ) : null}
           </View>
         </View>
       ) : null}
@@ -185,12 +219,17 @@ export default function CarPhotosScreen() {
         Step {step + 1} of {CAR_PHOTO_SLOTS.length}
       </Text>
       <Text style={[styles.stepTitle, { color: theme.textMain }]}>{slot.title}</Text>
-      <Text style={[styles.stepHint, { color: theme.textSub }]}>{slot.hint}</Text>
+      <Text style={[styles.stepHint, { color: theme.textSub }]}>
+        {slot.hint}
+        {previewUri ? ' · Tap photo to view full size' : ''}
+      </Text>
 
       {previewUri ? (
         <View style={[styles.imageContainer, { borderColor: theme.border }]}>
-          <Image source={{ uri: previewUri }} style={styles.capturedImage} />
-          {!readOnly ? (
+          <TouchableOpacity activeOpacity={0.9} onPress={() => openViewer(previewUri, slot.title)}>
+            <Image source={{ uri: previewUri }} style={styles.capturedImage} />
+          </TouchableOpacity>
+          {canEditRequired ? (
             <TouchableOpacity
               style={styles.removeImageBtn}
               onPress={() => setPhotos((prev) => ({ ...prev, [slot.key]: '' }))}
@@ -199,17 +238,17 @@ export default function CarPhotosScreen() {
             </TouchableOpacity>
           ) : null}
         </View>
-      ) : readOnly ? (
+      ) : requiredLocked ? (
         <View style={[styles.captureBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <Text style={[styles.captureText, { color: theme.textSub }]}>No photo for this side</Text>
         </View>
       ) : (
         <View style={[styles.captureBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <TouchableOpacity style={styles.captureBtn} onPress={() => pickImage(true)}>
+          <TouchableOpacity style={styles.captureBtn} onPress={() => pickRequiredImage(true)}>
             <Camera color={theme.textSub} size={48} />
             <Text style={[styles.captureText, { color: theme.textSub }]}>Open camera</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.uploadBtn} onPress={() => pickImage(false)}>
+          <TouchableOpacity style={styles.uploadBtn} onPress={() => pickRequiredImage(false)}>
             <ImagePlus color={theme.textSub} size={20} />
             <Text style={[styles.uploadText, { color: theme.textSub }]}>Upload from gallery</Text>
           </TouchableOpacity>
@@ -218,7 +257,7 @@ export default function CarPhotosScreen() {
 
       <View style={styles.progressRow}>
         <Text style={[styles.progressText, { color: theme.textSub }]}>
-          {completedCount} of {CAR_PHOTO_SLOTS.length} captured
+          {completedCount} of {CAR_PHOTO_SLOTS.length} required · {extras.length} optional
         </Text>
       </View>
 
@@ -232,20 +271,15 @@ export default function CarPhotosScreen() {
           <Text style={[styles.navBtnText, { color: step === 0 ? theme.textSub : theme.textMain }]}>Back</Text>
         </TouchableOpacity>
 
-        {readOnly ? (
+        {step < CAR_PHOTO_SLOTS.length - 1 ? (
           <TouchableOpacity
-            style={[styles.navBtn, styles.navBtnPrimary, step === CAR_PHOTO_SLOTS.length - 1 && styles.navBtnDisabled]}
+            style={[
+              styles.navBtn,
+              styles.navBtnPrimary,
+              !requiredLocked && !currentPhoto && styles.navBtnDisabled,
+            ]}
             onPress={() => setStep((s) => Math.min(CAR_PHOTO_SLOTS.length - 1, s + 1))}
-            disabled={step === CAR_PHOTO_SLOTS.length - 1}
-          >
-            <Text style={styles.navBtnPrimaryText}>Next</Text>
-            <ChevronRight color="#fff" size={20} />
-          </TouchableOpacity>
-        ) : step < CAR_PHOTO_SLOTS.length - 1 ? (
-          <TouchableOpacity
-            style={[styles.navBtn, styles.navBtnPrimary, !currentPhoto && styles.navBtnDisabled]}
-            onPress={() => setStep((s) => Math.min(CAR_PHOTO_SLOTS.length - 1, s + 1))}
-            disabled={!currentPhoto}
+            disabled={!requiredLocked && !currentPhoto}
           >
             <Text style={styles.navBtnPrimaryText}>Next</Text>
             <ChevronRight color="#fff" size={20} />
@@ -259,11 +293,65 @@ export default function CarPhotosScreen() {
             {submitting ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.navBtnPrimaryText}>Save & sync</Text>
+              <Text style={styles.navBtnPrimaryText}>
+                {requiredLocked ? 'Save extras' : 'Save & sync'}
+              </Text>
             )}
           </TouchableOpacity>
         )}
       </View>
+
+      {allComplete ? (
+        <View style={[styles.extrasSection, { borderColor: theme.border, backgroundColor: theme.card }]}>
+          <Text style={[styles.extrasTitle, { color: theme.textMain }]}>Optional photos</Text>
+          <Text style={[styles.extrasHint, { color: theme.textSub }]}>
+            Add more photos after the 4 required sides (damage close-ups, odometer, etc.). Tap a photo to view full size.
+          </Text>
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.extrasRow}>
+            {extras.map((item, index) => (
+              <View key={item.id} style={styles.extraItem}>
+                <TouchableOpacity
+                  activeOpacity={0.9}
+                  onPress={() => openViewer(item.uri, item.label || `Extra ${index + 1}`)}
+                >
+                  <Image source={{ uri: item.uri }} style={styles.extraThumb} />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.extraRemove} onPress={() => removeExtra(item.id)}>
+                  <X color="#fff" size={14} />
+                </TouchableOpacity>
+                <Text style={[styles.extraLabel, { color: theme.textSub }]} numberOfLines={1}>
+                  {item.label || `Extra ${index + 1}`}
+                </Text>
+              </View>
+            ))}
+
+            <View style={styles.extraAddColumn}>
+              <TouchableOpacity
+                style={[styles.extraAddBtn, { borderColor: theme.border }]}
+                onPress={() => addExtraPhoto(true)}
+              >
+                <Camera color={ACCENT} size={22} />
+                <Text style={[styles.extraAddText, { color: theme.textSub }]}>Camera</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.extraAddBtn, { borderColor: theme.border }]}
+                onPress={() => addExtraPhoto(false)}
+              >
+                <Plus color={ACCENT} size={22} />
+                <Text style={[styles.extraAddText, { color: theme.textSub }]}>Gallery</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </View>
+      ) : null}
+
+      <FullImageViewer
+        visible={Boolean(viewer.uri)}
+        uri={viewer.uri}
+        title={viewer.title}
+        onClose={() => setViewer({ uri: null, title: '' })}
+      />
     </ScreenLayout>
   );
 }
@@ -358,4 +446,42 @@ const styles = StyleSheet.create({
   navBtnDisabled: { opacity: 0.45 },
   navBtnText: { fontSize: 15, fontWeight: '700' },
   navBtnPrimaryText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  extrasSection: {
+    marginTop: 24,
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
+  },
+  extrasTitle: { fontSize: 16, fontWeight: '800', marginBottom: 4 },
+  extrasHint: { fontSize: 13, lineHeight: 18, marginBottom: 12 },
+  extrasRow: { gap: 12, paddingRight: 8, alignItems: 'flex-start' },
+  extraItem: { width: 100 },
+  extraThumb: {
+    width: 100,
+    height: 100,
+    borderRadius: 10,
+    backgroundColor: '#e2e8f0',
+  },
+  extraRemove: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    borderRadius: 12,
+    padding: 4,
+  },
+  extraLabel: { fontSize: 11, fontWeight: '600', marginTop: 6 },
+  extraAddColumn: { gap: 8 },
+  extraAddBtn: {
+    width: 100,
+    height: 46,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  extraAddText: { fontSize: 12, fontWeight: '700' },
 });

@@ -101,11 +101,16 @@ function CarPhotoSlot({
 
 export default function StepCarCondition({ photos, onChange, errors = {} }) {
   const inputRefs = useRef({})
+  const extraInputRef = useRef(null)
   const videoRefs = useRef({})
   const streamRef = useRef(null)
   const [busyKey, setBusyKey] = useState('')
   const [localError, setLocalError] = useState({})
   const [cameraKey, setCameraKey] = useState('')
+  const [extraBusy, setExtraBusy] = useState(false)
+  const [extraError, setExtraError] = useState('')
+
+  const extras = Array.isArray(photos?.extras) ? photos.extras : []
 
   const stopCamera = () => {
     if (streamRef.current) {
@@ -219,11 +224,50 @@ export default function StepCarCondition({ photos, onChange, errors = {} }) {
     }
   }
 
+  const addExtraFile = async (file, inputEl) => {
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setExtraError('Please choose an image file')
+      return
+    }
+    setExtraBusy(true)
+    setExtraError('')
+    try {
+      const compressed = await readAndCompress(file)
+      if (!compressed) {
+        setExtraError('Could not process that image. Try another file.')
+        return
+      }
+      const next = [
+        ...extras,
+        {
+          id: `extra-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          uri: compressed,
+          label: `Extra ${extras.length + 1}`,
+        },
+      ]
+      onChange('extras', next)
+    } catch {
+      setExtraError('Upload failed. Please try again.')
+    } finally {
+      setExtraBusy(false)
+      if (inputEl) inputEl.value = ''
+    }
+  }
+
+  const removeExtra = (id) => {
+    onChange(
+      'extras',
+      extras.filter((item) => item.id !== id),
+    )
+  }
+
   return (
     <section className="step-panel">
       <h2 className="step-title">Pre-rental Car Photos</h2>
       <p className="step-subtitle">
-        Optional — add vehicle photos here now, or leave blank and capture them later on mobile.
+        Optional — add the 4 vehicle sides here now, or leave blank and capture them later on mobile.
+        After any sides are added, you can also attach extra optional photos.
       </p>
 
       <div className="photo-upload-grid photo-upload-grid-4">
@@ -255,6 +299,49 @@ export default function StepCarCondition({ photos, onChange, errors = {} }) {
           />
         ))}
       </div>
+
+      <div className="car-photo-extras">
+        <div className="car-photo-extras-head">
+          <h3>Optional extra photos</h3>
+          <p>Add damage close-ups, odometer, accessories, or any other photos beyond the 4 sides.</p>
+        </div>
+
+        <div className="car-photo-extras-grid">
+          {extras.map((item, index) => (
+            <figure key={item.id || `extra-${index}`} className="car-photo-extra-card">
+              <img src={item.uri} alt={item.label || `Extra ${index + 1}`} />
+              <figcaption>{item.label || `Extra ${index + 1}`}</figcaption>
+              <button
+                type="button"
+                className="btn-ghost btn-sm car-photo-extra-remove"
+                onClick={() => removeExtra(item.id)}
+              >
+                Remove
+              </button>
+            </figure>
+          ))}
+
+          <div className="car-photo-extra-add">
+            <input
+              ref={extraInputRef}
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              onChange={(e) => addExtraFile(e.target.files?.[0], e.target)}
+            />
+            <button
+              type="button"
+              className="btn-outline"
+              disabled={extraBusy}
+              onClick={() => extraInputRef.current?.click()}
+            >
+              {extraBusy ? 'Adding…' : 'Add optional photo'}
+            </button>
+          </div>
+        </div>
+        {extraError ? <span className="error-msg">{extraError}</span> : null}
+      </div>
+
       {errors.carPhotos && <span className="error-msg">{errors.carPhotos}</span>}
     </section>
   )

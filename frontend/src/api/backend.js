@@ -180,3 +180,9 @@ export function setChatThreadArchivedRemote(threadId, archived) {
     body: JSON.stringify({ archived: Boolean(archived) }),
   })
 }
+
+export function deleteChatThreadRemote(threadId) {
+  return request(`/api/chat/threads/${encodeURIComponent(threadId)}`, {
+    method: 'DELETE',
+  })
+}

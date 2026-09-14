@@ -283,6 +283,20 @@ export default function RentCarForm({ onDirtyChange }) {
         const compressed = await compressImageDataUrl(raw)
         if (compressed) compressedCarPhotos[slot.key] = compressed
       }
+      if (Array.isArray(carPhotos.extras) && carPhotos.extras.length) {
+        const extras = []
+        for (const [index, item] of carPhotos.extras.entries()) {
+          if (!item?.uri) continue
+          const compressed = await compressImageDataUrl(item.uri)
+          if (!compressed) continue
+          extras.push({
+            id: item.id || `extra-${index}`,
+            uri: compressed,
+            label: item.label || `Extra ${index + 1}`,
+          })
+        }
+        if (extras.length) compressedCarPhotos.extras = extras
+      }
 
       const vehicleImage =
         selectedVehicle.image && /^https?:\/\//i.test(selectedVehicle.image)

@@ -4,6 +4,7 @@ import {
   listChatThreads,
   postChatMessage,
   setChatThreadArchived,
+  deleteChatConversation,
 } from '../api/chat'
 
 function formatTime(value) {
@@ -28,6 +29,7 @@ export default function ChatPanel({ adminName = 'Alatas Admin' }) {
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [sending, setSending] = useState(false)
   const [archiving, setArchiving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState('')
   const [startThreadId, setStartThreadId] = useState('')
   const bottomRef = useRef(null)
@@ -144,6 +146,28 @@ export default function ChatPanel({ adminName = 'Alatas Admin' }) {
     }
   }
 
+  const handleDelete = async () => {
+    if (!activeThreadId || deleting) return
+    const label = activeThread?.employeeName || activeThreadId
+    const ok = window.confirm(
+      `Delete the conversation with ${label}? All messages will be permanently removed.`,
+    )
+    if (!ok) return
+
+    setDeleting(true)
+    setError('')
+    try {
+      await deleteChatConversation(activeThreadId)
+      setActiveThreadId(null)
+      setMessages([])
+      await loadThreads()
+    } catch (err) {
+      setError(err?.message || 'Could not delete conversation.')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <section className="chat-panel">
       <header className="chat-panel-head">
@@ -246,20 +270,30 @@ export default function ChatPanel({ adminName = 'Alatas Admin' }) {
               ) : null}
             </div>
             {activeThreadId ? (
-              <button
-                type="button"
-                className="btn-outline btn-sm"
-                onClick={handleArchiveToggle}
-                disabled={archiving}
-              >
-                {archiving
-                  ? isArchivedView
-                    ? 'Restoring…'
-                    : 'Archiving…'
-                  : isArchivedView
-                    ? 'Restore'
-                    : 'Archive'}
-              </button>
+              <div className="chat-conversation-actions">
+                <button
+                  type="button"
+                  className="btn-outline btn-sm"
+                  onClick={handleArchiveToggle}
+                  disabled={archiving || deleting}
+                >
+                  {archiving
+                    ? isArchivedView
+                      ? 'Restoring…'
+                      : 'Archiving…'
+                    : isArchivedView
+                      ? 'Restore'
+                      : 'Archive'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-danger-outline btn-sm"
+                  onClick={handleDelete}
+                  disabled={archiving || deleting}
+                >
+                  {deleting ? 'Deleting…' : 'Delete'}
+                </button>
+              </div>
             ) : null}
           </header>
 

@@ -141,3 +141,10 @@ export async function setCloudChatThreadArchived(threadId, archived) {
     body: JSON.stringify({ archived: Boolean(archived) }),
   })
 }
+
+export async function deleteCloudChatThread(threadId) {
+  if (!isCloudConfigured()) throw new Error('Cloud URL is not configured')
+  return cloudRequest(`/api/chat/threads/${encodeURIComponent(threadId)}`, {
+    method: 'DELETE',
+  })
+}

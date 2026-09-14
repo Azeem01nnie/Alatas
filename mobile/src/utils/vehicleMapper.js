@@ -169,6 +169,29 @@ export function getCarPhotosAddedBy(rental) {
   return null;
 }
 
+/** Optional extra photos beyond the 4 required sides. */
+export function getCarPhotoExtras(carPhotosOrRental) {
+  const cp =
+    carPhotosOrRental?.carPhotos && typeof carPhotosOrRental.carPhotos === 'object'
+      ? carPhotosOrRental.carPhotos
+      : carPhotosOrRental && typeof carPhotosOrRental === 'object'
+        ? carPhotosOrRental
+        : {};
+  if (!Array.isArray(cp.extras)) return [];
+  return cp.extras
+    .map((item, index) => {
+      if (!item || typeof item !== 'object') return null;
+      const uri = typeof item.uri === 'string' ? item.uri.trim() : '';
+      if (!uri) return null;
+      return {
+        id: String(item.id || `extra-${index}`),
+        uri,
+        label: item.label ? String(item.label).trim() : `Extra ${index + 1}`,
+      };
+    })
+    .filter(Boolean);
+}
+
 /** Photos can be taken before desk approves the rental (pending) or once scheduled. */
 export function canAddVehiclePhotos(rental) {
   if (!rental) return false;

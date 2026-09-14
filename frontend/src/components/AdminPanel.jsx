@@ -1036,7 +1036,12 @@ export default function AdminPanel() {
   )
 
   const pendingApprovalCount = useMemo(
-    () => rentals.filter((r) => r.approvalStatus === 'pending').length,
+    () =>
+      rentals.filter(
+        (r) =>
+          r.approvalStatus === 'pending' ||
+          r.rentalLifecycle === 'pending_approval',
+      ).length,
     [rentals],
   )
 
@@ -1202,9 +1207,18 @@ export default function AdminPanel() {
     const file = e.target.files?.[0]
     if (!file) return
     const reader = new FileReader()
-    reader.onload = () => {
-      if (forEdit) updateEdit('image', reader.result)
-      else update('image', reader.result)
+    reader.onload = async () => {
+      try {
+        const raw = String(reader.result || '')
+        const compressed = (await compressImageDataUrl(raw, 1280, 0.82)) || raw
+        if (forEdit) updateEdit('image', compressed)
+        else update('image', compressed)
+      } catch (err) {
+        console.warn('Vehicle image compress failed', err)
+        const raw = String(reader.result || '')
+        if (forEdit) updateEdit('image', raw)
+        else update('image', raw)
+      }
     }
     reader.readAsDataURL(file)
   }

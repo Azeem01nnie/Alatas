@@ -18,18 +18,25 @@ import {
   ChevronRight,
   Check,
   Car,
+  Plus,
 } from 'lucide-react-native';
 import ScreenLayout, { ScreenHeader } from '../components/ScreenLayout';
+import FullImageViewer from '../components/FullImageViewer';
 import { useTheme } from '../context/ThemeContext';
 import { useFleet } from '../context/FleetContext';
 import { useAuth } from '../context/AuthContext';
 import {
   CAR_PHOTO_SLOTS,
   buildUpcomingNotices,
+  getCarPhotoExtras,
 } from '../utils/vehicleMapper';
 import { ACCENT } from '../theme/colors';
 
 const EMPTY_PHOTOS = { front: '', rear: '', left: '', right: '' };
+
+function makeExtraId() {
+  return `extra-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
 
 export default function EmployeeCameraScreen() {
   const { theme } = useTheme();
@@ -59,7 +66,9 @@ export default function EmployeeCameraScreen() {
   const [selected, setSelected] = useState(null);
   const [step, setStep] = useState(0);
   const [photos, setPhotos] = useState(EMPTY_PHOTOS);
+  const [extras, setExtras] = useState([]);
   const [submitting, setSubmitting] = useState(false);
+  const [viewer, setViewer] = useState({ uri: null, title: '' });
 
   // Deep-link from dashboard upcoming card
   useEffect(() => {
@@ -78,13 +87,15 @@ export default function EmployeeCameraScreen() {
         left: existing.left || '',
         right: existing.right || '',
       });
+      setExtras(getCarPhotoExtras(existing));
     } else {
-      Alert.alert(
-        'Photos already added',
-        match.carPhotosAddedBy
-          ? `Vehicle photos were added by ${match.carPhotosAddedBy}.`
-          : 'This upcoming rental already has vehicle photos.',
-      );
+      navigation.navigate('CarPhotos', {
+        rentalId: match.rental?.id,
+        vehicleLabel: match.vehicle,
+        existingPhotos: match.rental?.carPhotos || {},
+        addedByName: match.carPhotosAddedBy || null,
+        readOnly: true,
+      });
     }
     navigation.setParams({ rentalId: undefined });
   }, [route.params?.rentalId, upcoming, navigation]);
@@ -99,12 +110,24 @@ export default function EmployeeCameraScreen() {
       left: existing.left || '',
       right: existing.right || '',
     });
+    setExtras(getCarPhotoExtras(existing));
+  };
+
+  const openCompletedPhotos = (item) => {
+    navigation.navigate('CarPhotos', {
+      rentalId: item.rental?.id,
+      vehicleLabel: item.vehicle,
+      existingPhotos: item.rental?.carPhotos || {},
+      addedByName: item.carPhotosAddedBy || null,
+      readOnly: true,
+    });
   };
 
   const resetFlow = () => {
     setSelected(null);
     setStep(0);
     setPhotos(EMPTY_PHOTOS);
+    setExtras([]);
     if (route.params?.rentalId) {
       navigation.setParams({ rentalId: undefined });
     }
@@ -138,6 +161,32 @@ export default function EmployeeCameraScreen() {
     }
   };
 
+  const addExtraPhoto = async (useCamera) => {
+    const permission = useCamera
+      ? await ImagePicker.requestCameraPermissionsAsync()
+      : await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!permission.granted) {
+      Alert.alert('Permission needed', 'Camera or gallery access is required.');
+      return;
+    }
+
+    const result = useCamera
+      ? await ImagePicker.launchCameraAsync({ quality: 0.65, base64: true })
+      : await ImagePicker.launchImageLibraryAsync({ quality: 0.65, base64: true });
+
+    if (!result.canceled && result.assets?.[0]) {
+      const asset = result.assets[0];
+      const dataUrl = asset.base64
+        ? `data:image/jpeg;base64,${asset.base64}`
+        : asset.uri;
+      setExtras((prev) => [
+        ...prev,
+        { id: makeExtraId(), uri: dataUrl, label: `Extra ${prev.length + 1}` },
+      ]);
+    }
+  };
+
   const handleSubmit = async () => {
     const rentalId = selected?.rental?.id;
     if (!rentalId) {
@@ -153,7 +202,7 @@ export default function EmployeeCameraScreen() {
     try {
       const result = await uploadCarPhotos(
         rentalId,
-        { ...photos, _addedBy: accountName },
+        { ...photos, extras, _addedBy: accountName },
         accountName,
       );
       Alert.alert(
@@ -162,7 +211,7 @@ export default function EmployeeCameraScreen() {
           ? `Saved as ${accountName}. Will sync when you are back online.`
           : selected?.waitingApproval
             ? `Photos saved under ${accountName}. The rental is still waiting for desk approval.`
-            : `Photos saved under ${accountName}. Desk can see who took them when reviewing.`,
+            : `Photos saved under ${accountName}${extras.length ? ` · ${extras.length} optional` : ''}.`,
         [{ text: 'OK', onPress: resetFlow }],
       );
     } catch (err) {
@@ -192,7 +241,7 @@ export default function EmployeeCameraScreen() {
           Upcoming — needs photos
         </Text>
         <Text style={[styles.sectionHint, { color: theme.textSub }]}>
-          Pick a rental, then capture Front, Rear, Left, and Right. Your account name is saved as proof.
+          Pick a rental, then capture Front, Rear, Left, and Right. After those 4, you can add optional photos. Tap a photo later to view full size.
         </Text>
 
         {loading && needingPhotos.length === 0 ? (
@@ -231,17 +280,20 @@ export default function EmployeeCameraScreen() {
           <View style={styles.doneSection}>
             <Text style={[styles.sectionTitle, { color: theme.textMain }]}>Photos already added</Text>
             {completedPhotos.map((item) => (
-              <View
+              <TouchableOpacity
                 key={`done-${item.id}`}
                 style={[styles.doneCard, { backgroundColor: theme.card, borderColor: theme.border }]}
+                onPress={() => openCompletedPhotos(item)}
+                activeOpacity={0.85}
               >
                 <Text style={[styles.pickTitle, { color: theme.textMain }]}>{item.vehicle}</Text>
                 <Text style={[styles.pickSub, { color: theme.textSub }]}>
                   {item.carPhotosAddedBy
                     ? `Taken by ${item.carPhotosAddedBy}`
                     : 'Vehicle photos complete'}
+                  {' · Tap to view / add optional'}
                 </Text>
-              </View>
+              </TouchableOpacity>
             ))}
           </View>
         ) : null}
@@ -302,11 +354,16 @@ export default function EmployeeCameraScreen() {
         Step {step + 1} of {CAR_PHOTO_SLOTS.length}
       </Text>
       <Text style={[styles.stepTitle, { color: theme.textMain }]}>{slot.title}</Text>
-      <Text style={[styles.stepHint, { color: theme.textSub }]}>{slot.hint}</Text>
+      <Text style={[styles.stepHint, { color: theme.textSub }]}>
+        {slot.hint}
+        {previewUri ? ' · Tap photo to view full size' : ''}
+      </Text>
 
       {previewUri ? (
         <View style={[styles.imageContainer, { borderColor: theme.border }]}>
-          <Image source={{ uri: previewUri }} style={styles.capturedImage} />
+          <TouchableOpacity activeOpacity={0.9} onPress={() => setViewer({ uri: previewUri, title: slot.title })}>
+            <Image source={{ uri: previewUri }} style={styles.capturedImage} />
+          </TouchableOpacity>
           <TouchableOpacity
             style={styles.removeImageBtn}
             onPress={() => setPhotos((prev) => ({ ...prev, [slot.key]: '' }))}
@@ -328,7 +385,7 @@ export default function EmployeeCameraScreen() {
       )}
 
       <Text style={[styles.progressText, { color: theme.textSub }]}>
-        {completedCount} of {CAR_PHOTO_SLOTS.length} captured
+        {completedCount} of {CAR_PHOTO_SLOTS.length} required · {extras.length} optional
       </Text>
 
       <View style={styles.navRow}>
@@ -370,6 +427,52 @@ export default function EmployeeCameraScreen() {
           </TouchableOpacity>
         )}
       </View>
+
+      {allComplete ? (
+        <View style={[styles.extrasSection, { borderColor: theme.border, backgroundColor: theme.card }]}>
+          <Text style={[styles.extrasTitle, { color: theme.textMain }]}>Optional photos</Text>
+          <Text style={[styles.extrasHint, { color: theme.textSub }]}>
+            Add more after the 4 required sides. Tap a photo to view full size.
+          </Text>
+          <View style={styles.extrasRow}>
+            {extras.map((item, index) => (
+              <View key={item.id} style={styles.extraItem}>
+                <TouchableOpacity
+                  activeOpacity={0.9}
+                  onPress={() => setViewer({ uri: item.uri, title: item.label || `Extra ${index + 1}` })}
+                >
+                  <Image source={{ uri: item.uri }} style={styles.extraThumb} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.extraRemove}
+                  onPress={() => setExtras((prev) => prev.filter((e) => e.id !== item.id))}
+                >
+                  <X color="#fff" size={14} />
+                </TouchableOpacity>
+              </View>
+            ))}
+            <TouchableOpacity
+              style={[styles.extraAddBtn, { borderColor: theme.border }]}
+              onPress={() => addExtraPhoto(true)}
+            >
+              <Camera color={ACCENT} size={20} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.extraAddBtn, { borderColor: theme.border }]}
+              onPress={() => addExtraPhoto(false)}
+            >
+              <Plus color={ACCENT} size={20} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
+
+      <FullImageViewer
+        visible={Boolean(viewer.uri)}
+        uri={viewer.uri}
+        title={viewer.title}
+        onClose={() => setViewer({ uri: null, title: '' })}
+      />
     </ScreenLayout>
   );
 }
@@ -496,4 +599,32 @@ const styles = StyleSheet.create({
   navBtnDisabled: { opacity: 0.45 },
   navBtnText: { fontSize: 15, fontWeight: '700' },
   navBtnPrimaryText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  extrasSection: {
+    marginTop: 20,
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
+  },
+  extrasTitle: { fontSize: 16, fontWeight: '800', marginBottom: 4 },
+  extrasHint: { fontSize: 13, lineHeight: 18, marginBottom: 12 },
+  extrasRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  extraItem: { width: 88, position: 'relative' },
+  extraThumb: { width: 88, height: 88, borderRadius: 10, backgroundColor: '#e2e8f0' },
+  extraRemove: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    borderRadius: 10,
+    padding: 3,
+  },
+  extraAddBtn: {
+    width: 88,
+    height: 88,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

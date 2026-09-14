@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -7,38 +7,61 @@ import {
   StyleSheet,
   ActivityIndicator,
   Image,
-  Dimensions,
   Platform,
   KeyboardAvoidingView,
   ScrollView,
+  Keyboard,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Eye, EyeOff } from 'lucide-react-native';
 import { useAuth } from '../src/context/AuthContext';
 import { authenticateEmployee } from '../src/api/employees';
 
-const { width } = Dimensions.get('window');
-
 const ADMIN_USER = 'alatas';
 const ADMIN_PASS = 'Alatas@2026';
 
 export default function AdminLogin() {
   const { login } = useAuth();
+  const scrollRef = useRef(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [keyboardPad, setKeyboardPad] = useState(0);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const onShow = (e) => {
+      const height = e?.endCoordinates?.height || 0;
+      setKeyboardPad(Math.max(0, height - 24));
+    };
+    const onHide = () => setKeyboardPad(0);
+    const showSub = Keyboard.addListener(showEvent, onShow);
+    const hideSub = Keyboard.addListener(hideEvent, onHide);
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  const scrollFieldIntoView = () => {
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollToEnd?.({ animated: true });
+    });
+  };
 
   const handleSubmit = async () => {
     if (loading) return;
     setError('');
     setLoading(true);
+    Keyboard.dismiss();
 
     const trimmed = username.trim();
 
     try {
-      // Shared employee directory (desktop + mobile)
       try {
         const employee = await authenticateEmployee(trimmed, password);
         if (employee?.id) {
@@ -51,7 +74,6 @@ export default function AdminLogin() {
           return;
         }
       } catch (authErr) {
-        // 401 / network — fall through to admin or demo credentials
         if (authErr?.status && authErr.status !== 401) {
           console.warn('Employee auth unavailable:', authErr?.message || authErr);
         }
@@ -63,7 +85,6 @@ export default function AdminLogin() {
         return;
       }
 
-      // Legacy demo employee login (offline fallback)
       if (trimmed === 'employee' && password === 'employee') {
         await login('employee', trimmed, { displayName: 'Employee' });
         setLoading(false);
@@ -83,86 +104,108 @@ export default function AdminLogin() {
     <SafeAreaView style={styles.safeRoot} edges={['top', 'left', 'right', 'bottom']}>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
       >
-        <ScrollView
-          contentContainerStyle={styles.container}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-      <View style={styles.card}>
-        <View style={styles.brand}>
-          <View style={styles.seatbeltRail}>
-            <View style={styles.seatbeltTexture} />
-          </View>
-          <View style={styles.logoPlate}>
-            <Image source={require('../assets/logonobg.png')} style={styles.logoImage} resizeMode="contain" />
-          </View>
-        </View>
-
-        <View style={styles.copy}>
-          <Text style={styles.title}>Welcome Back!</Text>
-          <Text style={styles.subtitle}>Sign in to manage the fleet dashboard.</Text>
-        </View>
-
-        {loading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#000" />
-            <Text style={styles.loadingText}>Signing you in…</Text>
-          </View>
-        ) : (
-          <View style={styles.form}>
-            <View style={styles.field}>
-              <Text style={styles.fieldLabel}>Username</Text>
-              <TextInput
-                style={styles.input}
-                value={username}
-                onChangeText={(text) => {
-                  setUsername(text);
-                  setError('');
-                }}
-                autoCapitalize="none"
-                autoComplete="username"
-                editable={!loading}
-              />
-            </View>
-
-            <View style={styles.field}>
-              <Text style={styles.fieldLabel}>Password</Text>
-              <View style={styles.passwordWrap}>
-                <TextInput
-                  style={[styles.input, styles.passwordInput]}
-                  value={password}
-                  onChangeText={(text) => {
-                    setPassword(text);
-                    setError('');
-                  }}
-                  secureTextEntry={!showPassword}
-                  autoComplete="password"
-                  editable={!loading}
-                />
-                <TouchableOpacity
-                  style={styles.passwordToggle}
-                  onPress={() => setShowPassword((v) => !v)}
-                >
-                  {showPassword ? <EyeOff color="#666" size={20} /> : <Eye color="#666" size={20} />}
-                </TouchableOpacity>
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+          <ScrollView
+            ref={scrollRef}
+            contentContainerStyle={[
+              styles.container,
+              { paddingBottom: 24 + keyboardPad },
+            ]}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+          >
+            <View style={styles.card}>
+              <View style={styles.brand}>
+                <View style={styles.seatbeltRail}>
+                  <View style={styles.seatbeltTexture} />
+                </View>
+                <View style={styles.logoPlate}>
+                  <Image
+                    source={require('../assets/logonobg.png')}
+                    style={styles.logoImage}
+                    resizeMode="contain"
+                  />
+                </View>
               </View>
+
+              <View style={styles.copy}>
+                <Text style={styles.title}>Welcome Back!</Text>
+                <Text style={styles.subtitle}>Sign in to manage the fleet dashboard.</Text>
+              </View>
+
+              {loading ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color="#000" />
+                  <Text style={styles.loadingText}>Signing you in…</Text>
+                </View>
+              ) : (
+                <View style={styles.form}>
+                  <View style={styles.field}>
+                    <Text style={styles.fieldLabel}>Username</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={username}
+                      onChangeText={(text) => {
+                        setUsername(text);
+                        setError('');
+                      }}
+                      onFocus={scrollFieldIntoView}
+                      autoCapitalize="none"
+                      autoComplete="username"
+                      returnKeyType="next"
+                      editable={!loading}
+                    />
+                  </View>
+
+                  <View style={styles.field}>
+                    <Text style={styles.fieldLabel}>Password</Text>
+                    <View style={styles.passwordWrap}>
+                      <TextInput
+                        style={[styles.input, styles.passwordInput]}
+                        value={password}
+                        onChangeText={(text) => {
+                          setPassword(text);
+                          setError('');
+                        }}
+                        onFocus={scrollFieldIntoView}
+                        secureTextEntry={!showPassword}
+                        autoComplete="password"
+                        returnKeyType="done"
+                        onSubmitEditing={handleSubmit}
+                        editable={!loading}
+                      />
+                      <TouchableOpacity
+                        style={styles.passwordToggle}
+                        onPress={() => setShowPassword((v) => !v)}
+                      >
+                        {showPassword ? (
+                          <EyeOff color="#666" size={20} />
+                        ) : (
+                          <Eye color="#666" size={20} />
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  {!!error && <Text style={styles.errorMsg}>{error}</Text>}
+
+                  <TouchableOpacity
+                    style={[styles.submitButton, loading && styles.submitButtonDisabled]}
+                    onPress={handleSubmit}
+                    disabled={loading}
+                  >
+                    <Text style={styles.submitButtonText}>Sign In</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
-
-            {!!error && <Text style={styles.errorMsg}>{error}</Text>}
-
-            <TouchableOpacity 
-              style={[styles.submitButton, loading && styles.submitButtonDisabled]}
-              onPress={handleSubmit}
-              disabled={loading}
-            >
-              <Text style={styles.submitButtonText}>Sign In</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
-        </ScrollView>
+          </ScrollView>
+        </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -181,7 +224,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#fafafa',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingTop: 20,
   },
   card: {
     width: '100%',
@@ -201,7 +245,7 @@ const styles = StyleSheet.create({
       },
       web: {
         boxShadow: '0 8px 24px rgba(0,0,0,0.1)',
-      }
+      },
     }),
   },
   brand: {
@@ -291,6 +335,7 @@ const styles = StyleSheet.create({
   },
   passwordInput: {
     flex: 1,
+    paddingRight: 48,
   },
   passwordToggle: {
     position: 'absolute',
@@ -298,11 +343,6 @@ const styles = StyleSheet.create({
     height: '100%',
     paddingHorizontal: 16,
     justifyContent: 'center',
-  },
-  toggleText: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
   },
   errorMsg: {
     color: '#dc2626',

@@ -1,4 +1,4 @@
-import { CAR_PHOTO_SLOTS, rentalHasCarPhotos, getCarPhotosAddedBy } from './vehicleMapper';
+import { CAR_PHOTO_SLOTS, rentalHasCarPhotos, getCarPhotosAddedBy, getCarPhotoExtras } from './vehicleMapper';
 
 export function getImageUri(value) {
   if (!value || typeof value !== 'string') return null;
@@ -47,11 +47,18 @@ export function buildRentalReviewDetails(rental) {
     holdingLicenseUri: getImageUri(rental.photo),
     customerPhotoUri: getImageUri(rental.licensePhoto),
     vehicleImageUri: getImageUri(vehicle.image),
-    carPhotos: CAR_PHOTO_SLOTS.map((slot) => ({
-      key: slot.key,
-      title: slot.title,
-      uri: getImageUri(rental.carPhotos?.[slot.key]),
-    })).filter((item) => item.uri),
+    carPhotos: [
+      ...CAR_PHOTO_SLOTS.map((slot) => ({
+        key: slot.key,
+        title: slot.title,
+        uri: getImageUri(rental.carPhotos?.[slot.key]),
+      })).filter((item) => item.uri),
+      ...getCarPhotoExtras(rental).map((item, index) => ({
+        key: item.id || `extra-${index}`,
+        title: item.label || `Extra ${index + 1}`,
+        uri: getImageUri(item.uri),
+      })).filter((item) => item.uri),
+    ],
     carPhotosComplete: rentalHasCarPhotos(rental),
     carPhotosAddedBy: getCarPhotosAddedBy(rental),
     submittedBy:

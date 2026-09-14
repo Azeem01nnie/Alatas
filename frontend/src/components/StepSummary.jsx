@@ -90,9 +90,12 @@ export default function StepSummary({
             <div className="summary-status-pill">
               <span className="summary-status-label">Car photos</span>
               <strong>
-                {CAR_PHOTO_SLOTS.filter((slot) => Boolean(carPhotos?.[slot.key])).length
-                  ? `${CAR_PHOTO_SLOTS.filter((slot) => Boolean(carPhotos?.[slot.key])).length} of 4 added`
-                  : 'Optional'}
+                {(() => {
+                  const sides = CAR_PHOTO_SLOTS.filter((slot) => Boolean(carPhotos?.[slot.key])).length
+                  const extras = Array.isArray(carPhotos?.extras) ? carPhotos.extras.length : 0
+                  if (!sides && !extras) return 'Optional'
+                  return `${sides} of 4 sides${extras ? ` · ${extras} extra` : ''}`
+                })()}
               </strong>
             </div>
           </div>
@@ -225,12 +228,14 @@ export default function StepSummary({
                 <div className="summary-media-head">
                   <h3>Pre-rental car photos</h3>
                   <p className="summary-empty">
-                    {CAR_PHOTO_SLOTS.some((slot) => Boolean(carPhotos?.[slot.key]))
+                    {CAR_PHOTO_SLOTS.some((slot) => Boolean(carPhotos?.[slot.key])) ||
+                    (Array.isArray(carPhotos?.extras) && carPhotos.extras.length)
                       ? 'Photos added on this form. Remaining sides can still be captured on mobile.'
                       : 'Optional — add them here or later on mobile before the rental starts.'}
                   </p>
                 </div>
-                {CAR_PHOTO_SLOTS.some((slot) => Boolean(carPhotos?.[slot.key])) ? (
+                {CAR_PHOTO_SLOTS.some((slot) => Boolean(carPhotos?.[slot.key])) ||
+                (Array.isArray(carPhotos?.extras) && carPhotos.extras.length) ? (
                   <div className="summary-media-grid summary-media-grid-4">
                     {CAR_PHOTO_SLOTS.map((slot) => (
                       <div key={slot.key} className="summary-media-card">
@@ -246,6 +251,20 @@ export default function StepSummary({
                         ) : (
                           <p className="summary-empty">Optional</p>
                         )}
+                      </div>
+                    ))}
+                    {(Array.isArray(carPhotos?.extras) ? carPhotos.extras : []).map((item, index) => (
+                      <div key={item.id || `extra-${index}`} className="summary-media-card">
+                        <div className="summary-media-head">
+                          <h3>{item.label || `Extra ${index + 1}`}</h3>
+                        </div>
+                        {item.uri ? (
+                          <img
+                            src={item.uri}
+                            alt={item.label || `Extra ${index + 1}`}
+                            className="summary-photo"
+                          />
+                        ) : null}
                       </div>
                     ))}
                   </div>

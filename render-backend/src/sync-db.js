@@ -109,7 +109,10 @@ function vehicleIsBlocked(vehicleId, ignoreRentalId = null) {
 }
 
 function getPendingRentals() {
-  return getRentals().filter((r) => r.approvalStatus === 'pending')
+  return getRentals().filter(
+    (r) =>
+      r.approvalStatus === 'pending' || r.rentalLifecycle === 'pending_approval',
+  )
 }
 
 function addPendingRental(rental) {
