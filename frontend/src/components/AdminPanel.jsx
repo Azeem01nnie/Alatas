@@ -1533,6 +1533,7 @@ export default function AdminPanel() {
   }
 
   const requestRentCompleted = (vehicle) => {
+    if (!isAdminUser) return
     setConfirm({
       type: 'complete-rental',
       title: 'Mark rent as completed?',
@@ -2173,13 +2174,24 @@ export default function AdminPanel() {
                                     ) : null}
                                   </span>
                                 </div>
-                                <button
-                                  type="button"
-                                  className="btn-outline btn-sm"
-                                  onClick={() => requestRentCompleted(vehicle)}
-                                >
-                                  Complete
-                                </button>
+                                {isAdminUser ? (
+                                  <button
+                                    type="button"
+                                    className="btn-outline btn-sm"
+                                    onClick={() => requestRentCompleted(vehicle)}
+                                  >
+                                    Complete
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="btn-outline btn-sm"
+                                    disabled
+                                    title="Only admin can complete rentals"
+                                  >
+                                    Complete
+                                  </button>
+                                )}
                               </article>
                               )
                             })}
@@ -2212,11 +2224,20 @@ export default function AdminPanel() {
                                     {v.plateNo} · {v.bodyType}
                                   </span>
                                 </div>
-                                {isAdminUser && (
+                                {isAdminUser ? (
                                   <button
                                     type="button"
                                     className="btn-ghost btn-sm"
                                     onClick={() => setTab('manage')}
+                                  >
+                                    Manage
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="btn-ghost btn-sm"
+                                    disabled
+                                    title="Only admin can manage fleet"
                                   >
                                     Manage
                                   </button>
