@@ -76,7 +76,13 @@ function mergePendingLists(localPending, cloudPending, localRentals) {
   return [...byId.values()]
 }
 
-export default function PendingApprovals({ vehicles, onChanged, compact = false, embedded = false }) {
+export default function PendingApprovals({
+  vehicles,
+  onChanged,
+  compact = false,
+  embedded = false,
+  canApprove = true,
+}) {
   const [pending, setPending] = useState([])
   const [busyId, setBusyId] = useState(null)
   const [rejectId, setRejectId] = useState(null)
@@ -115,6 +121,7 @@ export default function PendingApprovals({ vehicles, onChanged, compact = false,
   }
 
   const handleAccept = async (id) => {
+    if (!canApprove) return
     setBusyId(id)
     setError('')
     try {
@@ -142,6 +149,7 @@ export default function PendingApprovals({ vehicles, onChanged, compact = false,
   }
 
   const handleReject = async (id) => {
+    if (!canApprove) return
     setBusyId(id)
     setError('')
     try {
@@ -169,6 +177,75 @@ export default function PendingApprovals({ vehicles, onChanged, compact = false,
     }
   }
 
+  const renderActions = (rental, isBusy) => {
+    if (!canApprove) {
+      return (
+        <div className="pending-approvals-actions">
+          <button type="button" className="btn-primary btn-sm" disabled title="Only admin can approve">
+            Accept
+          </button>
+          <button type="button" className="btn-outline btn-sm" disabled title="Only admin can reject">
+            Reject
+          </button>
+          <span className="pending-approvals-readonly-note">View only — admin approves</span>
+        </div>
+      )
+    }
+
+    if (rejectId === rental.id) {
+      return (
+        <div className="pending-approvals-reject-form">
+          <input
+            type="text"
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            placeholder="Reason (optional)"
+          />
+          <button
+            type="button"
+            className="btn-outline btn-sm"
+            disabled={isBusy}
+            onClick={() => {
+              setRejectId(null)
+              setRejectReason('')
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn-danger btn-sm"
+            disabled={isBusy}
+            onClick={() => handleReject(rental.id)}
+          >
+            Reject
+          </button>
+        </div>
+      )
+    }
+
+    return (
+      <div className="pending-approvals-actions">
+        <button
+          type="button"
+          className="btn-primary btn-sm"
+          disabled={isBusy}
+          onClick={() => handleAccept(rental.id)}
+        >
+          {isBusy ? 'Accepting…' : 'Accept'}
+        </button>
+        <button
+          type="button"
+          className="btn-outline btn-sm"
+          disabled={isBusy}
+          onClick={() => setRejectId(rental.id)}
+        >
+          Reject
+        </button>
+      </div>
+    )
+  }
+
   if (embedded) {
     if (pending.length === 0) {
       return <p className="dash-attn-empty">No rentals waiting for approval.</p>
@@ -177,6 +254,11 @@ export default function PendingApprovals({ vehicles, onChanged, compact = false,
     return (
       <>
         {error ? <p className="pending-approvals-error">{error}</p> : null}
+        {!canApprove ? (
+          <p className="pending-approvals-readonly-banner">
+            You can view the queue. Only an admin can accept or reject.
+          </p>
+        ) : null}
         <ul className="pending-approvals-list">
           {pending.map((rental) => {
             const vehicle = vehicleFor(rental)
@@ -195,25 +277,7 @@ export default function PendingApprovals({ vehicles, onChanged, compact = false,
                     {formatDateTime(rental.rental?.periodFrom)}
                   </span>
                 </div>
-                {rejectId === rental.id ? (
-                  <div className="pending-approvals-reject-form">
-                    <input
-                      type="text"
-                      value={rejectReason}
-                      onChange={(e) => setRejectReason(e.target.value)}
-                      placeholder="Reason (optional)"
-                    />
-                    <button type="button" className="btn-outline btn-sm" disabled={isBusy} onClick={() => { setRejectId(null); setRejectReason('') }}>Cancel</button>
-                    <button type="button" className="btn-danger btn-sm" disabled={isBusy} onClick={() => handleReject(rental.id)}>Reject</button>
-                  </div>
-                ) : (
-                  <div className="pending-approvals-actions">
-                    <button type="button" className="btn-primary btn-sm" disabled={isBusy} onClick={() => handleAccept(rental.id)}>
-                      {isBusy ? 'Accepting…' : 'Accept'}
-                    </button>
-                    <button type="button" className="btn-outline btn-sm" disabled={isBusy} onClick={() => setRejectId(rental.id)}>Reject</button>
-                  </div>
-                )}
+                {renderActions(rental, isBusy)}
               </li>
             )
           })}
@@ -232,7 +296,11 @@ export default function PendingApprovals({ vehicles, onChanged, compact = false,
         <header className="dash-attn-head">
           <div className="dash-attn-head-copy">
             <h4 className="dash-attn-title">Waiting for approval</h4>
-            <p className="dash-attn-note">Accept or reject before the rental becomes active.</p>
+            <p className="dash-attn-note">
+              {canApprove
+                ? 'Accept or reject before the rental becomes active.'
+                : 'Queue is visible; only admin can accept or reject.'}
+            </p>
           </div>
           <span className="dash-attn-count" aria-label={`${pending.length} items`}>
             {pending.length}
@@ -254,25 +322,7 @@ export default function PendingApprovals({ vehicles, onChanged, compact = false,
                     {accountProof(rental) ? ` · by ${accountProof(rental)}` : ''}
                   </span>
                 </div>
-                {rejectId === rental.id ? (
-                  <div className="pending-approvals-reject-form">
-                    <input
-                      type="text"
-                      value={rejectReason}
-                      onChange={(e) => setRejectReason(e.target.value)}
-                      placeholder="Reason (optional)"
-                    />
-                    <button type="button" className="btn-outline btn-sm" disabled={isBusy} onClick={() => { setRejectId(null); setRejectReason('') }}>Cancel</button>
-                    <button type="button" className="btn-danger btn-sm" disabled={isBusy} onClick={() => handleReject(rental.id)}>Reject</button>
-                  </div>
-                ) : (
-                  <div className="pending-approvals-actions">
-                    <button type="button" className="btn-primary btn-sm" disabled={isBusy} onClick={() => handleAccept(rental.id)}>
-                      {isBusy ? 'Accepting…' : 'Accept'}
-                    </button>
-                    <button type="button" className="btn-outline btn-sm" disabled={isBusy} onClick={() => setRejectId(rental.id)}>Reject</button>
-                  </div>
-                )}
+                {renderActions(rental, isBusy)}
               </li>
             )
           })}
@@ -290,7 +340,11 @@ export default function PendingApprovals({ vehicles, onChanged, compact = false,
         <header className="pending-approvals-head">
           <div>
             <h3>Waiting for approval</h3>
-            <p>Review field, mobile, or desktop submissions before they become active rentals.</p>
+            <p>
+              {canApprove
+                ? 'Review field, mobile, or desktop submissions before they become active rentals.'
+                : 'View submissions waiting for an admin to accept or reject.'}
+            </p>
           </div>
           <span className="pending-approvals-badge">{pending.length}</span>
         </header>
@@ -320,55 +374,7 @@ export default function PendingApprovals({ vehicles, onChanged, compact = false,
                     {rental.source || 'field'}
                   </span>
                 </div>
-
-                {rejectId === rental.id ? (
-                  <div className="pending-approvals-reject-form">
-                    <input
-                      type="text"
-                      value={rejectReason}
-                      onChange={(e) => setRejectReason(e.target.value)}
-                      placeholder="Optional rejection reason"
-                    />
-                    <button
-                      type="button"
-                      className="btn-outline btn-sm"
-                      disabled={isBusy}
-                      onClick={() => {
-                        setRejectId(null)
-                        setRejectReason('')
-                      }}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-danger btn-sm"
-                      disabled={isBusy}
-                      onClick={() => handleReject(rental.id)}
-                    >
-                      Confirm reject
-                    </button>
-                  </div>
-                ) : (
-                  <div className="pending-approvals-actions">
-                    <button
-                      type="button"
-                      className="btn-primary btn-sm"
-                      disabled={isBusy}
-                      onClick={() => handleAccept(rental.id)}
-                    >
-                      Accept
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-outline btn-sm"
-                      disabled={isBusy}
-                      onClick={() => setRejectId(rental.id)}
-                    >
-                      Reject
-                    </button>
-                  </div>
-                )}
+                {renderActions(rental, isBusy)}
               </li>
             )
           })}

@@ -1,0 +1,49 @@
+# Apply Supabase schema (required once)
+
+Your desk app is wired to:
+
+- URL: `https://mgfhomzbykdcuidllysv.supabase.co`
+- Publishable key in `frontend/.env`
+
+Express + SQLite are no longer started by `npm start` / Electron.
+
+## 1. Create tables (you run this once)
+
+1. Open [SQL Editor](https://supabase.com/dashboard/project/mgfhomzbykdcuidllysv/sql/new)
+2. Paste the full contents of [`supabase/migrations/001_init.sql`](../supabase/migrations/001_init.sql)
+3. Click **Run**
+
+## 2. Create the admin account (SQL — no Auth “Add user” UI)
+
+1. Open [SQL Editor](https://supabase.com/dashboard/project/mgfhomzbykdcuidllysv/sql/new)
+2. Paste and **Run** [`supabase/migrations/002_seed_admin.sql`](migrations/002_seed_admin.sql)
+
+That inserts into `auth.users` + `public.employees` for:
+
+| Field | Value |
+|-------|--------|
+| Username | `alatas` |
+| Password | `Alatas@2026` |
+| Email (internal) | `alatas@alatas.local` |
+
+You do **not** need Authentication → Add user.
+## 3. Run the desk app
+
+```bash
+cd frontend
+npm install
+cd ..
+npm start
+```
+
+Or Electron: `npm run electron:dev`
+
+## 4. What was removed from the default path
+
+| Before | After |
+|--------|--------|
+| Local Express + SQLite | Supabase Postgres |
+| Render sync queue | Direct Supabase reads/writes |
+| Electron spawns `backend/` | Electron serves static UI only (prod) / Vite (dev) |
+
+Folders `backend/` and `render-backend/` remain in the repo for now (legacy / migration source) but are **not** used by `npm start`.

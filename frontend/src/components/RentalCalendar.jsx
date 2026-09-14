@@ -44,13 +44,28 @@ function customerName(r) {
 function lifecycleClass(lifecycle) {
   if (lifecycle === 'scheduled') return 'cal-chip-scheduled'
   if (lifecycle === 'active') return 'cal-chip-active'
+  if (lifecycle === 'cancelled' || lifecycle === 'rejected') return 'cal-chip-cancelled'
   return 'cal-chip-completed'
 }
 
 function lifecycleLabel(lifecycle) {
   if (lifecycle === 'scheduled') return 'Scheduled'
   if (lifecycle === 'active') return 'On Rent'
+  if (lifecycle === 'cancelled') return 'Cancelled'
+  if (lifecycle === 'rejected') return 'Rejected'
+  if (lifecycle === 'pending_approval') return 'Pending'
   return 'Completed'
+}
+
+function isCalendarBooking(rental) {
+  const life = rental?.rentalLifecycle || 'completed'
+  if (life === 'cancelled' || life === 'rejected' || life === 'pending_approval') {
+    return false
+  }
+  if (rental?.approvalStatus === 'rejected' || rental?.approvalStatus === 'pending') {
+    return false
+  }
+  return life === 'scheduled' || life === 'active' || life === 'completed'
 }
 
 function buildMonthCells(year, month) {
@@ -121,9 +136,14 @@ export default function RentalCalendar({ rentals, vehicles, onOpenRental }) {
 
   const visibleRentals = useMemo(() => {
     return rentals.filter((r) => {
+      if (!isCalendarBooking(r)) return false
       const life = r.rentalLifecycle || 'completed'
-      if (!showCompleted && life === 'completed') return false
-      if (vehicleFilter !== 'All' && r.vehicle?.id !== vehicleFilter) return false
+      // Active-only view: scheduled + on-rent. Never show cancelled.
+      if (!showCompleted && life !== 'scheduled' && life !== 'active') return false
+      if (vehicleFilter !== 'All') {
+        const vid = r.vehicleId || r.vehicle?.id
+        if (String(vid) !== String(vehicleFilter)) return false
+      }
       return true
     })
   }, [rentals, showCompleted, vehicleFilter])

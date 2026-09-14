@@ -1,16 +1,42 @@
 import { useState } from 'react'
 import logoLight from '../assets/logo.jpg'
+import { requireSupabase } from '../api/supabaseClient'
 
 const AUTH_KEY = 'customer-encoder-admin-auth'
-const ADMIN_USER = 'alatas'
-const ADMIN_PASS = 'Alatas@2026'
+const ROLE_KEY = 'alatas-session-role'
+const USER_KEY = 'alatas-session-user'
 
 export function isAdminLoggedIn() {
   return sessionStorage.getItem(AUTH_KEY) === '1'
 }
 
+export function getSessionRole() {
+  return sessionStorage.getItem(ROLE_KEY) === 'employee' ? 'employee' : 'admin'
+}
+
+export function getSessionUser() {
+  try {
+    return JSON.parse(sessionStorage.getItem(USER_KEY) || 'null')
+  } catch {
+    return null
+  }
+}
+
 export function clearAdminSession() {
   sessionStorage.removeItem(AUTH_KEY)
+  sessionStorage.removeItem(ROLE_KEY)
+  sessionStorage.removeItem(USER_KEY)
+  try {
+    requireSupabase().auth.signOut()
+  } catch {
+    // ignore if supabase not ready
+  }
+}
+
+function toAuthEmail(username) {
+  const u = username.trim()
+  if (u.includes('@')) return u
+  return `${u}@alatas.local`
 }
 
 function SeatbeltRail() {
@@ -60,6 +86,46 @@ function IconEye({ crossed = false }) {
   )
 }
 
+async function resolveSessionUser(sb, usernameInput) {
+  const trimmed = usernameInput.trim()
+  const {
+    data: { user },
+  } = await sb.auth.getUser()
+
+  const metaRole =
+    user?.app_metadata?.role || user?.user_metadata?.role || ''
+  const isAdmin =
+    metaRole === 'admin' ||
+    trimmed.toLowerCase() === 'alatas' ||
+    (user?.email || '').toLowerCase() === 'alatas@alatas.local'
+
+  let displayName =
+    user?.user_metadata?.displayName ||
+    (isAdmin ? 'Alatas Admin' : trimmed)
+  let username = trimmed.includes('@') ? trimmed.split('@')[0] : trimmed
+
+  if (!isAdmin) {
+    const { data: emp } = await sb
+      .from('employees')
+      .select('name, username, role, active')
+      .ilike('username', username)
+      .maybeSingle()
+    if (emp) {
+      if (emp.active === false) {
+        throw new Error('This employee account is inactive.')
+      }
+      displayName = emp.name || emp.username || displayName
+      username = emp.username || username
+    }
+  }
+
+  return {
+    role: isAdmin ? 'admin' : 'employee',
+    displayName,
+    username,
+  }
+}
+
 export default function AdminLogin({ onSuccess }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -67,22 +133,38 @@ export default function AdminLogin({ onSuccess }) {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     if (loading) return
     setError('')
     setLoading(true)
-
-    // Short loading animation for sign-in feedback
-    window.setTimeout(() => {
-      if (username.trim() === ADMIN_USER && password === ADMIN_PASS) {
-        sessionStorage.setItem(AUTH_KEY, '1')
-        onSuccess()
+    try {
+      const sb = requireSupabase()
+      const email = toAuthEmail(username)
+      const { error: authError } = await sb.auth.signInWithPassword({
+        email,
+        password,
+      })
+      if (authError) {
+        setError(authError.message || 'Invalid username or password.')
+        setLoading(false)
         return
       }
+
+      const sessionUser = await resolveSessionUser(sb, username)
+      sessionStorage.setItem(AUTH_KEY, '1')
+      sessionStorage.setItem(ROLE_KEY, sessionUser.role)
+      sessionStorage.setItem(USER_KEY, JSON.stringify(sessionUser))
+      onSuccess(sessionUser)
+    } catch (err) {
+      try {
+        requireSupabase().auth.signOut()
+      } catch {
+        // ignore
+      }
+      setError(err?.message || 'Could not sign in. Check Supabase connection.')
       setLoading(false)
-      setError('Invalid username or password.')
-    }, 900)
+    }
   }
 
   return (
@@ -99,8 +181,8 @@ export default function AdminLogin({ onSuccess }) {
       </div>
 
       <div className="login-copy">
-        <h1>Admin Login</h1>
-        <p>Sign in to manage the fleet dashboard.</p>
+        <h1>Sign in</h1>
+        <p>Admin and employee access to the fleet desk.</p>
       </div>
 
       {loading ? (
@@ -151,7 +233,7 @@ export default function AdminLogin({ onSuccess }) {
           {error && <span className="error-msg">{error}</span>}
 
           <button type="submit" className="btn-primary login-submit" disabled={loading}>
-            Sign In
+            {loading ? 'Signing in…' : 'Sign In'}
           </button>
         </form>
       )}

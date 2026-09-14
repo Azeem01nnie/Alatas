@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import SignatureCanvas from 'react-signature-canvas'
 import { CONTRACT_TERMS, LIABILITY_CLAUSE } from '../data/contract'
+
+const PAD_HEIGHT = 180
 
 export default function StepTerms({
   accepted,
@@ -13,6 +15,7 @@ export default function StepTerms({
   const [expanded, setExpanded] = useState(false)
   const [scrolledToEnd, setScrolledToEnd] = useState(false)
   const boxRef = useRef(null)
+  const frameRef = useRef(null)
   const sigRef = useRef(null)
   const [isEmpty, setIsEmpty] = useState(!signature)
 
@@ -38,12 +41,71 @@ export default function StepTerms({
     }
   }, [expanded])
 
+  /** Keep canvas bitmap size in sync with CSS box so strokes follow the cursor. */
+  const syncCanvasSize = useCallback(() => {
+    const pad = sigRef.current
+    const frame = frameRef.current
+    if (!pad || !frame) return
+
+    const canvas = pad.getCanvas()
+    const width = Math.max(1, Math.floor(frame.clientWidth))
+    const height = Math.max(1, Math.floor(frame.clientHeight || PAD_HEIGHT))
+    const ratio = Math.max(window.devicePixelRatio || 1, 1)
+
+    const nextW = Math.floor(width * ratio)
+    const nextH = Math.floor(height * ratio)
+    if (canvas.width === nextW && canvas.height === nextH) return
+
+    const snapshot = pad.isEmpty() ? null : pad.toDataURL('image/png')
+
+    canvas.width = nextW
+    canvas.height = nextH
+    canvas.style.width = `${width}px`
+    canvas.style.height = `${height}px`
+
+    const ctx = canvas.getContext('2d')
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.scale(ratio, ratio)
+
+    if (snapshot) {
+      try {
+        pad.fromDataURL(snapshot, { width, height })
+        setIsEmpty(false)
+      } catch {
+        /* ignore restore errors */
+      }
+    } else {
+      pad.clear()
+    }
+  }, [])
+
+  useEffect(() => {
+    const frame = frameRef.current
+    if (!frame) return undefined
+
+    const run = () => {
+      requestAnimationFrame(syncCanvasSize)
+    }
+    run()
+
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(run) : null
+    ro?.observe(frame)
+    window.addEventListener('resize', run)
+    return () => {
+      ro?.disconnect()
+      window.removeEventListener('resize', run)
+    }
+  }, [syncCanvasSize])
+
   useEffect(() => {
     const canvas = sigRef.current
     if (!canvas || !signature) return
     try {
       if (canvas.isEmpty()) {
-        canvas.fromDataURL(signature)
+        const frame = frameRef.current
+        const width = frame?.clientWidth || 640
+        const height = frame?.clientHeight || PAD_HEIGHT
+        canvas.fromDataURL(signature, { width, height })
         setIsEmpty(false)
       }
     } catch {
@@ -153,17 +215,15 @@ export default function StepTerms({
         <div
           className={`signature-pad${signatureError ? ' has-error' : ''}${!canAccept ? ' is-disabled' : ''}`}
         >
-          <div className="signature-pad-frame">
+          <div className="signature-pad-frame" ref={frameRef} style={{ height: PAD_HEIGHT }}>
             <SignatureCanvas
               ref={sigRef}
               penColor="#111"
               minWidth={1.2}
               maxWidth={2.6}
+              clearOnResize={false}
               canvasProps={{
                 className: 'signature-pad-canvas',
-                width: 640,
-                height: 180,
-                style: { width: '100%', height: '180px' },
               }}
               onEnd={handleStrokeEnd}
             />

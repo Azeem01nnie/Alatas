@@ -1,8 +1,11 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { registerSW } from 'virtual:pwa-register'
 import './index.css'
 import App from './App.jsx'
 import { VehicleProvider } from './context/VehicleContext.jsx'
+
+registerSW({ immediate: true })
 
 try {
   const raw = localStorage.getItem('alatas-admin-system-settings')

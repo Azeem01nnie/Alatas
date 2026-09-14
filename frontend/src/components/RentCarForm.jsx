@@ -65,7 +65,7 @@ function autoCapitalizeWords(value) {
   return String(value ?? '').replace(/\b([a-z])/g, (match) => match.toUpperCase())
 }
 
-export default function RentCarForm({ onDirtyChange }) {
+export default function RentCarForm({ onDirtyChange, encodedByName = '' }) {
   const { vehicles, addRental } = useVehicles()
   const [step, setStep] = useState(1)
   const [personal, setPersonal] = useState(initialPersonal)
@@ -324,11 +324,20 @@ export default function RentCarForm({ onDirtyChange }) {
       )
       const periodToLabel = formatPeriodLabel(rental.toDate, toTime, rental.toMeridiem)
 
+      const encoder = String(encodedByName || '').trim() || 'Unknown'
+      const safe = (value) => String(value ?? '').trim()
       const record = {
         personal: {
           ...personal,
+          firstName: safe(personal.firstName),
+          middleName: safe(personal.middleName),
+          lastName: safe(personal.lastName),
+          address: safe(personal.address),
+          contactNo: safe(personal.contactNo),
           emergencyContact: formatEmergencyContact(personal),
+          encodedBy: encoder,
         },
+        vehicleId: selectedVehicle.id,
         vehicle: {
           id: selectedVehicle.id,
           make: selectedVehicle.make,
@@ -365,6 +374,7 @@ export default function RentCarForm({ onDirtyChange }) {
         carPhotos: compressedCarPhotos,
         termsAccepted,
         encodedAt: new Date().toISOString(),
+        encodedBy: encoder,
       }
 
       await addRental(record)

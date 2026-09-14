@@ -207,16 +207,25 @@ export function VehicleProvider({ children }) {
     const key = String(rentalId)
     const now = new Date().toISOString()
     setRentals((prev) =>
-      prev.map((r) =>
-        String(r.id) === key && r.rentalLifecycle === 'scheduled'
-          ? {
-              ...r,
-              rentalLifecycle: 'cancelled',
-              cancelledAt: now,
-              updatedAt: now,
-            }
-          : r,
-      ),
+      prev.map((r) => {
+        if (String(r.id) !== key) return r
+        // Allow cancel for scheduled (and stuck pending that was accepted into schedule)
+        if (
+          r.rentalLifecycle !== 'scheduled' &&
+          r.rentalLifecycle !== 'pending_approval' &&
+          r.approvalStatus !== 'pending'
+        ) {
+          return r
+        }
+        return {
+          ...r,
+          rentalLifecycle: 'cancelled',
+          approvalStatus:
+            r.approvalStatus === 'pending' ? 'rejected' : r.approvalStatus || 'accepted',
+          cancelledAt: now,
+          updatedAt: now,
+        }
+      }),
     )
   }, [])
 

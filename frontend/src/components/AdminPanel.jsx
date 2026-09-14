@@ -25,7 +25,12 @@ import {
   getDisplayStatus,
   statusClassForDisplay,
 } from '../utils/vehicleDisplayStatus'
-import AdminLogin, { clearAdminSession, isAdminLoggedIn } from './AdminLogin'
+import AdminLogin, {
+  clearAdminSession,
+  getSessionRole,
+  getSessionUser,
+  isAdminLoggedIn,
+} from './AdminLogin'
 import ConfirmModal from './ConfirmModal'
 import AddOwnerModal from './AddOwnerModal'
 import PremiumDatePicker from './PremiumDatePicker'
@@ -36,7 +41,6 @@ import VehicleModal from './VehicleModal'
 import VehicleReports from './VehicleReports'
 import PendingApprovals from './PendingApprovals'
 import EmployeesPanel from './EmployeesPanel'
-import ChatPanel from './ChatPanel'
 import { addOwner, autoCapitalizeWords, loadOwners, purgeOrphanOwners, updateOwner } from '../utils/owners'
 import { loadReportStore } from '../utils/vehicleReports'
 import { scanOrcrImage, mergeScanFields } from '../utils/orcrOcr'
@@ -283,14 +287,6 @@ function IconEmployees() {
   )
 }
 
-function IconChat() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />
-    </svg>
-  )
-}
-
 const MANAGE_STATUS_FILTERS = [
   { id: 'All', label: 'All' },
   { id: 'Available', label: 'Available' },
@@ -299,16 +295,27 @@ const MANAGE_STATUS_FILTERS = [
   { id: 'Under Maintenance', label: 'Maintenance' },
 ]
 
+const ADMIN_ONLY_TABS = new Set(['manage', 'employees', 'reports'])
+
 const NAV = [
   { id: 'dashboard', label: 'Dashboard', icon: <IconDashboard /> },
   { id: 'calendar', label: 'Calendar', icon: <IconCalendar /> },
   { id: 'rent', label: 'Rent Car', icon: <IconRent /> },
-  { id: 'manage', label: 'Manage Vehicle', icon: <IconManage /> },
-  { id: 'employees', label: 'Employees', icon: <IconEmployees /> },
-  { id: 'chat', label: 'Chat', icon: <IconChat /> },
-  { id: 'reports', label: 'Vehicle Reports', icon: <IconReports /> },
+  { id: 'manage', label: 'Manage Vehicle', icon: <IconManage />, adminOnly: true },
+  { id: 'employees', label: 'Employees', icon: <IconEmployees />, adminOnly: true },
+  { id: 'reports', label: 'Vehicle Reports', icon: <IconReports />, adminOnly: true },
   { id: 'history', label: 'Rental History', icon: <IconHistory /> },
 ]
+
+function encoderName(rental) {
+  return (
+    rental?.encodedBy ||
+    rental?.personal?.encodedBy ||
+    rental?.carPhotosAddedBy ||
+    rental?.submittedBy ||
+    ''
+  )
+}
 
 function statusClass(status) {
   return statusClassForDisplay(status)
@@ -531,6 +538,8 @@ export default function AdminPanel() {
   } = useVehicles()
   const { online } = useConnectivity()
   const [authed, setAuthed] = useState(() => isAdminLoggedIn())
+  const [sessionRole, setSessionRole] = useState(() => getSessionRole())
+  const [sessionUser, setSessionUser] = useState(() => getSessionUser())
   const [tab, setTab] = useState('dashboard')
   const [form, setForm] = useState(EMPTY)
   const [editForm, setEditForm] = useState(null)
@@ -933,8 +942,27 @@ export default function AdminPanel() {
     e.target.value = ''
   }
 
+  const isAdminUser = sessionRole !== 'employee'
+  const visibleNav = useMemo(
+    () => NAV.filter((item) => isAdminUser || !item.adminOnly),
+    [isAdminUser],
+  )
+  const sessionDisplayName =
+    sessionUser?.displayName ||
+    (isAdminUser ? profile.displayName : sessionUser?.username) ||
+    profile.displayName
+
+  useEffect(() => {
+    if (!authed) return
+    if (!isAdminUser && ADMIN_ONLY_TABS.has(tab)) {
+      setTab('dashboard')
+      setSelectedTransaction(null)
+    }
+  }, [authed, isAdminUser, tab])
+
   const requestTabChange = (nextTab) => {
     if (nextTab === tab) return
+    if (!isAdminUser && ADMIN_ONLY_TABS.has(nextTab)) return
     if (tab === 'rent' && nextTab !== 'rent' && rentDirty) {
       setPendingTab(nextTab)
       setConfirm({
@@ -1162,7 +1190,8 @@ export default function AdminPanel() {
           .filter(Boolean)
           .join(' ')
         const plate = r.vehicle?.plateNo || ''
-        const haystack = `${name} ${plate}`.toLowerCase()
+        const encoder = encoderName(r)
+        const haystack = `${name} ${plate} ${encoder}`.toLowerCase()
         if (!haystack.includes(q)) return false
       }
 
@@ -1514,6 +1543,7 @@ export default function AdminPanel() {
   }
 
   const requestCancelRental = (rental, vehicle) => {
+    if (!isAdminUser) return
     const name = customerName(rental)
     setConfirm({
       type: 'cancel-rental',
@@ -1641,6 +1671,8 @@ export default function AdminPanel() {
     if (!confirm) return
     if (confirm.type === 'logout') {
       clearAdminSession()
+      setSessionRole('admin')
+      setSessionUser(null)
       setTab('dashboard')
       setSelectedTransaction(null)
       setAuthed(false)
@@ -1732,7 +1764,9 @@ export default function AdminPanel() {
     return (
       <div className="app login-shell">
         <AdminLogin
-          onSuccess={() => {
+          onSuccess={(user) => {
+            setSessionRole(user?.role || getSessionRole())
+            setSessionUser(user || getSessionUser())
             setTab('dashboard')
             setSelectedTransaction(null)
             setAuthed(true)
@@ -1750,7 +1784,7 @@ export default function AdminPanel() {
         </div>
 
         <nav className="sidebar-nav">
-          {NAV.map((item) => (
+          {visibleNav.map((item) => (
             <button
               key={item.id}
               type="button"
@@ -1780,19 +1814,19 @@ export default function AdminPanel() {
           <button
             type="button"
             className={`sidebar-profile${tab === 'settings' ? ' is-active' : ''}`}
-            title={`${profile.displayName} · Admin`}
+            title={`${sessionDisplayName} · ${isAdminUser ? 'Admin' : 'Employee'}`}
             onClick={() => requestTabChange('settings')}
           >
             <span className="sidebar-avatar" aria-hidden="true">
-              {profile.photo ? (
+              {isAdminUser && profile.photo ? (
                 <img src={profile.photo} alt="" />
               ) : (
-                <span className="sidebar-avatar-fallback">{profileInitials(profile.displayName)}</span>
+                <span className="sidebar-avatar-fallback">{profileInitials(sessionDisplayName)}</span>
               )}
             </span>
             <span className="sidebar-profile-meta">
-              <span className="sidebar-profile-name">{profile.displayName}</span>
-              <span className="sidebar-profile-role">Admin</span>
+              <span className="sidebar-profile-name">{sessionDisplayName}</span>
+              <span className="sidebar-profile-role">{isAdminUser ? 'Admin' : 'Employee'}</span>
             </span>
           </button>
         </div>
@@ -1892,7 +1926,7 @@ export default function AdminPanel() {
                 </div>
               )}
             </div>
-            {tab === 'manage' && (
+            {tab === 'manage' && isAdminUser && (
               <>
                 <div className="manage-view-toggle" role="group" aria-label="Manage vehicle view">
                   <button
@@ -1954,7 +1988,11 @@ export default function AdminPanel() {
           ) : (
             <>
           {tab === 'rent' && (
-            <RentCarForm key={rentFormKey} onDirtyChange={handleRentDirtyChange} />
+            <RentCarForm
+              key={rentFormKey}
+              onDirtyChange={handleRentDirtyChange}
+              encodedByName={sessionDisplayName}
+            />
           )}
 
           {tab === 'dashboard' && (
@@ -2061,13 +2099,24 @@ export default function AdminPanel() {
                                     ) : null}
                                   </span>
                                 </div>
-                                <button
-                                  type="button"
-                                  className="btn-outline btn-sm btn-danger-outline"
-                                  onClick={() => requestCancelRental(rental, vehicle)}
-                                >
-                                  Cancel
-                                </button>
+                                {isAdminUser ? (
+                                  <button
+                                    type="button"
+                                    className="btn-outline btn-sm btn-danger-outline"
+                                    onClick={() => requestCancelRental(rental, vehicle)}
+                                  >
+                                    Cancel
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="btn-outline btn-sm"
+                                    disabled
+                                    title="Only admin can cancel"
+                                  >
+                                    Cancel
+                                  </button>
+                                )}
                               </article>
                               )
                             })}
@@ -2163,13 +2212,15 @@ export default function AdminPanel() {
                                     {v.plateNo} · {v.bodyType}
                                   </span>
                                 </div>
-                                <button
-                                  type="button"
-                                  className="btn-ghost btn-sm"
-                                  onClick={() => setTab('manage')}
-                                >
-                                  Manage
-                                </button>
+                                {isAdminUser && (
+                                  <button
+                                    type="button"
+                                    className="btn-ghost btn-sm"
+                                    onClick={() => setTab('manage')}
+                                  >
+                                    Manage
+                                  </button>
+                                )}
                               </article>
                             ))}
                           </div>
@@ -2181,6 +2232,7 @@ export default function AdminPanel() {
                           vehicles={vehicles}
                           onChanged={reloadData}
                           embedded
+                          canApprove={isAdminUser}
                         />
                       )}
                     </div>
@@ -2397,7 +2449,7 @@ export default function AdminPanel() {
             />
           )}
 
-          {tab === 'manage' && (
+          {tab === 'manage' && isAdminUser && (
             <section className="admin-list-section manage-vehicle-section">
               {!(showAddForm && manageView === 'fleet') && (
               <div className="manage-toolbar">
@@ -2674,7 +2726,7 @@ export default function AdminPanel() {
             </section>
           )}
 
-          {tab === 'reports' && (
+          {tab === 'reports' && isAdminUser && (
             <VehicleReports
               vehicles={vehicles}
               adminName={profile.displayName}
@@ -2690,9 +2742,7 @@ export default function AdminPanel() {
             />
           )}
 
-          {tab === 'employees' && <EmployeesPanel />}
-
-          {tab === 'chat' && <ChatPanel adminName={profile.displayName} />}
+          {tab === 'employees' && isAdminUser && <EmployeesPanel />}
 
           {tab === 'history' && (
             <section className="admin-history-section">
@@ -2807,6 +2857,7 @@ export default function AdminPanel() {
                       </span>
                       <span className="history-encoded">
                         Encoded {formatDateTime(r.encodedAt)}
+                        {encoderName(r) ? ` · by ${encoderName(r)}` : ''}
                       </span>
                     </div>
                     </div>

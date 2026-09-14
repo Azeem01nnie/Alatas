@@ -8,10 +8,6 @@ files:
   - electron/**/*
   - package.json
 extraResources:
-  - from: backend/src
-    to: backend/src
-  - from: backend/package.json
-    to: backend/package.json
   - from: frontend/dist
     to: frontend-dist
   - from: electron/build/icon.png

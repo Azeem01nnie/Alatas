@@ -2,7 +2,7 @@ import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { Home, ClipboardList, User, Users, Car, Camera, MessageSquare } from 'lucide-react-native';
+import { Home, ClipboardList, User, Users, Car, Camera } from 'lucide-react-native';
 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AdminDashboardScreen from '../screens/AdminDashboardScreen';
@@ -17,7 +17,6 @@ import VehicleReportsScreen from '../screens/VehicleReportsScreen';
 // Employee Screens
 import EmployeeDashboardScreen from '../screens/EmployeeDashboardScreen';
 import EmployeeCameraScreen from '../screens/EmployeeCameraScreen';
-import EmployeeChatScreen from '../screens/EmployeeChatScreen';
 
 import EmployeeProfileScreen from '../screens/EmployeeProfileScreen';
 
@@ -86,8 +85,6 @@ function EmployeeTabNavigator() {
             return <Home color={color} size={size} />;
           } else if (route.name === 'Camera') {
             return <Camera color={color} size={size} />;
-          } else if (route.name === 'Chat') {
-            return <MessageSquare color={color} size={size} />;
           } else if (route.name === 'Profile') {
             return <User color={color} size={size} />;
           }
@@ -113,7 +110,6 @@ function EmployeeTabNavigator() {
     >
       <Tab.Screen name="Dashboard" component={EmployeeDashboardScreen} options={{ headerShown: false }} />
       <Tab.Screen name="Camera" component={EmployeeCameraScreen} options={{ headerShown: false }} />
-      <Tab.Screen name="Chat" component={EmployeeChatScreen} options={{ headerShown: false }} />
       <Tab.Screen name="Profile" component={EmployeeProfileScreen} options={{ headerShown: false }} />
     </Tab.Navigator>
   );
