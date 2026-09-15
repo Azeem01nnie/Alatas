@@ -4107,15 +4107,9 @@ html[data-theme='dark'] .login-password-toggle:hover {
 
 .dashboard-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(260px, 0.9fr);
+  grid-template-columns: 1fr;
   gap: 1.25rem;
   align-items: start;
-}
-
-@media (max-width: 960px) {
-  .dashboard-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 .dashboard-main,

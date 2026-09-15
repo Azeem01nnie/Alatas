@@ -5,14 +5,15 @@ import {
   fetchEmployees,
   updateEmployee,
 } from '../api/employees'
+import ConfirmModal from './ConfirmModal'
 
-const ROLES = ['Manager', 'Inspector', 'Staff']
+const ROLES = ['Manager', 'Staff']
 
 const EMPTY_FORM = {
   name: '',
   username: '',
   phone: '',
-  role: 'Inspector',
+  role: 'Staff',
   password: '',
   confirmPassword: '',
 }
@@ -25,6 +26,10 @@ function roleClass(role) {
   if (role === 'Manager') return 'is-manager'
   if (role === 'Inspector') return 'is-inspector'
   return 'is-staff'
+}
+
+function normalizeSelectableRole(role) {
+  return ROLES.includes(role) ? role : 'Staff'
 }
 
 function digitsOnlyPhone(value) {
@@ -41,6 +46,58 @@ function toStoredPhone(digits) {
   return clean ? `+63${clean}` : ''
 }
 
+function IconEye({ crossed = false }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12Z" />
+      <circle cx="12" cy="12" r="2.75" />
+      {crossed && <path d="M4 20 20 4" />}
+    </svg>
+  )
+}
+
+function PasswordField({
+  label,
+  value,
+  onChange,
+  autoComplete = 'new-password',
+  visible,
+  onToggleVisible,
+  error,
+}) {
+  return (
+    <label className="field">
+      <span className="field-label">{label}</span>
+      <div className="login-password-wrap">
+        <input
+          type={visible ? 'text' : 'password'}
+          value={value}
+          onChange={onChange}
+          autoComplete={autoComplete}
+        />
+        <button
+          type="button"
+          className="login-password-toggle"
+          onClick={onToggleVisible}
+          aria-label={visible ? 'Hide password' : 'Show password'}
+          title={visible ? 'Hide password' : 'Show password'}
+        >
+          <IconEye crossed={visible} />
+        </button>
+      </div>
+      {error || null}
+    </label>
+  )
+}
+
 export default function EmployeesPanel() {
   const [employees, setEmployees] = useState([])
   const [loading, setLoading] = useState(true)
@@ -55,8 +112,13 @@ export default function EmployeesPanel() {
   const [saving, setSaving] = useState(false)
 
   const [selected, setSelected] = useState(null)
-  const [roleDraft, setRoleDraft] = useState('Inspector')
+  const [roleDraft, setRoleDraft] = useState('Staff')
   const [passwordDraft, setPasswordDraft] = useState({ password: '', confirm: '' })
+  const [showCreatePassword, setShowCreatePassword] = useState(false)
+  const [showCreateConfirm, setShowCreateConfirm] = useState(false)
+  const [showResetPassword, setShowResetPassword] = useState(false)
+  const [showResetConfirm, setShowResetConfirm] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -89,6 +151,8 @@ export default function EmployeesPanel() {
   const openCreate = () => {
     setForm(EMPTY_FORM)
     setFormErrors(false)
+    setShowCreatePassword(false)
+    setShowCreateConfirm(false)
     setFormOpen(true)
     setMessage('')
   }
@@ -185,9 +249,9 @@ export default function EmployeesPanel() {
     }
   }
 
-  const handleDelete = async (emp) => {
-    const ok = window.confirm(`Remove ${emp.name} (@${emp.username})? This cannot be undone.`)
-    if (!ok) return
+  const handleDelete = async () => {
+    const emp = deleteTarget
+    if (!emp) return
     setBusyId(emp.id)
     setError('')
     try {
@@ -195,6 +259,7 @@ export default function EmployeesPanel() {
       setEmployees((prev) => prev.filter((row) => row.id !== emp.id))
       setMessage('Employee removed.')
       setSelected(null)
+      setDeleteTarget(null)
     } catch (err) {
       setError(err?.message || 'Could not remove employee.')
     } finally {
@@ -271,8 +336,10 @@ export default function EmployeesPanel() {
                   disabled={busyId === emp.id}
                   onClick={() => {
                     setSelected(emp)
-                    setRoleDraft(emp.role)
+                    setRoleDraft(normalizeSelectableRole(emp.role))
                     setPasswordDraft({ password: '', confirm: '' })
+                    setShowResetPassword(false)
+                    setShowResetConfirm(false)
                     setMessage('')
                     setError('')
                   }}
@@ -283,7 +350,7 @@ export default function EmployeesPanel() {
                   type="button"
                   className="btn-outline btn-sm btn-danger-outline"
                   disabled={busyId === emp.id}
-                  onClick={() => handleDelete(emp)}
+                  onClick={() => setDeleteTarget(emp)}
                 >
                   Remove
                 </button>
@@ -362,33 +429,33 @@ export default function EmployeesPanel() {
               </div>
             </fieldset>
 
-            <label className="field">
-              <span className="field-label">Password</span>
-              <input
-                type="password"
-                value={form.password}
-                onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))}
-                autoComplete="new-password"
-              />
-              {formErrors && !isPasswordStrong(form.password) && (
-                <span className="field-error">
-                  Use 8+ chars with upper, lower, number, and special character
-                </span>
-              )}
-            </label>
+            <PasswordField
+              label="Password"
+              value={form.password}
+              onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))}
+              visible={showCreatePassword}
+              onToggleVisible={() => setShowCreatePassword((v) => !v)}
+              error={
+                formErrors && !isPasswordStrong(form.password) ? (
+                  <span className="field-error">
+                    Use 8+ chars with upper, lower, number, and special character
+                  </span>
+                ) : null
+              }
+            />
 
-            <label className="field">
-              <span className="field-label">Confirm password</span>
-              <input
-                type="password"
-                value={form.confirmPassword}
-                onChange={(e) => setForm((prev) => ({ ...prev, confirmPassword: e.target.value }))}
-                autoComplete="new-password"
-              />
-              {formErrors && form.password !== form.confirmPassword && (
-                <span className="field-error">Passwords do not match</span>
-              )}
-            </label>
+            <PasswordField
+              label="Confirm password"
+              value={form.confirmPassword}
+              onChange={(e) => setForm((prev) => ({ ...prev, confirmPassword: e.target.value }))}
+              visible={showCreateConfirm}
+              onToggleVisible={() => setShowCreateConfirm((v) => !v)}
+              error={
+                formErrors && form.password !== form.confirmPassword ? (
+                  <span className="field-error">Passwords do not match</span>
+                ) : null
+              }
+            />
 
             <footer className="employees-modal-actions">
               <button type="button" className="btn-ghost" onClick={() => setFormOpen(false)} disabled={saving}>
@@ -440,26 +507,24 @@ export default function EmployeesPanel() {
 
             <div className="employees-manage-block">
               <h5>Reset password</h5>
-              <label className="field">
-                <span className="field-label">New password</span>
-                <input
-                  type="password"
-                  value={passwordDraft.password}
-                  onChange={(e) =>
-                    setPasswordDraft((prev) => ({ ...prev, password: e.target.value }))
-                  }
-                />
-              </label>
-              <label className="field">
-                <span className="field-label">Confirm</span>
-                <input
-                  type="password"
-                  value={passwordDraft.confirm}
-                  onChange={(e) =>
-                    setPasswordDraft((prev) => ({ ...prev, confirm: e.target.value }))
-                  }
-                />
-              </label>
+              <PasswordField
+                label="New password"
+                value={passwordDraft.password}
+                onChange={(e) =>
+                  setPasswordDraft((prev) => ({ ...prev, password: e.target.value }))
+                }
+                visible={showResetPassword}
+                onToggleVisible={() => setShowResetPassword((v) => !v)}
+              />
+              <PasswordField
+                label="Confirm"
+                value={passwordDraft.confirm}
+                onChange={(e) =>
+                  setPasswordDraft((prev) => ({ ...prev, confirm: e.target.value }))
+                }
+                visible={showResetConfirm}
+                onToggleVisible={() => setShowResetConfirm((v) => !v)}
+              />
               <button
                 type="button"
                 className="btn-outline btn-sm"
@@ -484,6 +549,21 @@ export default function EmployeesPanel() {
           </div>
         </div>
       )}
+      {deleteTarget ? (
+        <ConfirmModal
+          title="Remove employee?"
+          message={`Remove ${deleteTarget.name} (@${deleteTarget.username})? This cannot be undone.`}
+          confirmLabel={busyId === deleteTarget.id ? 'Removing…' : 'Yes, remove'}
+          cancelLabel="Cancel"
+          danger
+          confirmDisabled={busyId === deleteTarget.id}
+          onCancel={() => {
+            if (busyId === deleteTarget.id) return
+            setDeleteTarget(null)
+          }}
+          onConfirm={() => void handleDelete()}
+        />
+      ) : null}
     </section>
   )
 }
