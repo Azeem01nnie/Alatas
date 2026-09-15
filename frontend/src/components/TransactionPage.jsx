@@ -320,6 +320,13 @@ async function downloadContractPdf(transaction) {
   if (licensePhoto && typeof licensePhoto === 'string' && licensePhoto.startsWith('data:image')) {
     customerImages.push({ src: licensePhoto, label: 'Customer photo' })
   }
+  const optionalPhoto =
+    personal?.optionalPhoto && String(personal.optionalPhoto).startsWith('data:image')
+      ? personal.optionalPhoto
+      : ''
+  if (optionalPhoto) {
+    customerImages.push({ src: optionalPhoto, label: 'Optional photo' })
+  }
   drawImageRow('CUSTOMER PHOTOS', customerImages)
 
   const carImageItems = [
@@ -360,6 +367,8 @@ export default function TransactionPage({
     signature,
     carPhotos = {},
   } = transaction
+
+  const optionalPhoto = personal?.optionalPhoto || ''
 
   const carSlots = [
     { key: 'front', label: 'Front' },
@@ -417,6 +426,12 @@ export default function TransactionPage({
           )}
           <figcaption>Customer Photo</figcaption>
         </figure>
+        {optionalPhoto ? (
+          <figure className="transaction-photo-card">
+            <img src={optionalPhoto} alt="Optional customer" />
+            <figcaption>Optional Photo</figcaption>
+          </figure>
+        ) : null}
         <figure className="transaction-photo-card">
           {vehicle.image ? (
             <img src={vehicle.image} alt={`${vehicle.make || 'Vehicle'}`} />

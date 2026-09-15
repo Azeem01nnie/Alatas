@@ -5,6 +5,8 @@ export default function ConfirmModal({
   cancelLabel = 'Cancel',
   danger = false,
   hideCancel = false,
+  confirmDisabled = false,
+  children,
   onConfirm,
   onCancel,
 }) {
@@ -24,7 +26,8 @@ export default function ConfirmModal({
         <h3 id="confirm-title" className="modal-title">
           {title}
         </h3>
-        <p className="confirm-message">{message}</p>
+        {message ? <p className="confirm-message">{message}</p> : null}
+        {children ? <div className="confirm-modal-body">{children}</div> : null}
         <div className="modal-actions">
           {!hideCancel && (
             <button type="button" className="btn-outline confirm-cancel-btn" onClick={onCancel}>
@@ -34,6 +37,7 @@ export default function ConfirmModal({
           <button
             type="button"
             className={danger ? 'btn-primary btn-danger-solid' : 'btn-primary'}
+            disabled={confirmDisabled}
             onClick={onConfirm}
           >
             {confirmLabel}

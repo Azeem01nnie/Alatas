@@ -253,18 +253,18 @@ export default function EmployeesPanel() {
                   {(emp.name || '?').slice(0, 1).toUpperCase()}
                 </div>
                 <div className="employees-meta">
-                  <strong>
-                    {emp.name}
+                  <strong>{emp.name}</strong>
+                  <div className="employees-meta-tags">
                     <span className={`employees-role-pill ${roleClass(emp.role)}`}>{emp.role}</span>
-                  </strong>
+                    <span className={`employees-status ${emp.active ? 'is-active' : ''}`}>
+                      {emp.active ? 'Active' : 'Inactive'}
+                    </span>
+                  </div>
                   <span>@{emp.username}</span>
                   <span>{emp.phone || 'No phone'}</span>
                 </div>
               </div>
               <div className="employees-row-actions">
-                <span className={`employees-status ${emp.active ? 'is-active' : ''}`}>
-                  {emp.active ? 'Active' : 'Inactive'}
-                </span>
                 <button
                   type="button"
                   className="btn-outline btn-sm"

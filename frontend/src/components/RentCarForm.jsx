@@ -73,6 +73,7 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '' }) {
   const [rental, setRental] = useState(initialRental)
   const [photo, setPhoto] = useState('')
   const [licensePhoto, setLicensePhoto] = useState('')
+  const [optionalPhoto, setOptionalPhoto] = useState('')
   const [signature, setSignature] = useState('')
   const [carPhotos, setCarPhotos] = useState({})
   const [termsAccepted, setTermsAccepted] = useState(false)
@@ -89,9 +90,11 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '' }) {
       Boolean(vehicleId) ||
       Boolean(photo) ||
       Boolean(licensePhoto) ||
+      Boolean(optionalPhoto) ||
       Boolean(signature) ||
       termsAccepted ||
       CAR_PHOTO_SLOTS.some((slot) => Boolean(carPhotos[slot.key])) ||
+      (Array.isArray(carPhotos.extras) && carPhotos.extras.length > 0) ||
       Object.values(personal).some((v) => String(v || '').trim()) ||
       Boolean(rental.duration) ||
       Boolean(rental.rentalType) ||
@@ -235,7 +238,16 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '' }) {
       if (!termsAccepted) nextErrors.terms = 'You must accept the terms to continue'
     }
 
-    // Step 6 (car photos) is optional — no validation required.
+    if (currentStep === 6) {
+      for (const slot of CAR_PHOTO_SLOTS) {
+        if (!carPhotos[slot.key]) {
+          nextErrors[slot.key] = `${slot.title} photo is required`
+        }
+      }
+      if (CAR_PHOTO_SLOTS.some((slot) => !carPhotos[slot.key])) {
+        nextErrors.carPhotos = 'Add all 4 pre-rental car photos (front, rear, left, and right)'
+      }
+    }
 
     setErrors(nextErrors)
     return Object.keys(nextErrors).length === 0
@@ -248,6 +260,7 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '' }) {
     setRental(initialRental)
     setPhoto('')
     setLicensePhoto('')
+    setOptionalPhoto('')
     setSignature('')
     setCarPhotos({})
     setTermsAccepted(false)
@@ -270,8 +283,26 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '' }) {
         return
       }
 
+      if (!CAR_PHOTO_SLOTS.every((slot) => Boolean(carPhotos[slot.key]))) {
+        for (const slot of CAR_PHOTO_SLOTS) {
+          if (!carPhotos[slot.key]) {
+            setErrors((prev) => ({
+              ...prev,
+              [slot.key]: `${slot.title} photo is required`,
+              carPhotos: 'Add all 4 pre-rental car photos (front, rear, left, and right)',
+            }))
+          }
+        }
+        setStep(6)
+        setSubmitting(false)
+        return
+      }
+
       const compressedPhoto = await compressImageDataUrl(photo || '')
       const compressedLicense = await compressImageDataUrl(licensePhoto || '')
+      const compressedOptional = optionalPhoto
+        ? (await compressImageDataUrl(optionalPhoto)) || optionalPhoto
+        : ''
       const compressedSignature = signature
         ? (await compressSignatureDataUrl(signature, 640, 0.92)) || signature
         : ''
@@ -336,6 +367,7 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '' }) {
           contactNo: safe(personal.contactNo),
           emergencyContact: formatEmergencyContact(personal),
           encodedBy: encoder,
+          ...(compressedOptional ? { optionalPhoto: compressedOptional } : {}),
         },
         vehicleId: selectedVehicle.id,
         vehicle: {
@@ -447,6 +479,7 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '' }) {
           <StepPhoto
             holdingPreview={photo}
             licensePreview={licensePhoto}
+            optionalPreview={optionalPhoto}
             onHoldingChange={(next) => {
               setPhoto(next)
               setErrors((prev) => ({ ...prev, photo: '' }))
@@ -454,6 +487,10 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '' }) {
             onLicenseChange={(next) => {
               setLicensePhoto(next)
               setErrors((prev) => ({ ...prev, licensePhoto: '' }))
+            }}
+            onOptionalChange={(next) => {
+              setOptionalPhoto(next)
+              setErrors((prev) => ({ ...prev, optionalPhoto: '' }))
             }}
             errors={errors}
           />
@@ -488,6 +525,7 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '' }) {
             rental={rental}
             photo={photo}
             licensePhoto={licensePhoto}
+            optionalPhoto={optionalPhoto}
             signature={signature}
             carPhotos={carPhotos}
             termsAccepted={termsAccepted}

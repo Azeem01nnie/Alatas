@@ -132,14 +132,14 @@ export default function StepCarCondition({ photos, onChange, errors = {} }) {
   }, [cameraKey])
 
   const startCamera = async (slotKey) => {
-    setLocalError((prev) => ({ ...prev, [slotKey]: '' }))
+    if (slotKey === 'extra') setExtraError('')
+    else setLocalError((prev) => ({ ...prev, [slotKey]: '' }))
     stopCamera()
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
-        setLocalError((prev) => ({
-          ...prev,
-          [slotKey]: 'Camera is not supported here. Please upload a photo instead.',
-        }))
+        const msg = 'Camera is not supported here. Please upload a photo instead.'
+        if (slotKey === 'extra') setExtraError(msg)
+        else setLocalError((prev) => ({ ...prev, [slotKey]: msg }))
         return
       }
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -149,24 +149,23 @@ export default function StepCarCondition({ photos, onChange, errors = {} }) {
       streamRef.current = stream
       setCameraKey(slotKey)
     } catch {
-      setLocalError((prev) => ({
-        ...prev,
-        [slotKey]: 'Unable to access the camera. Check permissions or upload a photo.',
-      }))
+      const msg = 'Unable to access the camera. Check permissions or upload a photo.'
+      if (slotKey === 'extra') setExtraError(msg)
+      else setLocalError((prev) => ({ ...prev, [slotKey]: msg }))
     }
   }
 
   const captureFromCamera = async (slotKey) => {
     const video = videoRefs.current[slotKey]
     if (!video || !video.videoWidth) {
-      setLocalError((prev) => ({
-        ...prev,
-        [slotKey]: 'Camera is not ready yet. Wait a moment and try again.',
-      }))
+      const msg = 'Camera is not ready yet. Wait a moment and try again.'
+      if (slotKey === 'extra') setExtraError(msg)
+      else setLocalError((prev) => ({ ...prev, [slotKey]: msg }))
       return
     }
 
-    setBusyKey(slotKey)
+    if (slotKey === 'extra') setExtraBusy(true)
+    else setBusyKey(slotKey)
     try {
       const canvas = document.createElement('canvas')
       canvas.width = video.videoWidth
@@ -176,21 +175,32 @@ export default function StepCarCondition({ photos, onChange, errors = {} }) {
       const raw = canvas.toDataURL('image/jpeg', 0.92)
       const compressed = await compressImageDataUrl(raw, 960, 0.8)
       if (!compressed) {
-        setLocalError((prev) => ({
-          ...prev,
-          [slotKey]: 'Could not process the captured photo.',
-        }))
+        const msg = 'Could not process the captured photo.'
+        if (slotKey === 'extra') setExtraError(msg)
+        else setLocalError((prev) => ({ ...prev, [slotKey]: msg }))
         return
       }
-      onChange(slotKey, compressed)
+      if (slotKey === 'extra') {
+        onChange('extras', [
+          ...extras,
+          {
+            id: `extra-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            uri: compressed,
+            label: `Extra ${extras.length + 1}`,
+          },
+        ])
+        setExtraError('')
+      } else {
+        onChange(slotKey, compressed)
+      }
       stopCamera()
     } catch {
-      setLocalError((prev) => ({
-        ...prev,
-        [slotKey]: 'Capture failed. Please try again.',
-      }))
+      const msg = 'Capture failed. Please try again.'
+      if (slotKey === 'extra') setExtraError(msg)
+      else setLocalError((prev) => ({ ...prev, [slotKey]: msg }))
     } finally {
-      setBusyKey('')
+      if (slotKey === 'extra') setExtraBusy(false)
+      else setBusyKey('')
     }
   }
 
@@ -230,6 +240,7 @@ export default function StepCarCondition({ photos, onChange, errors = {} }) {
       setExtraError('Please choose an image file')
       return
     }
+    stopCamera()
     setExtraBusy(true)
     setExtraError('')
     try {
@@ -266,8 +277,8 @@ export default function StepCarCondition({ photos, onChange, errors = {} }) {
     <section className="step-panel">
       <h2 className="step-title">Pre-rental Car Photos</h2>
       <p className="step-subtitle">
-        Optional — add the 4 vehicle sides here now, or leave blank and capture them later on mobile.
-        After any sides are added, you can also attach extra optional photos.
+        Required — capture all 4 vehicle sides before submitting. You can also attach extra optional
+        photos for damage close-ups or accessories.
       </p>
 
       <div className="photo-upload-grid photo-upload-grid-4">
@@ -329,14 +340,58 @@ export default function StepCarCondition({ photos, onChange, errors = {} }) {
               className="sr-only"
               onChange={(e) => addExtraFile(e.target.files?.[0], e.target)}
             />
-            <button
-              type="button"
-              className="btn-outline"
-              disabled={extraBusy}
-              onClick={() => extraInputRef.current?.click()}
-            >
-              {extraBusy ? 'Adding…' : 'Add optional photo'}
-            </button>
+            {cameraKey === 'extra' ? (
+              <>
+                <div className="car-photo-extra-camera">
+                  <video
+                    ref={(el) => {
+                      videoRefs.current.extra = el
+                    }}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="photo-video"
+                  />
+                </div>
+                <div className="car-photo-extra-actions">
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    disabled={extraBusy}
+                    onClick={() => captureFromCamera('extra')}
+                  >
+                    {extraBusy ? 'Working…' : 'Capture'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-ghost"
+                    disabled={extraBusy}
+                    onClick={stopCamera}
+                  >
+                    Cancel camera
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="car-photo-extra-actions">
+                <button
+                  type="button"
+                  className="btn-outline"
+                  disabled={extraBusy}
+                  onClick={() => extraInputRef.current?.click()}
+                >
+                  {extraBusy ? 'Adding…' : 'Upload photo'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-outline"
+                  disabled={extraBusy}
+                  onClick={() => startCamera('extra')}
+                >
+                  Take photo
+                </button>
+              </div>
+            )}
           </div>
         </div>
         {extraError ? <span className="error-msg">{extraError}</span> : null}

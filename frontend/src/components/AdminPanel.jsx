@@ -298,13 +298,13 @@ const MANAGE_STATUS_FILTERS = [
 const ADMIN_ONLY_TABS = new Set(['manage', 'employees', 'reports'])
 
 const NAV = [
-  { id: 'dashboard', label: 'Dashboard', icon: <IconDashboard /> },
-  { id: 'calendar', label: 'Calendar', icon: <IconCalendar /> },
-  { id: 'rent', label: 'Rent Car', icon: <IconRent /> },
-  { id: 'manage', label: 'Manage Vehicle', icon: <IconManage />, adminOnly: true },
-  { id: 'employees', label: 'Employees', icon: <IconEmployees />, adminOnly: true },
-  { id: 'reports', label: 'Vehicle Reports', icon: <IconReports />, adminOnly: true },
-  { id: 'history', label: 'Rental History', icon: <IconHistory /> },
+  { id: 'dashboard', label: 'Dashboard', shortLabel: 'Home', icon: <IconDashboard /> },
+  { id: 'calendar', label: 'Calendar', shortLabel: 'Calendar', icon: <IconCalendar /> },
+  { id: 'rent', label: 'Rent Car', shortLabel: 'Rent', icon: <IconRent /> },
+  { id: 'manage', label: 'Manage Vehicle', shortLabel: 'Fleet', icon: <IconManage />, adminOnly: true },
+  { id: 'employees', label: 'Employees', shortLabel: 'Team', icon: <IconEmployees />, adminOnly: true },
+  { id: 'reports', label: 'Vehicle Reports', shortLabel: 'Reports', icon: <IconReports />, adminOnly: true },
+  { id: 'history', label: 'Rental History', shortLabel: 'History', icon: <IconHistory /> },
 ]
 
 function encoderName(rental) {
@@ -351,6 +351,51 @@ function formatTimeRemaining(target, now = Date.now(), { mode = 'remaining' } = 
   if (totalMins < 1) return mode === 'untilStart' ? 'Starting now' : 'Due now'
   if (mode === 'untilStart') return `starts in ${label}`
   return `${label} remaining`
+}
+
+/** How late a rental is/was past periodTo. Null when not overdue. */
+function formatOverdueDuration(rental, now = Date.now()) {
+  const due = new Date(rental?.rental?.periodTo || 0).getTime()
+  if (!due || Number.isNaN(due)) return null
+
+  const life = rental?.rentalLifecycle || 'completed'
+  if (life === 'cancelled' || life === 'scheduled' || life === 'pending_approval') return null
+
+  let endMs = now
+  if (life === 'completed') {
+    const completed = new Date(rental?.completedAt || 0).getTime()
+    if (!completed || Number.isNaN(completed)) return null
+    endMs = completed
+  } else if (life !== 'active') {
+    return null
+  }
+
+  const overdueMs = endMs - due
+  if (overdueMs < 60_000) return null
+
+  const totalMins = Math.floor(overdueMs / 60_000)
+  const days = Math.floor(totalMins / (60 * 24))
+  const hours = Math.floor((totalMins % (60 * 24)) / 60)
+  const mins = totalMins % 60
+
+  let label
+  if (days > 0) {
+    label = hours > 0 ? `${days}d ${hours}h overdue` : `${days}d overdue`
+  } else if (hours > 0) {
+    label = mins >= 15 ? `${hours}h ${mins}m overdue` : `${hours}h overdue`
+  } else {
+    label = `${mins}m overdue`
+  }
+
+  const detailParts = []
+  if (days > 0) detailParts.push(`${days}d`)
+  if (hours > 0) detailParts.push(`${hours}h`)
+  if (mins > 0 && days === 0) detailParts.push(`${mins}m`)
+
+  return {
+    label,
+    detail: detailParts.join(' ') || label,
+  }
 }
 
 function parseFee(fee) {
@@ -741,6 +786,7 @@ export default function AdminPanel() {
   }, [])
 
   const saveProfileChanges = async () => {
+    if (!isAdminUser) return
     const next = {
       displayName: profileDraft.displayName.trim() || DEFAULT_PROFILE.displayName,
       photo: profileDraft.photo || '',
@@ -1794,7 +1840,8 @@ export default function AdminPanel() {
               onClick={() => requestTabChange(item.id)}
             >
               <span className="sidebar-icon">{item.icon}</span>
-              <span className="sidebar-label">{item.label}</span>
+              <span className="sidebar-label sidebar-label-full">{item.label}</span>
+              <span className="sidebar-label sidebar-label-short">{item.shortLabel || item.label}</span>
             </button>
           ))}
         </nav>
@@ -2039,17 +2086,30 @@ export default function AdminPanel() {
                         { id: 'upcoming', label: 'Upcoming', count: upcomingScheduled.length },
                         { id: 'onRent', label: 'On rent', count: onRentQueue.length },
                         { id: 'maintenance', label: 'Maintenance', count: maintenanceVehicles.length },
-                        { id: 'pending', label: 'Waiting for approval', count: pendingApprovalCount },
+                        {
+                          id: 'pending',
+                          label: 'Pending',
+                          fullLabel: 'Waiting for approval',
+                          count: pendingApprovalCount,
+                        },
                       ].map((opt) => (
                         <button
                           key={opt.id}
                           type="button"
                           className={`dash-attn-filter-btn${attentionFilter === opt.id ? ' is-active' : ''}`}
                           aria-pressed={attentionFilter === opt.id}
+                          aria-label={
+                            opt.fullLabel
+                              ? `${opt.fullLabel}${opt.count > 0 ? `, ${opt.count}` : ''}`
+                              : undefined
+                          }
+                          title={opt.fullLabel || undefined}
                           onClick={() => setAttentionFilter(opt.id)}
                         >
-                          {opt.label}
-                          {opt.count > 0 ? ` (${opt.count})` : ''}
+                          <span className="dash-attn-filter-label">{opt.label}</span>
+                          {opt.count > 0 ? (
+                            <span className="dash-attn-filter-count">{opt.count}</span>
+                          ) : null}
                         </button>
                       ))}
                     </div>
@@ -2108,16 +2168,7 @@ export default function AdminPanel() {
                                   >
                                     Cancel
                                   </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    className="btn-outline btn-sm"
-                                    disabled
-                                    title="Only admin can cancel"
-                                  >
-                                    Cancel
-                                  </button>
-                                )}
+                                ) : null}
                               </article>
                               )
                             })}
@@ -2182,16 +2233,7 @@ export default function AdminPanel() {
                                   >
                                     Complete
                                   </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    className="btn-outline btn-sm"
-                                    disabled
-                                    title="Only admin can complete rentals"
-                                  >
-                                    Complete
-                                  </button>
-                                )}
+                                ) : null}
                               </article>
                               )
                             })}
@@ -2232,16 +2274,7 @@ export default function AdminPanel() {
                                   >
                                     Manage
                                   </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    className="btn-ghost btn-sm"
-                                    disabled
-                                    title="Only admin can manage fleet"
-                                  >
-                                    Manage
-                                  </button>
-                                )}
+                                ) : null}
                               </article>
                             ))}
                           </div>
@@ -2832,6 +2865,7 @@ export default function AdminPanel() {
                       ' ',
                     ).trim() || 'Customer'
                   const life = r.rentalLifecycle || 'completed'
+                  const overdue = formatOverdueDuration(r)
                   return (
                   <button
                     key={r.id}
@@ -2868,6 +2902,18 @@ export default function AdminPanel() {
                         {r.rental?.rentalFee && (
                           <span className="history-chip history-chip-fee">{r.rental.rentalFee}</span>
                         )}
+                        {overdue ? (
+                          <span
+                            className="history-chip history-chip-overdue"
+                            title={
+                              life === 'active'
+                                ? `Currently overdue by ${overdue.detail}`
+                                : `Returned ${overdue.detail} late`
+                            }
+                          >
+                            {overdue.label}
+                          </span>
+                        ) : null}
                       </div>
 
                       <div className="history-period">
@@ -2884,9 +2930,15 @@ export default function AdminPanel() {
                     </div>
 
                     <div className="history-aside">
-                      <span className={`history-life history-life-${life}`}>
+                      <span
+                        className={`history-life history-life-${life}${
+                          life === 'active' && overdue ? ' history-life-overdue' : ''
+                        }`}
+                      >
                         {life === 'active'
-                          ? 'On rent'
+                          ? overdue
+                            ? 'Overdue'
+                            : 'On rent'
                           : life === 'scheduled'
                             ? 'Scheduled'
                             : life === 'cancelled'
@@ -2914,7 +2966,9 @@ export default function AdminPanel() {
                   <span className="settings-eyebrow">Workspace</span>
                   <h3 className="settings-title">Settings</h3>
                   <p className="settings-lead">
-                    Profile, appearance, alerts, backups, and browser cache for the fleet desk.
+                    {isAdminUser
+                      ? 'Profile, appearance, alerts, backups, and browser cache for the fleet desk.'
+                      : 'Your account, appearance, and alerts for this desk.'}
                   </p>
                 </div>
                 {profileMessage && <span className="admin-success settings-toast">{profileMessage}</span>}
@@ -2925,73 +2979,111 @@ export default function AdminPanel() {
                   <article className="settings-card settings-profile-card">
                     <div className="settings-card-head">
                       <span className="settings-eyebrow">Account</span>
-                      <h4 className="settings-card-title">Admin profile</h4>
+                      <h4 className="settings-card-title">
+                        {isAdminUser ? 'Admin profile' : 'Your profile'}
+                      </h4>
                       <p className="settings-card-copy">
-                        Update how you appear in the sidebar. Your role stays Admin.
+                        {isAdminUser
+                          ? 'Update how you appear in the sidebar. Your role stays Admin.'
+                          : 'Signed-in employee details. Profile changes are managed by an admin.'}
                       </p>
                     </div>
 
                     <div className="settings-profile-body">
                       <div className="settings-avatar-wrap">
                         <div className="settings-avatar" aria-hidden="true">
-                          {profileDraft.photo ? (
+                          {isAdminUser && profileDraft.photo ? (
                             <img src={profileDraft.photo} alt="" />
                           ) : (
-                            <span>{profileInitials(profileDraft.displayName)}</span>
+                            <span>
+                              {profileInitials(
+                                isAdminUser ? profileDraft.displayName : sessionDisplayName,
+                              )}
+                            </span>
                           )}
                         </div>
-                        <div className="settings-avatar-actions">
-                          <input
-                            ref={profilePhotoRef}
-                            type="file"
-                            accept="image/*"
-                            className="sr-only"
-                            onChange={onProfilePhotoChange}
-                          />
-                          <button
-                            type="button"
-                            className="btn-outline settings-photo-btn"
-                            onClick={() => profilePhotoRef.current?.click()}
-                          >
-                            <IconCamera />
-                            {profileDraft.photo ? 'Change photo' : 'Upload photo'}
-                          </button>
-                          {profileDraft.photo && (
+                        {isAdminUser && (
+                          <div className="settings-avatar-actions">
+                            <input
+                              ref={profilePhotoRef}
+                              type="file"
+                              accept="image/*"
+                              className="sr-only"
+                              onChange={onProfilePhotoChange}
+                            />
                             <button
                               type="button"
-                              className="btn-ghost settings-remove-photo"
-                              onClick={() => setProfileDraft((prev) => ({ ...prev, photo: '' }))}
+                              className="btn-outline settings-photo-btn"
+                              onClick={() => profilePhotoRef.current?.click()}
                             >
-                              Remove
+                              <IconCamera />
+                              {profileDraft.photo ? 'Change photo' : 'Upload photo'}
                             </button>
-                          )}
-                        </div>
+                            {profileDraft.photo && (
+                              <button
+                                type="button"
+                                className="btn-ghost settings-remove-photo"
+                                onClick={() =>
+                                  setProfileDraft((prev) => ({ ...prev, photo: '' }))
+                                }
+                              >
+                                Remove
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       <div className="settings-profile-fields">
-                        <label className="field settings-name-field">
-                          <span className="field-label">Display name</span>
-                          <input
-                            type="text"
-                            value={profileDraft.displayName}
-                            onChange={(e) =>
-                              setProfileDraft((prev) => ({ ...prev, displayName: e.target.value }))
-                            }
-                            maxLength={40}
-                            placeholder="Your name"
-                          />
-                        </label>
+                        {isAdminUser ? (
+                          <label className="field settings-name-field">
+                            <span className="field-label">Display name</span>
+                            <input
+                              type="text"
+                              value={profileDraft.displayName}
+                              onChange={(e) =>
+                                setProfileDraft((prev) => ({
+                                  ...prev,
+                                  displayName: e.target.value,
+                                }))
+                              }
+                              maxLength={40}
+                              placeholder="Your name"
+                            />
+                          </label>
+                        ) : (
+                          <>
+                            <label className="field settings-name-field">
+                              <span className="field-label">Display name</span>
+                              <input type="text" value={sessionDisplayName} readOnly />
+                            </label>
+                            {sessionUser?.username ? (
+                              <label className="field settings-name-field">
+                                <span className="field-label">Username</span>
+                                <input type="text" value={sessionUser.username} readOnly />
+                              </label>
+                            ) : null}
+                          </>
+                        )}
 
                         <div className="settings-role-row">
                           <span className="settings-role-label">Role</span>
-                          <span className="settings-role-badge">Admin</span>
+                          <span className="settings-role-badge">
+                            {isAdminUser ? 'Admin' : 'Employee'}
+                          </span>
                         </div>
 
-                        <div className="settings-card-actions">
-                          <button type="button" className="btn-primary" onClick={saveProfileChanges}>
-                            Save profile
-                          </button>
-                        </div>
+                        {isAdminUser && (
+                          <div className="settings-card-actions">
+                            <button
+                              type="button"
+                              className="btn-primary"
+                              onClick={saveProfileChanges}
+                            >
+                              Save profile
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </article>
@@ -3107,28 +3199,33 @@ export default function AdminPanel() {
                       <span className="settings-eyebrow">Storage</span>
                       <h4 className="settings-card-title">Data &amp; cache</h4>
                       <p className="settings-card-copy">
-                        Back up or migrate fleet data, or clear temporary browser cache without
-                        deleting records.
+                        {isAdminUser
+                          ? 'Back up or migrate fleet data, or clear temporary browser cache without deleting records.'
+                          : 'Clear temporary browser cache without deleting records.'}
                       </p>
                     </div>
 
                     <div className="settings-data-actions">
-                      <button
-                        type="button"
-                        className="btn-primary"
-                        disabled={dataBusy}
-                        onClick={downloadAppData}
-                      >
-                        Download data
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-outline"
-                        disabled={dataBusy}
-                        onClick={requestImportData}
-                      >
-                        {dataBusy ? 'Working…' : 'Import / migrate'}
-                      </button>
+                      {isAdminUser && (
+                        <>
+                          <button
+                            type="button"
+                            className="btn-primary"
+                            disabled={dataBusy}
+                            onClick={downloadAppData}
+                          >
+                            Download data
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-outline"
+                            disabled={dataBusy}
+                            onClick={requestImportData}
+                          >
+                            {dataBusy ? 'Working…' : 'Import / migrate'}
+                          </button>
+                        </>
+                      )}
                       <button
                         type="button"
                         className="btn-outline settings-clear-cache-btn"
@@ -3137,17 +3234,19 @@ export default function AdminPanel() {
                       >
                         Clear cache
                       </button>
-                      <input
-                        ref={importDataRef}
-                        type="file"
-                        accept="application/json,.json"
-                        className="sr-only"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0]
-                          e.target.value = ''
-                          void importAppData(file)
-                        }}
-                      />
+                      {isAdminUser && (
+                        <input
+                          ref={importDataRef}
+                          type="file"
+                          accept="application/json,.json"
+                          className="sr-only"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0]
+                            e.target.value = ''
+                            void importAppData(file)
+                          }}
+                        />
+                      )}
                     </div>
                     {dataMessage && (
                       <p className="settings-data-message" role="status">
@@ -3156,6 +3255,7 @@ export default function AdminPanel() {
                     )}
                   </article>
 
+                  {isAdminUser && (
                   <article className="settings-card settings-cloud-card">
                     <div className="settings-card-head">
                       <span className="settings-eyebrow">Sync</span>
@@ -3209,13 +3309,16 @@ export default function AdminPanel() {
                       )}
                     </div>
                   </article>
+                  )}
 
                   <article className="settings-card settings-session-card">
                     <div className="settings-card-head">
                       <span className="settings-eyebrow">Session</span>
                       <h4 className="settings-card-title">Sign out</h4>
                       <p className="settings-card-copy">
-                        End this admin session. You’ll need to sign in again to manage the fleet.
+                        {isAdminUser
+                          ? 'End this admin session. You’ll need to sign in again to manage the fleet.'
+                          : 'End this employee session. You’ll need to sign in again to use the desk.'}
                       </p>
                     </div>
                     <button type="button" className="btn-outline settings-logout-btn" onClick={requestLogout}>

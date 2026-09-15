@@ -47,6 +47,7 @@ export default function StepSummary({
   rental,
   photo,
   licensePhoto,
+  optionalPhoto,
   signature,
   carPhotos = {},
   termsAccepted,
@@ -57,6 +58,7 @@ export default function StepSummary({
 
   const durationLabel = rental.duration === 'Others' ? rental.durationOther : rental.duration
   const photosReady = Boolean(photo) && Boolean(licensePhoto)
+  const carSidesReady = CAR_PHOTO_SLOTS.every((slot) => Boolean(carPhotos?.[slot.key]))
 
   return (
     <section className="step-panel">
@@ -85,7 +87,9 @@ export default function StepSummary({
             </div>
             <div className="summary-status-pill">
               <span className="summary-status-label">Photos</span>
-              <strong>{photosReady ? 'Ready' : 'Incomplete'}</strong>
+              <strong>
+                {photosReady ? (optionalPhoto ? 'Ready + optional' : 'Ready') : 'Incomplete'}
+              </strong>
             </div>
             <div className="summary-status-pill">
               <span className="summary-status-label">Car photos</span>
@@ -93,8 +97,8 @@ export default function StepSummary({
                 {(() => {
                   const sides = CAR_PHOTO_SLOTS.filter((slot) => Boolean(carPhotos?.[slot.key])).length
                   const extras = Array.isArray(carPhotos?.extras) ? carPhotos.extras.length : 0
-                  if (!sides && !extras) return 'Optional'
-                  return `${sides} of 4 sides${extras ? ` · ${extras} extra` : ''}`
+                  if (!carSidesReady) return `${sides} of 4 required`
+                  return `4 of 4 sides${extras ? ` · ${extras} extra` : ''}`
                 })()}
               </strong>
             </div>
@@ -222,16 +226,23 @@ export default function StepSummary({
                     <p className="summary-empty">No customer photo.</p>
                   )}
                 </div>
+                {optionalPhoto ? (
+                  <div className="summary-media-card">
+                    <div className="summary-media-head">
+                      <h3>Optional photo</h3>
+                    </div>
+                    <img src={optionalPhoto} alt="Optional customer" className="summary-photo" />
+                  </div>
+                ) : null}
               </div>
 
               <div className="summary-media-block summary-car-condition">
                 <div className="summary-media-head">
                   <h3>Pre-rental car photos</h3>
                   <p className="summary-empty">
-                    {CAR_PHOTO_SLOTS.some((slot) => Boolean(carPhotos?.[slot.key])) ||
-                    (Array.isArray(carPhotos?.extras) && carPhotos.extras.length)
-                      ? 'Photos added on this form. Remaining sides can still be captured on mobile.'
-                      : 'Optional — add them here or later on mobile before the rental starts.'}
+                    {carSidesReady
+                      ? 'All 4 required sides are attached.'
+                      : 'All 4 vehicle sides are required before submit.'}
                   </p>
                 </div>
                 {CAR_PHOTO_SLOTS.some((slot) => Boolean(carPhotos?.[slot.key])) ||
@@ -249,7 +260,7 @@ export default function StepSummary({
                             className="summary-photo"
                           />
                         ) : (
-                          <p className="summary-empty">Optional</p>
+                          <p className="summary-empty">Required</p>
                         )}
                       </div>
                     ))}

@@ -11,6 +11,7 @@ import {
   isCloudConfigured,
   rejectCloudPendingRental,
 } from '../api/cloudSync'
+import ConfirmModal from './ConfirmModal'
 
 function customerName(rental) {
   const p = rental?.personal
@@ -85,8 +86,8 @@ export default function PendingApprovals({
 }) {
   const [pending, setPending] = useState([])
   const [busyId, setBusyId] = useState(null)
-  const [rejectId, setRejectId] = useState(null)
   const [rejectReason, setRejectReason] = useState('')
+  const [confirm, setConfirm] = useState(null)
   const [error, setError] = useState('')
 
   const loadPending = useCallback(async () => {
@@ -120,6 +121,24 @@ export default function PendingApprovals({
     return vehicles.find((v) => String(v.id) === String(vid)) || rental.vehicle
   }
 
+  const closeConfirm = () => {
+    if (busyId) return
+    setConfirm(null)
+    setRejectReason('')
+  }
+
+  const openAcceptConfirm = (rental) => {
+    if (!canApprove || busyId) return
+    setRejectReason('')
+    setConfirm({ type: 'accept', rental })
+  }
+
+  const openRejectConfirm = (rental) => {
+    if (!canApprove || busyId) return
+    setRejectReason('')
+    setConfirm({ type: 'reject', rental })
+  }
+
   const handleAccept = async (id) => {
     if (!canApprove) return
     setBusyId(id)
@@ -139,6 +158,7 @@ export default function PendingApprovals({
           // Already accepted locally; cloud may lag or already be accepted.
         }
       }
+      setConfirm(null)
       await loadPending()
       if (onChanged) await onChanged()
     } catch (err) {
@@ -166,7 +186,7 @@ export default function PendingApprovals({
           // ignore cloud mirror failures after local success
         }
       }
-      setRejectId(null)
+      setConfirm(null)
       setRejectReason('')
       await loadPending()
       if (onChanged) await onChanged()
@@ -192,53 +212,21 @@ export default function PendingApprovals({
       )
     }
 
-    if (rejectId === rental.id) {
-      return (
-        <div className="pending-approvals-reject-form">
-          <input
-            type="text"
-            value={rejectReason}
-            onChange={(e) => setRejectReason(e.target.value)}
-            placeholder="Reason (optional)"
-          />
-          <button
-            type="button"
-            className="btn-outline btn-sm"
-            disabled={isBusy}
-            onClick={() => {
-              setRejectId(null)
-              setRejectReason('')
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="btn-danger btn-sm"
-            disabled={isBusy}
-            onClick={() => handleReject(rental.id)}
-          >
-            Reject
-          </button>
-        </div>
-      )
-    }
-
     return (
       <div className="pending-approvals-actions">
         <button
           type="button"
           className="btn-primary btn-sm"
           disabled={isBusy}
-          onClick={() => handleAccept(rental.id)}
+          onClick={() => openAcceptConfirm(rental)}
         >
-          {isBusy ? 'Accepting…' : 'Accept'}
+          {isBusy ? 'Working…' : 'Accept'}
         </button>
         <button
           type="button"
           className="btn-outline btn-sm"
           disabled={isBusy}
-          onClick={() => setRejectId(rental.id)}
+          onClick={() => openRejectConfirm(rental)}
         >
           Reject
         </button>
@@ -246,9 +234,63 @@ export default function PendingApprovals({
     )
   }
 
+  const confirmRental = confirm?.rental
+  const confirmVehicle = confirmRental ? vehicleFor(confirmRental) : null
+  const confirmName = confirmRental ? customerName(confirmRental) : ''
+  const confirmVehicleLabel = confirmVehicle
+    ? `${confirmVehicle.make || 'Vehicle'} — ${confirmVehicle.series || ''} (${confirmVehicle.plateNo || '—'})`
+    : 'this rental'
+  const confirmBusy = confirmRental ? busyId === confirmRental.id : false
+
+  const confirmModal = confirmRental ? (
+    <ConfirmModal
+      title={confirm.type === 'accept' ? 'Accept this rental?' : 'Reject this rental?'}
+      message={
+        confirm.type === 'accept'
+          ? `Accept the pending rental for ${confirmVehicleLabel} with ${confirmName}? It will become an active or scheduled rental.`
+          : `Reject the pending rental for ${confirmVehicleLabel} with ${confirmName}? This cannot be undone.`
+      }
+      confirmLabel={
+        confirmBusy
+          ? confirm.type === 'accept'
+            ? 'Accepting…'
+            : 'Rejecting…'
+          : confirm.type === 'accept'
+            ? 'Yes, accept'
+            : 'Yes, reject'
+      }
+      cancelLabel="Cancel"
+      danger={confirm.type === 'reject'}
+      confirmDisabled={confirmBusy}
+      onCancel={closeConfirm}
+      onConfirm={() => {
+        if (confirm.type === 'accept') void handleAccept(confirmRental.id)
+        else void handleReject(confirmRental.id)
+      }}
+    >
+      {confirm.type === 'reject' ? (
+        <label className="field confirm-reject-reason">
+          <span className="field-label">Reason (optional)</span>
+          <input
+            type="text"
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            placeholder="Why is this being rejected?"
+            disabled={confirmBusy}
+          />
+        </label>
+      ) : null}
+    </ConfirmModal>
+  ) : null
+
   if (embedded) {
     if (pending.length === 0) {
-      return <p className="dash-attn-empty">No rentals waiting for approval.</p>
+      return (
+        <>
+          <p className="dash-attn-empty">No rentals waiting for approval.</p>
+          {confirmModal}
+        </>
+      )
     }
 
     return (
@@ -282,12 +324,13 @@ export default function PendingApprovals({
             )
           })}
         </ul>
+        {confirmModal}
       </>
     )
   }
 
   if (compact && pending.length === 0) {
-    return null
+    return confirmModal
   }
 
   if (compact) {
@@ -330,6 +373,7 @@ export default function PendingApprovals({
         {pending.length > 2 ? (
           <p className="dash-attn-empty">+ {pending.length - 2} more in queue</p>
         ) : null}
+        {confirmModal}
       </>
     )
   }
@@ -380,6 +424,7 @@ export default function PendingApprovals({
           })}
         </ul>
       )}
+      {confirmModal}
     </section>
   )
 }

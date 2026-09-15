@@ -70,16 +70,16 @@ export default function VehicleModal({
                 <Detail label="Exceeding / hr" value={formatPeso(rates.exceedHour)} />
               </dl>
             </div>
-
-            <div className="modal-actions">
-              <button type="button" className="btn-ghost" onClick={onClose}>
-                {cancelLabel}
-              </button>
-              <button type="button" className="btn-primary" onClick={onProceed}>
-                {confirmLabel}
-              </button>
-            </div>
           </div>
+        </div>
+
+        <div className="modal-actions vehicle-modal-actions">
+          <button type="button" className="btn-ghost" onClick={onClose}>
+            {cancelLabel}
+          </button>
+          <button type="button" className="btn-primary" onClick={onProceed}>
+            {confirmLabel}
+          </button>
         </div>
       </div>
     </div>

@@ -6,11 +6,19 @@ const SLOTS = [
     key: 'holding',
     title: 'Holding license',
     hint: 'Customer holding their driver’s license next to their face.',
+    required: true,
   },
   {
     key: 'license',
     title: 'Customer photo',
     hint: 'Clear photo of the customer (face), or a close-up of the license front.',
+    required: true,
+  },
+  {
+    key: 'optional',
+    title: 'Optional photo',
+    hint: 'Extra ID, second license side, or any other optional customer photo.',
+    required: false,
   },
 ]
 
@@ -27,6 +35,7 @@ async function readAndCompress(file) {
 function PhotoSlot({
   title,
   hint,
+  optional,
   preview,
   error,
   busy,
@@ -40,12 +49,16 @@ function PhotoSlot({
   onCapture,
   onPick,
   onClear,
+  onUploadClick,
   inputRef,
 }) {
   return (
     <article className={`photo-upload-card${preview ? ' has-preview' : ''}${error ? ' has-error' : ''}`}>
       <div className="photo-upload-head">
-        <h3>{title}</h3>
+        <h3>
+          {title}
+          {optional ? <span className="photo-optional-tag">Optional</span> : null}
+        </h3>
         <p>{hint}</p>
       </div>
 
@@ -83,15 +96,7 @@ function PhotoSlot({
               <select
                 value={selectedDeviceId}
                 onChange={(e) => onDeviceChange(e.target.value)}
-                style={{
-                  flex: '1',
-                  minWidth: '100px',
-                  padding: '0.4rem',
-                  borderRadius: '4px',
-                  border: '1px solid var(--border)',
-                  background: 'var(--surface)',
-                  color: 'var(--text)',
-                }}
+                className="photo-camera-select"
               >
                 {videoDevices.map((d) => (
                   <option key={d.deviceId} value={d.deviceId}>
@@ -109,12 +114,7 @@ function PhotoSlot({
           </>
         ) : (
           <>
-            <button
-              type="button"
-              className="btn-primary"
-              disabled={busy}
-              onClick={() => inputRef.current?.click()}
-            >
+            <button type="button" className="btn-primary" disabled={busy} onClick={onUploadClick}>
               {busy ? 'Working…' : preview ? 'Upload new' : 'Upload photo'}
             </button>
             <button type="button" className="btn-outline" disabled={busy} onClick={onToggleCamera}>
@@ -137,14 +137,14 @@ function PhotoSlot({
 export default function StepPhoto({
   holdingPreview,
   licensePreview,
+  optionalPreview,
   onHoldingChange,
   onLicenseChange,
+  onOptionalChange,
   errors = {},
 }) {
-  const holdingRef = useRef(null)
-  const licenseRef = useRef(null)
-  const holdingVideoRef = useRef(null)
-  const licenseVideoRef = useRef(null)
+  const inputRefs = useRef({})
+  const videoRefs = useRef({})
   const streamRef = useRef(null)
 
   const [busyKey, setBusyKey] = useState('')
@@ -152,6 +152,24 @@ export default function StepPhoto({
   const [cameraKey, setCameraKey] = useState('')
   const [videoDevices, setVideoDevices] = useState([])
   const [selectedDeviceId, setSelectedDeviceId] = useState('')
+
+  const previews = {
+    holding: holdingPreview,
+    license: licensePreview,
+    optional: optionalPreview,
+  }
+
+  const setters = {
+    holding: onHoldingChange,
+    license: onLicenseChange,
+    optional: onOptionalChange,
+  }
+
+  const fieldErrors = {
+    holding: errors.photo,
+    license: errors.licensePhoto,
+    optional: errors.optionalPhoto,
+  }
 
   const stopCamera = () => {
     if (streamRef.current) {
@@ -165,8 +183,7 @@ export default function StepPhoto({
 
   useEffect(() => {
     if (!cameraKey) return undefined
-    const video =
-      cameraKey === 'holding' ? holdingVideoRef.current : licenseVideoRef.current
+    const video = videoRefs.current[cameraKey]
     if (video && streamRef.current) {
       video.srcObject = streamRef.current
     }
@@ -184,7 +201,7 @@ export default function StepPhoto({
         }))
         return
       }
-      
+
       const constraints = deviceId
         ? { video: { deviceId: { exact: deviceId } }, audio: false }
         : { video: { facingMode: 'user' }, audio: false }
@@ -224,9 +241,9 @@ export default function StepPhoto({
     }
   }
 
-  const captureFromCamera = async (slotKey, onChange) => {
-    const video =
-      slotKey === 'holding' ? holdingVideoRef.current : licenseVideoRef.current
+  const captureFromCamera = async (slotKey) => {
+    const onChange = setters[slotKey]
+    const video = videoRefs.current[slotKey]
     if (!video || !video.videoWidth) {
       setLocalError((prev) => ({
         ...prev,
@@ -241,7 +258,6 @@ export default function StepPhoto({
       canvas.width = video.videoWidth
       canvas.height = video.videoHeight
       const ctx = canvas.getContext('2d')
-      // Mirror selfie capture to match preview
       ctx.translate(canvas.width, 0)
       ctx.scale(-1, 1)
       ctx.drawImage(video, 0, 0)
@@ -266,7 +282,8 @@ export default function StepPhoto({
     }
   }
 
-  const handleFile = async (slotKey, file, onChange, inputEl) => {
+  const handleFile = async (slotKey, file, inputEl) => {
+    const onChange = setters[slotKey]
     if (!file) return
     if (!file.type.startsWith('image/')) {
       setLocalError((prev) => ({ ...prev, [slotKey]: 'Please choose an image file' }))
@@ -300,61 +317,43 @@ export default function StepPhoto({
     <section className="step-panel">
       <h2 className="step-title">Customer Photos</h2>
       <p className="step-subtitle">
-        Upload or take two clear photos — the customer holding their license, and a photo of the
-        customer.
+        Upload or take the two required photos — holding license and customer photo. You can also
+        add one optional photo.
       </p>
 
-      <div className="photo-upload-grid">
-        <PhotoSlot
-          title={SLOTS[0].title}
-          hint={SLOTS[0].hint}
-          preview={holdingPreview}
-          error={localError.holding || errors.photo}
-          busy={busyKey === 'holding'}
-          cameraActive={cameraKey === 'holding'}
-          videoRef={holdingVideoRef}
-          mirrored
-          videoDevices={videoDevices}
-          selectedDeviceId={selectedDeviceId}
-          onDeviceChange={handleDeviceChange}
-          inputRef={holdingRef}
-          onToggleCamera={() =>
-            cameraKey === 'holding' ? stopCamera() : startCamera('holding')
-          }
-          onCapture={() => captureFromCamera('holding', onHoldingChange)}
-          onPick={(e) =>
-            handleFile('holding', e.target.files?.[0], onHoldingChange, e.target)
-          }
-          onClear={() => {
-            onHoldingChange('')
-            setLocalError((prev) => ({ ...prev, holding: '' }))
-          }}
-        />
-        <PhotoSlot
-          title={SLOTS[1].title}
-          hint={SLOTS[1].hint}
-          preview={licensePreview}
-          error={localError.license || errors.licensePhoto}
-          busy={busyKey === 'license'}
-          cameraActive={cameraKey === 'license'}
-          videoRef={licenseVideoRef}
-          mirrored
-          videoDevices={videoDevices}
-          selectedDeviceId={selectedDeviceId}
-          onDeviceChange={handleDeviceChange}
-          inputRef={licenseRef}
-          onToggleCamera={() =>
-            cameraKey === 'license' ? stopCamera() : startCamera('license')
-          }
-          onCapture={() => captureFromCamera('license', onLicenseChange)}
-          onPick={(e) =>
-            handleFile('license', e.target.files?.[0], onLicenseChange, e.target)
-          }
-          onClear={() => {
-            onLicenseChange('')
-            setLocalError((prev) => ({ ...prev, license: '' }))
-          }}
-        />
+      <div className="photo-upload-grid photo-upload-grid-customer">
+        {SLOTS.map((slot) => (
+          <PhotoSlot
+            key={slot.key}
+            title={slot.title}
+            hint={slot.hint}
+            optional={!slot.required}
+            preview={previews[slot.key]}
+            error={localError[slot.key] || fieldErrors[slot.key]}
+            busy={busyKey === slot.key}
+            cameraActive={cameraKey === slot.key}
+            videoRef={(el) => {
+              videoRefs.current[slot.key] = el
+            }}
+            mirrored
+            videoDevices={videoDevices}
+            selectedDeviceId={selectedDeviceId}
+            onDeviceChange={handleDeviceChange}
+            inputRef={(el) => {
+              inputRefs.current[slot.key] = el
+            }}
+            onToggleCamera={() =>
+              cameraKey === slot.key ? stopCamera() : startCamera(slot.key)
+            }
+            onCapture={() => captureFromCamera(slot.key)}
+            onPick={(e) => handleFile(slot.key, e.target.files?.[0], e.target)}
+            onUploadClick={() => inputRefs.current[slot.key]?.click()}
+            onClear={() => {
+              setters[slot.key]('')
+              setLocalError((prev) => ({ ...prev, [slot.key]: '' }))
+            }}
+          />
+        ))}
       </div>
     </section>
   )
