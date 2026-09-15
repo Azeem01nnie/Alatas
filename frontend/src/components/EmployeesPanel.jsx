@@ -18,8 +18,30 @@ const EMPTY_FORM = {
   confirmPassword: '',
 }
 
+function getPasswordChecks(pw) {
+  const value = String(pw || '')
+  return [
+    { id: 'length', label: 'At least 8 characters', ok: value.length >= 8 },
+    { id: 'lower', label: 'One lowercase letter', ok: /[a-z]/.test(value) },
+    { id: 'upper', label: 'One uppercase letter', ok: /[A-Z]/.test(value) },
+    { id: 'number', label: 'One number', ok: /\d/.test(value) },
+    { id: 'special', label: 'One special character (@$!%*?&)', ok: /[@$!%*?&]/.test(value) },
+  ]
+}
+
 function isPasswordStrong(pw) {
-  return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/.test(pw)
+  return getPasswordChecks(pw).every((check) => check.ok)
+}
+
+function passwordStrengthMeta(pw) {
+  const checks = getPasswordChecks(pw)
+  const score = checks.filter((c) => c.ok).length
+  if (!pw) {
+    return { score: 0, label: '', level: 'empty', checks }
+  }
+  if (score <= 2) return { score, label: 'Weak', level: 'weak', checks }
+  if (score <= 4) return { score, label: 'Fair', level: 'fair', checks }
+  return { score, label: 'Strong', level: 'strong', checks }
 }
 
 function roleClass(role) {
@@ -64,6 +86,35 @@ function IconEye({ crossed = false }) {
   )
 }
 
+function PasswordStrength({ password }) {
+  const meta = passwordStrengthMeta(password)
+  if (!password) return null
+
+  return (
+    <div className={`password-strength is-${meta.level}`} aria-live="polite">
+      <div className="password-strength-head">
+        <span className="password-strength-label">Strength</span>
+        <strong className="password-strength-value">{meta.label}</strong>
+      </div>
+      <div className="password-strength-meter" aria-hidden="true">
+        {[1, 2, 3, 4, 5].map((step) => (
+          <span
+            key={step}
+            className={`password-strength-bar${meta.score >= step ? ' is-filled' : ''}`}
+          />
+        ))}
+      </div>
+      <ul className="password-strength-checks">
+        {meta.checks.map((check) => (
+          <li key={check.id} className={check.ok ? 'is-ok' : ''}>
+            {check.ok ? '✓' : '○'} {check.label}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 function PasswordField({
   label,
   value,
@@ -71,6 +122,7 @@ function PasswordField({
   autoComplete = 'new-password',
   visible,
   onToggleVisible,
+  showStrength = false,
   error,
 }) {
   return (
@@ -93,6 +145,7 @@ function PasswordField({
           <IconEye crossed={visible} />
         </button>
       </div>
+      {showStrength ? <PasswordStrength password={value} /> : null}
       {error || null}
     </label>
   )
@@ -435,11 +488,10 @@ export default function EmployeesPanel() {
               onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))}
               visible={showCreatePassword}
               onToggleVisible={() => setShowCreatePassword((v) => !v)}
+              showStrength
               error={
                 formErrors && !isPasswordStrong(form.password) ? (
-                  <span className="field-error">
-                    Use 8+ chars with upper, lower, number, and special character
-                  </span>
+                  <span className="field-error">Password does not meet all requirements</span>
                 ) : null
               }
             />
@@ -515,6 +567,7 @@ export default function EmployeesPanel() {
                 }
                 visible={showResetPassword}
                 onToggleVisible={() => setShowResetPassword((v) => !v)}
+                showStrength
               />
               <PasswordField
                 label="Confirm"
