@@ -38,7 +38,10 @@ function formatDateTime(value) {
 
 function isStillPending(rental) {
   if (!rental) return false
-  return rental.approvalStatus === 'pending' || rental.rentalLifecycle === 'pending_approval'
+  return (
+    rental.approvalStatus === 'pending' &&
+    (rental.rentalLifecycle === 'pending_approval' || !rental.rentalLifecycle)
+  )
 }
 
 function normalizeCarPhotos(value) {
@@ -122,12 +125,36 @@ export default function PendingApprovals({
       } else {
         rows = await fetchPendingRentals()
       }
-      setPending(Array.isArray(rows) ? rows : [])
+
+      const fleetIds = new Set((vehicles || []).map((v) => String(v.id)))
+      const valid = (Array.isArray(rows) ? rows : []).filter(isStillPending)
+
+      // Orphan pending (vehicle deleted / re-created with a new id) — dismiss automatically.
+      const orphans = valid.filter((r) => {
+        const vid = String(r.vehicleId || r.vehicle?.id || '')
+        return vid && fleetIds.size > 0 && !fleetIds.has(vid)
+      })
+      const keep = valid.filter((r) => {
+        const vid = String(r.vehicleId || r.vehicle?.id || '')
+        if (!vid) return true
+        if (fleetIds.size === 0) return true
+        return fleetIds.has(vid)
+      })
+
+      if (orphans.length) {
+        await Promise.allSettled(
+          orphans.map((r) =>
+            rejectPendingRentalApi(r.id, 'Auto-dismissed: vehicle no longer in fleet'),
+          ),
+        )
+      }
+
+      setPending(keep)
       setError('')
     } catch (err) {
       setError(err?.message || 'Could not load pending rentals.')
     }
-  }, [])
+  }, [vehicles])
 
   useEffect(() => {
     loadPending()

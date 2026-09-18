@@ -1173,8 +1173,8 @@ export default function AdminPanel() {
     () =>
       rentals.filter(
         (r) =>
-          r.approvalStatus === 'pending' ||
-          r.rentalLifecycle === 'pending_approval',
+          r.approvalStatus === 'pending' &&
+          (r.rentalLifecycle === 'pending_approval' || !r.rentalLifecycle),
       ).length,
     [rentals],
   )
@@ -2125,6 +2125,7 @@ export default function AdminPanel() {
               key={rentFormKey}
               onDirtyChange={handleRentDirtyChange}
               encodedByName={sessionDisplayName}
+              autoApprove={isAdminUser}
             />
           )}
 

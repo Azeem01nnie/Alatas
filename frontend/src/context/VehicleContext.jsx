@@ -20,8 +20,21 @@ import {
 const VehicleContext = createContext(null)
 
 function normalizeRental(r) {
-  const approvalStatus = r.approvalStatus || 'accepted'
-  const base = { ...r, approvalStatus }
+  let approvalStatus = r.approvalStatus || null
+  let rentalLifecycle = r.rentalLifecycle || null
+
+  // Reconcile inconsistent rows so rejected/accepted never stay in the pending queue.
+  if (approvalStatus === 'rejected' || rentalLifecycle === 'cancelled') {
+    approvalStatus = 'rejected'
+    rentalLifecycle = 'cancelled'
+  } else if (approvalStatus === 'pending' || rentalLifecycle === 'pending_approval') {
+    approvalStatus = 'pending'
+    rentalLifecycle = 'pending_approval'
+  } else if (!approvalStatus) {
+    approvalStatus = 'accepted'
+  }
+
+  const base = { ...r, approvalStatus, rentalLifecycle: rentalLifecycle || undefined }
   if (base.rentalLifecycle) return base
   if (approvalStatus === 'pending') {
     return { ...base, rentalLifecycle: 'pending_approval' }
@@ -432,25 +445,63 @@ export function VehicleProvider({ children }) {
   }, [])
 
   const addRental = async (record) => {
+    const autoApprove = Boolean(record?.autoApprove)
     const entry = {
       ...record,
       id: `r-${Date.now()}`,
       source: record.source || 'desktop',
-      approvalStatus: 'pending',
-      rentalLifecycle: 'pending_approval',
-      startedAt: null,
+      approvalStatus: autoApprove ? 'accepted' : 'pending',
+      rentalLifecycle: autoApprove
+        ? (() => {
+            const start = record?.rental?.periodFrom
+              ? new Date(record.rental.periodFrom).getTime()
+              : NaN
+            return !Number.isNaN(start) && start > Date.now() ? 'scheduled' : 'active'
+          })()
+        : 'pending_approval',
+      startedAt:
+        autoApprove &&
+        (() => {
+          const start = record?.rental?.periodFrom
+            ? new Date(record.rental.periodFrom).getTime()
+            : NaN
+          return Number.isNaN(start) || start <= Date.now() ? new Date().toISOString() : null
+        })(),
+      autoApprove: undefined,
     }
 
-    // Desktop schedules wait for mobile/admin approval before becoming scheduled/active.
+    if (autoApprove) {
+      const created = await addRentalApi(entry)
+      if (!created?.id) {
+        setRentals((prev) => [entry, ...prev])
+        if (entry.rentalLifecycle === 'active' && entry.vehicle?.id) {
+          setVehicles((prev) =>
+            prev.map((v) =>
+              String(v.id) === String(entry.vehicle.id) ? { ...v, status: 'Rented' } : v,
+            ),
+          )
+        }
+        return entry
+      }
+      setRentals((prev) => [normalizeRental(created), ...prev.filter((r) => String(r.id) !== String(created.id))])
+      if (created.rentalLifecycle === 'active' && (created.vehicleId || created.vehicle?.id)) {
+        const vid = created.vehicleId || created.vehicle?.id
+        setVehicles((prev) =>
+          prev.map((v) => (String(v.id) === String(vid) ? { ...v, status: 'Rented' } : v)),
+        )
+      }
+      return normalizeRental(created)
+    }
+
+    // Employee / field submissions wait for admin approval.
     const created = await submitPendingRentalApi(entry)
     if (!created?.id) {
-      // Offline: keep a local pending copy so it still appears under Waiting for approval.
       setRentals((prev) => [entry, ...prev])
       return entry
     }
 
-    setRentals((prev) => [created, ...prev.filter((r) => String(r.id) !== String(created.id))])
-    return created
+    setRentals((prev) => [normalizeRental(created), ...prev.filter((r) => String(r.id) !== String(created.id))])
+    return normalizeRental(created)
   }
 
   const bookedVehicleIds = useMemo(() => {

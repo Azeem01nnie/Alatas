@@ -65,7 +65,7 @@ function autoCapitalizeWords(value) {
   return String(value ?? '').replace(/\b([a-z])/g, (match) => match.toUpperCase())
 }
 
-export default function RentCarForm({ onDirtyChange, encodedByName = '' }) {
+export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApprove = false }) {
   const { vehicles, addRental } = useVehicles()
   const [step, setStep] = useState(1)
   const [personal, setPersonal] = useState(initialPersonal)
@@ -403,6 +403,8 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '' }) {
         termsAccepted,
         encodedAt: new Date().toISOString(),
         encodedBy: encoder,
+        autoApprove: Boolean(autoApprove),
+        source: 'desktop',
       }
 
       await addRental(record)

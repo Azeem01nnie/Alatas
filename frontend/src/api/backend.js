@@ -355,12 +355,17 @@ export async function replaceRentals(rentals, options = {}) {
   const { data: pendingRows, error: pendingErr } = await sb
     .from('rentals')
     .select('*')
-    .or('approval_status.eq.pending,rental_lifecycle.eq.pending_approval')
+    .eq('approval_status', 'pending')
   if (pendingErr) throwSb(pendingErr)
 
   const incomingIds = new Set(items.map((r) => r.id))
   const preserved = (pendingRows || [])
     .filter((r) => !incomingIds.has(r.id))
+    .filter(
+      (r) =>
+        r.approval_status === 'pending' &&
+        (r.rental_lifecycle === 'pending_approval' || !r.rental_lifecycle),
+    )
     .map((r) =>
       withSafeVehicleFk(
         { ...r, updated_at: r.updated_at || new Date().toISOString() },
@@ -508,29 +513,75 @@ export function fetchPendingRentals() {
   return sb
     .from('rentals')
     .select('*')
-    .or('approval_status.eq.pending,rental_lifecycle.eq.pending_approval')
+    .eq('approval_status', 'pending')
     .order('created_at', { ascending: false })
     .then(({ data, error }) => {
       if (error) throwSb(error)
-      return (data || []).map(mapRental)
+      return (data || [])
+        .map(mapRental)
+        .filter(
+          (r) =>
+            r.approvalStatus === 'pending' &&
+            (r.rentalLifecycle === 'pending_approval' || !r.rentalLifecycle),
+        )
     })
 }
 
 export async function acceptPendingRental(id) {
   const sb = requireSupabase()
-  const { data, error } = await sb.rpc('accept_pending_rental', { p_id: String(id) })
-  if (error) throwSb(error)
-  return mapRental(data)
+  const key = String(id)
+  const { data, error } = await sb.rpc('accept_pending_rental', { p_id: key })
+  if (!error) return mapRental(data)
+
+  // Fallback when RPC is missing / outdated — still clear the pending queue.
+  const now = new Date().toISOString()
+  const { data: row, error: fetchErr } = await sb.from('rentals').select('*').eq('id', key).maybeSingle()
+  if (fetchErr) throwSb(error)
+  if (!row) throwSb(error)
+  const periodFrom = row.rental?.periodFrom ? new Date(row.rental.periodFrom).getTime() : NaN
+  const startNow = Number.isNaN(periodFrom) || periodFrom <= Date.now()
+  const { data: updated, error: updErr } = await sb
+    .from('rentals')
+    .update({
+      approval_status: 'accepted',
+      rental_lifecycle: startNow ? 'active' : 'scheduled',
+      started_at: startNow ? now : null,
+      rejection_reason: null,
+      updated_at: now,
+    })
+    .eq('id', key)
+    .select('*')
+    .single()
+  if (updErr) throwSb(updErr)
+  if (startNow && row.vehicle_id) {
+    await sb.from('vehicles').update({ status: 'Rented', updated_at: now }).eq('id', row.vehicle_id)
+  }
+  return mapRental(updated)
 }
 
 export async function rejectPendingRental(id, reason = '') {
   const sb = requireSupabase()
+  const key = String(id)
   const { data, error } = await sb.rpc('reject_pending_rental', {
-    p_id: String(id),
+    p_id: key,
     p_reason: reason || '',
   })
-  if (error) throwSb(error)
-  return mapRental(data)
+  if (!error) return mapRental(data)
+
+  const now = new Date().toISOString()
+  const { data: updated, error: updErr } = await sb
+    .from('rentals')
+    .update({
+      approval_status: 'rejected',
+      rental_lifecycle: 'cancelled',
+      rejection_reason: String(reason || '').trim() || null,
+      updated_at: now,
+    })
+    .eq('id', key)
+    .select('*')
+    .single()
+  if (updErr) throwSb(error)
+  return mapRental(updated)
 }
 
 export async function fetchSystemStatus() {
