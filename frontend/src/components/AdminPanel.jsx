@@ -3328,7 +3328,7 @@ export default function AdminPanel() {
                       {isAdminUser && (
                         <button
                           type="button"
-                          className="btn-danger-outline settings-clear-data-btn"
+                          className="btn-outline settings-clear-cache-btn"
                           disabled={dataBusy}
                           onClick={requestClearData}
                         >
