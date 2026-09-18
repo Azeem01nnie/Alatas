@@ -103,7 +103,25 @@ function startStaticServer(rootDir) {
   })
 }
 
-function createWindow() {
+function canReachUrl(url, timeoutMs = 800) {
+  return new Promise((resolve) => {
+    try {
+      const req = http.get(url, (res) => {
+        res.resume()
+        resolve(res.statusCode >= 200 && res.statusCode < 500)
+      })
+      req.on('error', () => resolve(false))
+      req.setTimeout(timeoutMs, () => {
+        req.destroy()
+        resolve(false)
+      })
+    } catch {
+      resolve(false)
+    }
+  })
+}
+
+function createWindow(loadUrl) {
   const { iconPath } = resolvePaths()
   const winOptions = {
     width: 1280,
@@ -135,26 +153,42 @@ function createWindow() {
     return { action: 'deny' }
   })
 
-  if (isDev) {
-    mainWindow.loadURL(process.env.ALATAS_DEV_URL || 'http://localhost:5173')
-    if (process.env.ALATAS_OPEN_DEVTOOLS === '1') {
-      mainWindow.webContents.openDevTools({ mode: 'detach' })
-    }
-  } else {
-    mainWindow.loadURL(`http://127.0.0.1:${staticPort}`)
+  mainWindow.loadURL(loadUrl)
+  if (isDev && process.env.ALATAS_OPEN_DEVTOOLS === '1') {
+    mainWindow.webContents.openDevTools({ mode: 'detach' })
   }
 }
 
 async function bootstrap() {
   try {
-    if (!isDev) {
-      const { frontendDist } = resolvePaths()
+    const { frontendDist } = resolvePaths()
+    const preferredDevUrl = process.env.ALATAS_DEV_URL || 'http://127.0.0.1:5173'
+    let loadUrl = ''
+
+    if (isDev) {
+      const viteUp = await canReachUrl(preferredDevUrl)
+      if (viteUp) {
+        loadUrl = preferredDevUrl
+        logLine(`Dev UI from Vite: ${loadUrl}`)
+      } else {
+        if (!fs.existsSync(path.join(frontendDist, 'index.html'))) {
+          throw new Error(
+            `Vite is not running at ${preferredDevUrl} and frontend build is missing:\n${frontendDist}\n\nRun: npm run build --prefix frontend`,
+          )
+        }
+        await startStaticServer(frontendDist)
+        loadUrl = `http://127.0.0.1:${staticPort}`
+        logLine(`Vite offline — serving built UI from ${frontendDist}`)
+      }
+    } else {
       if (!fs.existsSync(path.join(frontendDist, 'index.html'))) {
         throw new Error(`Frontend build missing: ${frontendDist}`)
       }
       await startStaticServer(frontendDist)
+      loadUrl = `http://127.0.0.1:${staticPort}`
     }
-    createWindow()
+
+    createWindow(loadUrl)
   } catch (err) {
     const logFile = writeCrashLog(err)
     logLine(`Startup failed: ${err}`)
