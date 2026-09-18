@@ -8710,6 +8710,107 @@ html[data-theme='dark'] .transaction-photo-card figcaption {
   margin-top: 0.85rem;
 }
 
+.transaction-car-photos-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-top: 0.85rem;
+}
+
+.transaction-car-photos-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.transaction-car-photos-head h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.transaction-car-photos-head p {
+  margin: 0.2rem 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.transaction-car-photos-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.transaction-photo-add {
+  width: 100%;
+  min-height: 7.5rem;
+  display: grid;
+  place-content: center;
+  gap: 0.25rem;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0.75rem;
+  text-align: center;
+}
+
+.transaction-photo-add span {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.transaction-photo-add small {
+  font-size: 0.7rem;
+}
+
+.transaction-photo-add:hover:not(:disabled),
+.transaction-photo-add-card:hover:not(:disabled) {
+  border-color: rgba(179, 32, 37, 0.4);
+  color: var(--brand);
+}
+
+.transaction-photo-add:disabled,
+.transaction-photo-add-card:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.transaction-photo-add-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+}
+
+.transaction-photo-add-card .transaction-photo-add {
+  border: 0;
+  border-radius: 0;
+  flex: 1;
+}
+
+.transaction-photo-add-card figcaption {
+  padding: 0.45rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+}
+
+.transaction-photo-remove {
+  margin: 0 0.55rem 0.55rem;
+  color: var(--error);
+}
+
 /* Manage Vehicle — OR/CR + lock */
 .vehicle-form-toolbar {
   display: flex;

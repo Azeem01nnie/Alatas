@@ -133,8 +133,8 @@ export default function CarPhotosScreen() {
       Alert.alert('Missing rental', 'Could not identify this rental.');
       return;
     }
-    if (!allComplete) {
-      Alert.alert('Incomplete', 'Capture all four sides before submitting.');
+    if (!allComplete && extras.length === 0 && completedCount === 0) {
+      Alert.alert('Nothing to save', 'Add at least one vehicle photo before saving.');
       return;
     }
 
@@ -143,13 +143,12 @@ export default function CarPhotosScreen() {
     setSubmitting(true);
     try {
       const result = await uploadCarPhotos(rentalId, buildPayload(addedBy), addedBy);
+      const total = completedCount + extras.length;
       Alert.alert(
         result?.queued ? 'Queued offline' : 'Photos saved',
         result?.queued
           ? 'Saved locally and will sync when you are back online.'
-          : extras.length
-            ? `Saved 4 required sides plus ${extras.length} optional photo(s).`
-            : 'Pre-rental car photos are synced to desktop.',
+          : `Saved ${total} vehicle photo${total === 1 ? '' : 's'}. You can add more anytime.`,
         [{ text: 'OK', onPress: () => navigation.goBack() }],
       );
     } catch (err) {
@@ -179,9 +178,9 @@ export default function CarPhotosScreen() {
         <View style={[styles.lockBanner, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <Lock color={ACCENT} size={18} />
           <View style={styles.lockBannerText}>
-            <Text style={[styles.lockTitle, { color: theme.textMain }]}>Required sides locked</Text>
+            <Text style={[styles.lockTitle, { color: theme.textMain }]}>Sides locked</Text>
             <Text style={[styles.lockSub, { color: theme.textSub }]}>
-              Front, rear, left, and right cannot be changed. You can still add optional photos.
+              Front, rear, left, and right cannot be changed. You can still add more photos.
             </Text>
             {addedByLabel ? (
               <Text style={[styles.lockSub, { color: theme.textSub }]}>Added by {addedByLabel}</Text>
@@ -257,7 +256,7 @@ export default function CarPhotosScreen() {
 
       <View style={styles.progressRow}>
         <Text style={[styles.progressText, { color: theme.textSub }]}>
-          {completedCount} of {CAR_PHOTO_SLOTS.length} required · {extras.length} optional
+          {completedCount} of {CAR_PHOTO_SLOTS.length} sides · {extras.length} extra
         </Text>
       </View>
 
@@ -273,22 +272,21 @@ export default function CarPhotosScreen() {
 
         {step < CAR_PHOTO_SLOTS.length - 1 ? (
           <TouchableOpacity
-            style={[
-              styles.navBtn,
-              styles.navBtnPrimary,
-              !requiredLocked && !currentPhoto && styles.navBtnDisabled,
-            ]}
+            style={[styles.navBtn, styles.navBtnPrimary]}
             onPress={() => setStep((s) => Math.min(CAR_PHOTO_SLOTS.length - 1, s + 1))}
-            disabled={!requiredLocked && !currentPhoto}
           >
             <Text style={styles.navBtnPrimaryText}>Next</Text>
             <ChevronRight color="#fff" size={20} />
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
-            style={[styles.navBtn, styles.navBtnPrimary, (!allComplete || submitting) && styles.navBtnDisabled]}
+            style={[
+              styles.navBtn,
+              styles.navBtnPrimary,
+              (submitting || (completedCount === 0 && extras.length === 0)) && styles.navBtnDisabled,
+            ]}
             onPress={handleSubmit}
-            disabled={!allComplete || submitting}
+            disabled={submitting || (completedCount === 0 && extras.length === 0)}
           >
             {submitting ? (
               <ActivityIndicator color="#fff" />
@@ -301,11 +299,11 @@ export default function CarPhotosScreen() {
         )}
       </View>
 
-      {allComplete ? (
-        <View style={[styles.extrasSection, { borderColor: theme.border, backgroundColor: theme.card }]}>
-          <Text style={[styles.extrasTitle, { color: theme.textMain }]}>Optional photos</Text>
+      <View style={[styles.extrasSection, { borderColor: theme.border, backgroundColor: theme.card }]}>
+          <Text style={[styles.extrasTitle, { color: theme.textMain }]}>More photos</Text>
           <Text style={[styles.extrasHint, { color: theme.textSub }]}>
-            Add more photos after the 4 required sides (damage close-ups, odometer, etc.). Tap a photo to view full size.
+            Add as many as you need — damage close-ups, odometer, accessories, or other angles. Tap a
+            photo to view full size.
           </Text>
 
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.extrasRow}>
@@ -344,7 +342,6 @@ export default function CarPhotosScreen() {
             </View>
           </ScrollView>
         </View>
-      ) : null}
 
       <FullImageViewer
         visible={Boolean(viewer.uri)}

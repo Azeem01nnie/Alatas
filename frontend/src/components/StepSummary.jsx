@@ -97,8 +97,10 @@ export default function StepSummary({
                 {(() => {
                   const sides = CAR_PHOTO_SLOTS.filter((slot) => Boolean(carPhotos?.[slot.key])).length
                   const extras = Array.isArray(carPhotos?.extras) ? carPhotos.extras.length : 0
-                  if (!carSidesReady) return `${sides} of 4 required`
-                  return `4 of 4 sides${extras ? ` · ${extras} extra` : ''}`
+                  const total = sides + extras
+                  if (!total) return 'Optional · none yet'
+                  if (carSidesReady) return `4 sides${extras ? ` · ${extras} extra` : ''}`
+                  return `${total} attached`
                 })()}
               </strong>
             </div>
@@ -241,8 +243,8 @@ export default function StepSummary({
                   <h3>Pre-rental car photos</h3>
                   <p className="summary-empty">
                     {carSidesReady
-                      ? 'All 4 required sides are attached.'
-                      : 'All 4 vehicle sides are required before submit.'}
+                      ? 'All 4 sides are attached.'
+                      : 'Optional — you can add these later from the rental transaction.'}
                   </p>
                 </div>
                 {CAR_PHOTO_SLOTS.some((slot) => Boolean(carPhotos?.[slot.key])) ||
@@ -260,7 +262,7 @@ export default function StepSummary({
                             className="summary-photo"
                           />
                         ) : (
-                          <p className="summary-empty">Required</p>
+                          <p className="summary-empty">Skipped</p>
                         )}
                       </div>
                     ))}
@@ -279,7 +281,9 @@ export default function StepSummary({
                       </div>
                     ))}
                   </div>
-                ) : null}
+                ) : (
+                  <p className="summary-empty">No car photos attached yet.</p>
+                )}
               </div>
             </article>
           </aside>

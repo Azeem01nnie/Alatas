@@ -578,6 +578,7 @@ export default function AdminPanel() {
     updateVehicleStatus,
     completeRentalForVehicle,
     cancelScheduledRental,
+    updateRentalCarPhotos,
     replaceAllData,
     reloadData,
   } = useVehicles()
@@ -1621,6 +1622,23 @@ export default function AdminPanel() {
     setTab(returnTab)
   }
 
+  const handleSaveTransactionCarPhotos = (rentalId, carPhotos, addedBy) => {
+    const updated = updateRentalCarPhotos(rentalId, carPhotos, addedBy)
+    if (updated) {
+      setSelectedTransaction((prev) =>
+        prev && String(prev.id) === String(rentalId)
+          ? {
+              ...prev,
+              carPhotos: updated.carPhotos,
+              carPhotosAddedBy: updated.carPhotosAddedBy,
+              updatedAt: updated.updatedAt,
+            }
+          : prev,
+      )
+    }
+    return updated
+  }
+
   const requestArchive = (vehicle) => {
     const blocking = getBlockingRental(vehicle.id, rentals)
     if (blocking) {
@@ -2032,6 +2050,9 @@ export default function AdminPanel() {
                     : '← Back to History'
               }
               onBack={closeTransaction}
+              canEditCarPhotos
+              addedByName={sessionDisplayName}
+              onSaveCarPhotos={handleSaveTransactionCarPhotos}
             />
           ) : (
             <>

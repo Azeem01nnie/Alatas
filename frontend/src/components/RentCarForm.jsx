@@ -153,6 +153,26 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '' }) {
     setErrors((prev) => ({ ...prev, [key]: '', carPhotos: '' }))
   }
 
+  // Car photos are optional — never keep required-slot errors around.
+  useEffect(() => {
+    if (step !== 6) return
+    setErrors((prev) => {
+      const next = { ...prev }
+      let changed = false
+      for (const slot of CAR_PHOTO_SLOTS) {
+        if (next[slot.key]) {
+          next[slot.key] = ''
+          changed = true
+        }
+      }
+      if (next.carPhotos) {
+        next.carPhotos = ''
+        changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [step])
+
   const validateStep = (currentStep) => {
     const nextErrors = {}
 
@@ -238,16 +258,7 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '' }) {
       if (!termsAccepted) nextErrors.terms = 'You must accept the terms to continue'
     }
 
-    if (currentStep === 6) {
-      for (const slot of CAR_PHOTO_SLOTS) {
-        if (!carPhotos[slot.key]) {
-          nextErrors[slot.key] = `${slot.title} photo is required`
-        }
-      }
-      if (CAR_PHOTO_SLOTS.some((slot) => !carPhotos[slot.key])) {
-        nextErrors.carPhotos = 'Add all 4 pre-rental car photos (front, rear, left, and right)'
-      }
-    }
+    // Step 6 car photos are optional — can be added later from the rental transaction.
 
     setErrors(nextErrors)
     return Object.keys(nextErrors).length === 0
@@ -279,21 +290,6 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '' }) {
       if (!selectedVehicle) {
         setSubmitError('Selected vehicle is no longer available. Please go back and choose again.')
         setStep(2)
-        setSubmitting(false)
-        return
-      }
-
-      if (!CAR_PHOTO_SLOTS.every((slot) => Boolean(carPhotos[slot.key]))) {
-        for (const slot of CAR_PHOTO_SLOTS) {
-          if (!carPhotos[slot.key]) {
-            setErrors((prev) => ({
-              ...prev,
-              [slot.key]: `${slot.title} photo is required`,
-              carPhotos: 'Add all 4 pre-rental car photos (front, rear, left, and right)',
-            }))
-          }
-        }
-        setStep(6)
         setSubmitting(false)
         return
       }
@@ -431,6 +427,17 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '' }) {
         setRental({ ...next, ...auto })
       }
     }
+    // Step 6 (car photos) is fully optional — always allow continue.
+    if (step === 6) {
+      setErrors((prev) => {
+        const next = { ...prev }
+        for (const slot of CAR_PHOTO_SLOTS) next[slot.key] = ''
+        next.carPhotos = ''
+        return next
+      })
+      setStep(7)
+      return
+    }
     if (!validateStep(step)) return
     if (step < TOTAL_STEPS) {
       setStep((s) => s + 1)
@@ -515,7 +522,7 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '' }) {
           <StepCarCondition
             photos={carPhotos}
             onChange={updateCarPhoto}
-            errors={errors}
+            errors={{}}
           />
         )}
         {step === 7 && (

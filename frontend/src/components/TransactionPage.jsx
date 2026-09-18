@@ -1,6 +1,33 @@
+import { useEffect, useRef, useState } from 'react'
 import { jsPDF } from 'jspdf'
 import { CONTRACT_TERMS, LIABILITY_CLAUSE, formatContractTerm } from '../data/contract'
 import { formatEmergencyContact } from '../utils/phone'
+import { compressImageDataUrl } from '../utils/storage'
+
+const CAR_SLOTS = [
+  { key: 'front', label: 'Front' },
+  { key: 'rear', label: 'Rear' },
+  { key: 'left', label: 'Left side' },
+  { key: 'right', label: 'Right side' },
+]
+
+function normalizeCarPhotos(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { extras: [] }
+  return {
+    ...value,
+    extras: Array.isArray(value.extras) ? value.extras : [],
+  }
+}
+
+async function readAndCompress(file) {
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(new Error('Could not read file'))
+    reader.readAsDataURL(file)
+  })
+  return compressImageDataUrl(dataUrl, 960, 0.8)
+}
 
 function formatDateTime(value) {
   if (!value) return '—'
@@ -357,6 +384,9 @@ export default function TransactionPage({
   transaction,
   onBack,
   backLabel = '← Back to History',
+  canEditCarPhotos = false,
+  addedByName = '',
+  onSaveCarPhotos,
 }) {
   const {
     personal = {},
@@ -365,20 +395,110 @@ export default function TransactionPage({
     photo,
     licensePhoto,
     signature,
-    carPhotos = {},
   } = transaction
 
-  const optionalPhoto = personal?.optionalPhoto || ''
+  const [carPhotos, setCarPhotos] = useState(() => normalizeCarPhotos(transaction.carPhotos))
+  const [photoBusy, setPhotoBusy] = useState('')
+  const [photoError, setPhotoError] = useState('')
+  const slotInputRefs = useRef({})
+  const extraInputRef = useRef(null)
 
-  const carSlots = [
-    { key: 'front', label: 'Front' },
-    { key: 'rear', label: 'Rear' },
-    { key: 'left', label: 'Left side' },
-    { key: 'right', label: 'Right side' },
-  ]
+  useEffect(() => {
+    setCarPhotos(normalizeCarPhotos(transaction.carPhotos))
+  }, [transaction.id, transaction.carPhotos])
+
+  const optionalPhoto = personal?.optionalPhoto || ''
   const extraPhotos = Array.isArray(carPhotos?.extras)
-    ? carPhotos.extras.filter((item) => item?.uri && String(item.uri).startsWith('data:image'))
+    ? carPhotos.extras.filter(
+        (item) =>
+          item?.uri &&
+          (String(item.uri).startsWith('data:image') || /^https?:\/\//i.test(String(item.uri))),
+      )
     : []
+
+  const persistCarPhotos = async (nextPhotos) => {
+    setCarPhotos(nextPhotos)
+    if (!canEditCarPhotos || typeof onSaveCarPhotos !== 'function') return
+    try {
+      await onSaveCarPhotos(transaction.id, nextPhotos, addedByName)
+      setPhotoError('')
+    } catch (err) {
+      setPhotoError(err?.message || 'Could not save car photos.')
+    }
+  }
+
+  const handleSlotFile = async (slotKey, file, inputEl) => {
+    if (!file || !canEditCarPhotos) return
+    if (!file.type.startsWith('image/')) {
+      setPhotoError('Please choose an image file')
+      return
+    }
+    setPhotoBusy(slotKey)
+    setPhotoError('')
+    try {
+      const compressed = await readAndCompress(file)
+      if (!compressed) {
+        setPhotoError('Could not process that image. Try another file.')
+        return
+      }
+      await persistCarPhotos({
+        ...carPhotos,
+        [slotKey]: compressed,
+      })
+    } catch {
+      setPhotoError('Upload failed. Please try again.')
+    } finally {
+      setPhotoBusy('')
+      if (inputEl) inputEl.value = ''
+    }
+  }
+
+  const handleExtraFile = async (file, inputEl) => {
+    if (!file || !canEditCarPhotos) return
+    if (!file.type.startsWith('image/')) {
+      setPhotoError('Please choose an image file')
+      return
+    }
+    setPhotoBusy('extra')
+    setPhotoError('')
+    try {
+      const compressed = await readAndCompress(file)
+      if (!compressed) {
+        setPhotoError('Could not process that image. Try another file.')
+        return
+      }
+      const extras = Array.isArray(carPhotos.extras) ? carPhotos.extras : []
+      await persistCarPhotos({
+        ...carPhotos,
+        extras: [
+          ...extras,
+          {
+            id: `extra-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            uri: compressed,
+            label: `Extra ${extras.length + 1}`,
+          },
+        ],
+      })
+    } catch {
+      setPhotoError('Upload failed. Please try again.')
+    } finally {
+      setPhotoBusy('')
+      if (inputEl) inputEl.value = ''
+    }
+  }
+
+  const removeExtra = async (id) => {
+    if (!canEditCarPhotos) return
+    const extras = (Array.isArray(carPhotos.extras) ? carPhotos.extras : []).filter(
+      (item) => item.id !== id,
+    )
+    setPhotoBusy(`remove-${id}`)
+    try {
+      await persistCarPhotos({ ...carPhotos, extras })
+    } finally {
+      setPhotoBusy('')
+    }
+  }
 
   return (
     <section className="transaction-page">
@@ -392,7 +512,7 @@ export default function TransactionPage({
             type="button"
             className="btn-primary"
             onClick={() => {
-              void downloadContractPdf(transaction)
+              void downloadContractPdf({ ...transaction, carPhotos })
             }}
           >
             Download Contract PDF
@@ -442,24 +562,109 @@ export default function TransactionPage({
         </figure>
       </div>
 
-      <div className="transaction-photos transaction-car-photos">
-        {carSlots.map((slot) => (
-          <figure key={slot.key} className="transaction-photo-card">
-            {carPhotos?.[slot.key] ? (
-              <img src={carPhotos[slot.key]} alt={`Car ${slot.label}`} />
-            ) : (
-              <div className="transaction-photo-empty">No {slot.label.toLowerCase()} photo</div>
-            )}
-            <figcaption>{slot.label}</figcaption>
-          </figure>
-        ))}
-        {extraPhotos.map((item, index) => (
-          <figure key={item.id || `extra-${index}`} className="transaction-photo-card">
-            <img src={item.uri} alt={item.label || `Extra ${index + 1}`} />
-            <figcaption>{item.label || `Extra ${index + 1}`}</figcaption>
-          </figure>
-        ))}
-      </div>
+      <section className="transaction-car-photos-block">
+        <div className="transaction-car-photos-head">
+          <div>
+            <h3>Pre-rental car photos</h3>
+            <p>
+              {canEditCarPhotos
+                ? 'Optional — click an empty slot or Add photo to attach as many as you need.'
+                : 'Vehicle condition photos for this rental.'}
+            </p>
+          </div>
+          {canEditCarPhotos ? (
+            <div className="transaction-car-photos-actions">
+              <input
+                ref={extraInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="sr-only"
+                onChange={(e) => handleExtraFile(e.target.files?.[0], e.target)}
+              />
+              <button
+                type="button"
+                className="btn-primary btn-sm"
+                disabled={Boolean(photoBusy)}
+                onClick={() => extraInputRef.current?.click()}
+              >
+                {photoBusy === 'extra' ? 'Adding…' : 'Add photo'}
+              </button>
+            </div>
+          ) : null}
+        </div>
+
+        {photoError ? <span className="error-msg">{photoError}</span> : null}
+
+        <div className="transaction-photos transaction-car-photos">
+          {CAR_SLOTS.map((slot) => {
+            const preview = carPhotos?.[slot.key]
+            const empty = !preview
+            return (
+              <figure key={slot.key} className="transaction-photo-card">
+                {preview ? (
+                  <img src={preview} alt={`Car ${slot.label}`} />
+                ) : canEditCarPhotos ? (
+                  <button
+                    type="button"
+                    className="transaction-photo-add"
+                    disabled={Boolean(photoBusy)}
+                    onClick={() => slotInputRefs.current[slot.key]?.click()}
+                  >
+                    <span>{photoBusy === slot.key ? 'Adding…' : 'Click to add'}</span>
+                    <small>{slot.label}</small>
+                  </button>
+                ) : (
+                  <div className="transaction-photo-empty">No {slot.label.toLowerCase()} photo</div>
+                )}
+                <figcaption>{slot.label}</figcaption>
+                {canEditCarPhotos && empty ? (
+                  <input
+                    ref={(el) => {
+                      slotInputRefs.current[slot.key] = el
+                    }}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="sr-only"
+                    onChange={(e) => handleSlotFile(slot.key, e.target.files?.[0], e.target)}
+                  />
+                ) : null}
+              </figure>
+            )
+          })}
+          {extraPhotos.map((item, index) => (
+            <figure key={item.id || `extra-${index}`} className="transaction-photo-card">
+              <img src={item.uri} alt={item.label || `Extra ${index + 1}`} />
+              <figcaption>{item.label || `Extra ${index + 1}`}</figcaption>
+              {canEditCarPhotos ? (
+                <button
+                  type="button"
+                  className="btn-ghost btn-sm transaction-photo-remove"
+                  disabled={Boolean(photoBusy)}
+                  onClick={() => removeExtra(item.id)}
+                >
+                  Remove
+                </button>
+              ) : null}
+            </figure>
+          ))}
+          {canEditCarPhotos ? (
+            <button
+              type="button"
+              className="transaction-photo-card transaction-photo-add-card"
+              disabled={Boolean(photoBusy)}
+              onClick={() => extraInputRef.current?.click()}
+            >
+              <span className="transaction-photo-add">
+                <span>{photoBusy === 'extra' ? 'Adding…' : '+ Add photo'}</span>
+                <small>Unlimited extras</small>
+              </span>
+              <figcaption>More photos</figcaption>
+            </button>
+          ) : null}
+        </div>
+      </section>
 
       <div className="transaction-grid">
         <article className="transaction-card">

@@ -99,7 +99,7 @@ function CarPhotoSlot({
   )
 }
 
-export default function StepCarCondition({ photos, onChange, errors = {} }) {
+export default function StepCarCondition({ photos, onChange }) {
   const inputRefs = useRef({})
   const extraInputRef = useRef(null)
   const videoRefs = useRef({})
@@ -277,18 +277,18 @@ export default function StepCarCondition({ photos, onChange, errors = {} }) {
     <section className="step-panel">
       <h2 className="step-title">Pre-rental Car Photos</h2>
       <p className="step-subtitle">
-        Required — capture all 4 vehicle sides before submitting. You can also attach extra optional
-        photos for damage close-ups or accessories.
+        Optional — you can skip this step. Add vehicle sides now, or attach photos later from the
+        rental transaction. Extra photos are also optional.
       </p>
 
       <div className="photo-upload-grid photo-upload-grid-4">
         {CAR_PHOTO_SLOTS.map((slot) => (
           <CarPhotoSlot
             key={slot.key}
-            title={slot.title}
+            title={`${slot.title} (optional)`}
             hint={slot.hint}
             preview={photos?.[slot.key] || ''}
-            error={localError[slot.key] || errors[slot.key]}
+            error={localError[slot.key] || ''}
             busy={busyKey === slot.key}
             cameraActive={cameraKey === slot.key}
             videoRef={(el) => {
@@ -313,8 +313,8 @@ export default function StepCarCondition({ photos, onChange, errors = {} }) {
 
       <div className="car-photo-extras">
         <div className="car-photo-extras-head">
-          <h3>Optional extra photos</h3>
-          <p>Add damage close-ups, odometer, accessories, or any other photos beyond the 4 sides.</p>
+          <h3>Extra photos</h3>
+          <p>Add as many as you need — damage close-ups, odometer, accessories, or other angles.</p>
         </div>
 
         <div className="car-photo-extras-grid">
@@ -396,8 +396,6 @@ export default function StepCarCondition({ photos, onChange, errors = {} }) {
         </div>
         {extraError ? <span className="error-msg">{extraError}</span> : null}
       </div>
-
-      {errors.carPhotos && <span className="error-msg">{errors.carPhotos}</span>}
     </section>
   )
 }

@@ -193,8 +193,8 @@ export default function EmployeeCameraScreen() {
       Alert.alert('Missing rental', 'Pick an upcoming rental first.');
       return;
     }
-    if (!allComplete) {
-      Alert.alert('Incomplete', 'Capture Front, Rear, Left, and Right before submitting.');
+    if (completedCount === 0 && extras.length === 0) {
+      Alert.alert('Nothing to save', 'Add at least one vehicle photo before submitting.');
       return;
     }
 
@@ -268,7 +268,7 @@ export default function EmployeeCameraScreen() {
                   {item.text}
                 </Text>
                 <View style={styles.needBadge}>
-                  <Text style={styles.needBadgeText}>4 sides required</Text>
+                  <Text style={styles.needBadgeText}>Photos optional</Text>
                 </View>
               </View>
               <ChevronRight color={ACCENT} size={22} />
@@ -385,7 +385,7 @@ export default function EmployeeCameraScreen() {
       )}
 
       <Text style={[styles.progressText, { color: theme.textSub }]}>
-        {completedCount} of {CAR_PHOTO_SLOTS.length} required · {extras.length} optional
+        {completedCount} of {CAR_PHOTO_SLOTS.length} sides · {extras.length} extra
       </Text>
 
       <View style={styles.navRow}>
@@ -402,9 +402,8 @@ export default function EmployeeCameraScreen() {
 
         {step < CAR_PHOTO_SLOTS.length - 1 ? (
           <TouchableOpacity
-            style={[styles.navBtn, styles.navBtnPrimary, !currentPhoto && styles.navBtnDisabled]}
+            style={[styles.navBtn, styles.navBtnPrimary]}
             onPress={() => setStep((s) => Math.min(CAR_PHOTO_SLOTS.length - 1, s + 1))}
-            disabled={!currentPhoto}
           >
             <Text style={styles.navBtnPrimaryText}>Next</Text>
             <ChevronRight color="#fff" size={20} />
@@ -414,10 +413,10 @@ export default function EmployeeCameraScreen() {
             style={[
               styles.navBtn,
               styles.navBtnPrimary,
-              (!allComplete || submitting) && styles.navBtnDisabled,
+              (submitting || (completedCount === 0 && extras.length === 0)) && styles.navBtnDisabled,
             ]}
             onPress={handleSubmit}
-            disabled={!allComplete || submitting}
+            disabled={submitting || (completedCount === 0 && extras.length === 0)}
           >
             {submitting ? (
               <ActivityIndicator color="#fff" />
@@ -428,11 +427,10 @@ export default function EmployeeCameraScreen() {
         )}
       </View>
 
-      {allComplete ? (
-        <View style={[styles.extrasSection, { borderColor: theme.border, backgroundColor: theme.card }]}>
-          <Text style={[styles.extrasTitle, { color: theme.textMain }]}>Optional photos</Text>
+      <View style={[styles.extrasSection, { borderColor: theme.border, backgroundColor: theme.card }]}>
+          <Text style={[styles.extrasTitle, { color: theme.textMain }]}>More photos</Text>
           <Text style={[styles.extrasHint, { color: theme.textSub }]}>
-            Add more after the 4 required sides. Tap a photo to view full size.
+            Add as many as you need. Tap a photo to view full size.
           </Text>
           <View style={styles.extrasRow}>
             {extras.map((item, index) => (
@@ -465,7 +463,6 @@ export default function EmployeeCameraScreen() {
             </TouchableOpacity>
           </View>
         </View>
-      ) : null}
 
       <FullImageViewer
         visible={Boolean(viewer.uri)}

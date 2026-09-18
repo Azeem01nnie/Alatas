@@ -229,6 +229,32 @@ export function VehicleProvider({ children }) {
     )
   }, [])
 
+  const updateRentalCarPhotos = useCallback((rentalId, carPhotos, addedBy = '') => {
+    if (!rentalId) return null
+    const key = String(rentalId)
+    const now = new Date().toISOString()
+    const nextPhotos =
+      carPhotos && typeof carPhotos === 'object' && !Array.isArray(carPhotos) ? carPhotos : {}
+    const addedByName = String(addedBy || '').trim()
+    let updated = null
+
+    setRentals((prev) => {
+      const next = prev.map((r) => {
+        if (String(r.id) !== key) return r
+        updated = {
+          ...r,
+          carPhotos: nextPhotos,
+          carPhotosAddedBy: addedByName || r.carPhotosAddedBy || null,
+          updatedAt: now,
+        }
+        return updated
+      })
+      return updated ? next : prev
+    })
+
+    return updated
+  }, [])
+
   useEffect(() => {
     const activateDueRentals = () => {
       const now = Date.now()
@@ -367,6 +393,7 @@ export function VehicleProvider({ children }) {
         addRental,
         completeRentalForVehicle,
         cancelScheduledRental,
+        updateRentalCarPhotos,
         reloadData,
         replaceAllData,
       }}
