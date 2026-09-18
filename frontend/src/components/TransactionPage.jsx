@@ -400,6 +400,8 @@ export default function TransactionPage({
   const [carPhotos, setCarPhotos] = useState(() => normalizeCarPhotos(transaction.carPhotos))
   const [photoBusy, setPhotoBusy] = useState('')
   const [photoError, setPhotoError] = useState('')
+  const [customerPhotosOpen, setCustomerPhotosOpen] = useState(true)
+  const [carPhotosOpen, setCarPhotosOpen] = useState(true)
   const slotInputRefs = useRef({})
   const extraInputRef = useRef(null)
 
@@ -407,7 +409,27 @@ export default function TransactionPage({
     setCarPhotos(normalizeCarPhotos(transaction.carPhotos))
   }, [transaction.id, transaction.carPhotos])
 
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 860px)')
+    const sync = () => {
+      if (mq.matches) {
+        setCustomerPhotosOpen(false)
+        setCarPhotosOpen(false)
+      } else {
+        setCustomerPhotosOpen(true)
+        setCarPhotosOpen(true)
+      }
+    }
+    sync()
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
+
   const optionalPhoto = personal?.optionalPhoto || ''
+  const photographer =
+    transaction.carPhotosAddedBy || carPhotos?._addedBy || String(addedByName || '').trim() || ''
+  const customerPhotoCount =
+    (photo ? 1 : 0) + (licensePhoto ? 1 : 0) + (optionalPhoto ? 1 : 0) + (vehicle.image ? 1 : 0)
   const extraPhotos = Array.isArray(carPhotos?.extras)
     ? carPhotos.extras.filter(
         (item) =>
@@ -415,17 +437,19 @@ export default function TransactionPage({
           (String(item.uri).startsWith('data:image') || /^https?:\/\//i.test(String(item.uri))),
       )
     : []
+  const carPhotoCount =
+    CAR_SLOTS.filter((slot) => Boolean(carPhotos?.[slot.key])).length + extraPhotos.length
 
   const persistCarPhotos = async (nextPhotos) => {
-    const photographer = String(addedByName || '').trim()
+    const byName = String(addedByName || '').trim()
     const stamped = {
       ...nextPhotos,
-      ...(photographer ? { _addedBy: photographer } : {}),
+      ...(byName ? { _addedBy: byName } : {}),
     }
     setCarPhotos(stamped)
     if (!canEditCarPhotos || typeof onSaveCarPhotos !== 'function') return
     try {
-      await onSaveCarPhotos(transaction.id, stamped, photographer)
+      await onSaveCarPhotos(transaction.id, stamped, byName)
       setPhotoError('')
     } catch (err) {
       setPhotoError(err?.message || 'Could not save car photos.')
@@ -535,151 +559,195 @@ export default function TransactionPage({
         </p>
       </header>
 
-      <div className="transaction-photos">
-        <figure className="transaction-photo-card">
-          {photo ? (
-            <img src={photo} alt="Customer holding license" />
-          ) : (
-            <div className="transaction-photo-empty">No holding-license photo</div>
-          )}
-          <figcaption>Holding License</figcaption>
-        </figure>
-        <figure className="transaction-photo-card">
-          {licensePhoto ? (
-            <img src={licensePhoto} alt="Customer" />
-          ) : (
-            <div className="transaction-photo-empty">No customer photo</div>
-          )}
-          <figcaption>Customer Photo</figcaption>
-        </figure>
-        {optionalPhoto ? (
-          <figure className="transaction-photo-card">
-            <img src={optionalPhoto} alt="Optional customer" />
-            <figcaption>Optional Photo</figcaption>
-          </figure>
-        ) : null}
-        <figure className="transaction-photo-card">
-          {vehicle.image ? (
-            <img src={vehicle.image} alt={`${vehicle.make || 'Vehicle'}`} />
-          ) : (
-            <div className="transaction-photo-empty">No vehicle image</div>
-          )}
-          <figcaption>Vehicle Photo</figcaption>
-        </figure>
-      </div>
-
-      <section className="transaction-car-photos-block">
-        <div className="transaction-car-photos-head">
-          <div>
-            <h3>Pre-rental car photos</h3>
-            <p>
-              {canEditCarPhotos
-                ? 'Optional — click an empty slot or Add photo to attach as many as you need.'
-                : 'Vehicle condition photos for this rental.'}
-            </p>
-            {(transaction.carPhotosAddedBy || carPhotos?._addedBy || addedByName) && (
-              <p className="transaction-photo-credit">
-                Photos taken by{' '}
-                <strong>
-                  {transaction.carPhotosAddedBy || carPhotos?._addedBy || addedByName}
-                </strong>
-              </p>
-            )}
+      <section className={`transaction-collapse${customerPhotosOpen ? ' is-open' : ''}`}>
+        <button
+          type="button"
+          className="transaction-collapse-toggle"
+          aria-expanded={customerPhotosOpen}
+          onClick={() => setCustomerPhotosOpen((v) => !v)}
+        >
+          <span className="transaction-collapse-copy">
+            <strong>Customer & vehicle photos</strong>
+            <small>
+              {customerPhotoCount
+                ? `${customerPhotoCount} photo${customerPhotoCount === 1 ? '' : 's'}`
+                : 'No photos yet'}
+            </small>
+          </span>
+          <span className={`transaction-collapse-chevron${customerPhotosOpen ? ' is-open' : ''}`} aria-hidden="true">
+            ▾
+          </span>
+        </button>
+        <div className="transaction-collapse-body">
+          <div className="transaction-photos">
+            <figure className="transaction-photo-card">
+              {photo ? (
+                <img src={photo} alt="Customer holding license" />
+              ) : (
+                <div className="transaction-photo-empty">No holding-license photo</div>
+              )}
+              <figcaption>Holding License</figcaption>
+            </figure>
+            <figure className="transaction-photo-card">
+              {licensePhoto ? (
+                <img src={licensePhoto} alt="Customer" />
+              ) : (
+                <div className="transaction-photo-empty">No customer photo</div>
+              )}
+              <figcaption>Customer Photo</figcaption>
+            </figure>
+            {optionalPhoto ? (
+              <figure className="transaction-photo-card">
+                <img src={optionalPhoto} alt="Optional customer" />
+                <figcaption>Optional Photo</figcaption>
+              </figure>
+            ) : null}
+            <figure className="transaction-photo-card">
+              {vehicle.image ? (
+                <img src={vehicle.image} alt={`${vehicle.make || 'Vehicle'}`} />
+              ) : (
+                <div className="transaction-photo-empty">No vehicle image</div>
+              )}
+              <figcaption>Vehicle Photo</figcaption>
+            </figure>
           </div>
-          {canEditCarPhotos ? (
-            <div className="transaction-car-photos-actions">
-              <input
-                ref={extraInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="sr-only"
-                onChange={(e) => handleExtraFile(e.target.files?.[0], e.target)}
-              />
+        </div>
+      </section>
+
+      <section
+        className={`transaction-car-photos-block transaction-collapse${carPhotosOpen ? ' is-open' : ''}`}
+      >
+        <button
+          type="button"
+          className="transaction-collapse-toggle"
+          aria-expanded={carPhotosOpen}
+          onClick={() => setCarPhotosOpen((v) => !v)}
+        >
+          <span className="transaction-collapse-copy">
+            <strong>Pre-rental car photos</strong>
+            <small>
+              {carPhotoCount
+                ? `${carPhotoCount} photo${carPhotoCount === 1 ? '' : 's'}${photographer ? ` · by ${photographer}` : ''}`
+                : photographer
+                  ? `None yet · signed in as ${photographer}`
+                  : 'Optional — add photos if needed'}
+            </small>
+          </span>
+          <span className={`transaction-collapse-chevron${carPhotosOpen ? ' is-open' : ''}`} aria-hidden="true">
+            ▾
+          </span>
+        </button>
+
+        <div className="transaction-collapse-body">
+          <div className="transaction-car-photos-head">
+            <div>
+              <h3 className="transaction-car-photos-desktop-title">Pre-rental car photos</h3>
+              <p>
+                {canEditCarPhotos
+                  ? 'Optional — click an empty slot or Add photo to attach as many as you need.'
+                  : 'Vehicle condition photos for this rental.'}
+              </p>
+              {photographer ? (
+                <p className="transaction-photo-credit">
+                  Photos taken by <strong>{photographer}</strong>
+                </p>
+              ) : null}
+            </div>
+            {canEditCarPhotos ? (
+              <div className="transaction-car-photos-actions">
+                <input
+                  ref={extraInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="sr-only"
+                  onChange={(e) => handleExtraFile(e.target.files?.[0], e.target)}
+                />
+                <button
+                  type="button"
+                  className="btn-primary btn-sm"
+                  disabled={Boolean(photoBusy)}
+                  onClick={() => extraInputRef.current?.click()}
+                >
+                  {photoBusy === 'extra' ? 'Adding…' : 'Add photo'}
+                </button>
+              </div>
+            ) : null}
+          </div>
+
+          {photoError ? <span className="error-msg">{photoError}</span> : null}
+
+          <div className="transaction-photos transaction-car-photos">
+            {CAR_SLOTS.map((slot) => {
+              const preview = carPhotos?.[slot.key]
+              const empty = !preview
+              return (
+                <figure key={slot.key} className="transaction-photo-card">
+                  {preview ? (
+                    <img src={preview} alt={`Car ${slot.label}`} />
+                  ) : canEditCarPhotos ? (
+                    <button
+                      type="button"
+                      className="transaction-photo-add"
+                      disabled={Boolean(photoBusy)}
+                      onClick={() => slotInputRefs.current[slot.key]?.click()}
+                    >
+                      <span>{photoBusy === slot.key ? 'Adding…' : 'Click to add'}</span>
+                      <small>{slot.label}</small>
+                    </button>
+                  ) : (
+                    <div className="transaction-photo-empty">No {slot.label.toLowerCase()} photo</div>
+                  )}
+                  <figcaption>{slot.label}</figcaption>
+                  {canEditCarPhotos && empty ? (
+                    <input
+                      ref={(el) => {
+                        slotInputRefs.current[slot.key] = el
+                      }}
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="sr-only"
+                      onChange={(e) => handleSlotFile(slot.key, e.target.files?.[0], e.target)}
+                    />
+                  ) : null}
+                </figure>
+              )
+            })}
+            {extraPhotos.map((item, index) => (
+              <figure key={item.id || `extra-${index}`} className="transaction-photo-card">
+                <img src={item.uri} alt={item.label || `Extra ${index + 1}`} />
+                <figcaption>
+                  {item.label || `Extra ${index + 1}`}
+                  {item.addedBy ? ` · ${item.addedBy}` : ''}
+                </figcaption>
+                {canEditCarPhotos ? (
+                  <button
+                    type="button"
+                    className="btn-ghost btn-sm transaction-photo-remove"
+                    disabled={Boolean(photoBusy)}
+                    onClick={() => removeExtra(item.id)}
+                  >
+                    Remove
+                  </button>
+                ) : null}
+              </figure>
+            ))}
+            {canEditCarPhotos ? (
               <button
                 type="button"
-                className="btn-primary btn-sm"
+                className="transaction-photo-card transaction-photo-add-card"
                 disabled={Boolean(photoBusy)}
                 onClick={() => extraInputRef.current?.click()}
               >
-                {photoBusy === 'extra' ? 'Adding…' : 'Add photo'}
+                <span className="transaction-photo-add">
+                  <span>{photoBusy === 'extra' ? 'Adding…' : '+ Add photo'}</span>
+                  <small>Unlimited extras</small>
+                </span>
+                <figcaption>More photos</figcaption>
               </button>
-            </div>
-          ) : null}
-        </div>
-
-        {photoError ? <span className="error-msg">{photoError}</span> : null}
-
-        <div className="transaction-photos transaction-car-photos">
-          {CAR_SLOTS.map((slot) => {
-            const preview = carPhotos?.[slot.key]
-            const empty = !preview
-            return (
-              <figure key={slot.key} className="transaction-photo-card">
-                {preview ? (
-                  <img src={preview} alt={`Car ${slot.label}`} />
-                ) : canEditCarPhotos ? (
-                  <button
-                    type="button"
-                    className="transaction-photo-add"
-                    disabled={Boolean(photoBusy)}
-                    onClick={() => slotInputRefs.current[slot.key]?.click()}
-                  >
-                    <span>{photoBusy === slot.key ? 'Adding…' : 'Click to add'}</span>
-                    <small>{slot.label}</small>
-                  </button>
-                ) : (
-                  <div className="transaction-photo-empty">No {slot.label.toLowerCase()} photo</div>
-                )}
-                <figcaption>{slot.label}</figcaption>
-                {canEditCarPhotos && empty ? (
-                  <input
-                    ref={(el) => {
-                      slotInputRefs.current[slot.key] = el
-                    }}
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    className="sr-only"
-                    onChange={(e) => handleSlotFile(slot.key, e.target.files?.[0], e.target)}
-                  />
-                ) : null}
-              </figure>
-            )
-          })}
-          {extraPhotos.map((item, index) => (
-            <figure key={item.id || `extra-${index}`} className="transaction-photo-card">
-              <img src={item.uri} alt={item.label || `Extra ${index + 1}`} />
-              <figcaption>
-                {item.label || `Extra ${index + 1}`}
-                {item.addedBy ? ` · ${item.addedBy}` : ''}
-              </figcaption>
-              {canEditCarPhotos ? (
-                <button
-                  type="button"
-                  className="btn-ghost btn-sm transaction-photo-remove"
-                  disabled={Boolean(photoBusy)}
-                  onClick={() => removeExtra(item.id)}
-                >
-                  Remove
-                </button>
-              ) : null}
-            </figure>
-          ))}
-          {canEditCarPhotos ? (
-            <button
-              type="button"
-              className="transaction-photo-card transaction-photo-add-card"
-              disabled={Boolean(photoBusy)}
-              onClick={() => extraInputRef.current?.click()}
-            >
-              <span className="transaction-photo-add">
-                <span>{photoBusy === 'extra' ? 'Adding…' : '+ Add photo'}</span>
-                <small>Unlimited extras</small>
-              </span>
-              <figcaption>More photos</figcaption>
-            </button>
-          ) : null}
+            ) : null}
+          </div>
         </div>
       </section>
 
