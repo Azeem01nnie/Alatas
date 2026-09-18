@@ -417,10 +417,15 @@ export default function TransactionPage({
     : []
 
   const persistCarPhotos = async (nextPhotos) => {
-    setCarPhotos(nextPhotos)
+    const photographer = String(addedByName || '').trim()
+    const stamped = {
+      ...nextPhotos,
+      ...(photographer ? { _addedBy: photographer } : {}),
+    }
+    setCarPhotos(stamped)
     if (!canEditCarPhotos || typeof onSaveCarPhotos !== 'function') return
     try {
-      await onSaveCarPhotos(transaction.id, nextPhotos, addedByName)
+      await onSaveCarPhotos(transaction.id, stamped, photographer)
       setPhotoError('')
     } catch (err) {
       setPhotoError(err?.message || 'Could not save car photos.')
@@ -476,6 +481,7 @@ export default function TransactionPage({
             id: `extra-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
             uri: compressed,
             label: `Extra ${extras.length + 1}`,
+            addedBy: String(addedByName || '').trim() || undefined,
           },
         ],
       })
@@ -571,6 +577,14 @@ export default function TransactionPage({
                 ? 'Optional — click an empty slot or Add photo to attach as many as you need.'
                 : 'Vehicle condition photos for this rental.'}
             </p>
+            {(transaction.carPhotosAddedBy || carPhotos?._addedBy || addedByName) && (
+              <p className="transaction-photo-credit">
+                Photos taken by{' '}
+                <strong>
+                  {transaction.carPhotosAddedBy || carPhotos?._addedBy || addedByName}
+                </strong>
+              </p>
+            )}
           </div>
           {canEditCarPhotos ? (
             <div className="transaction-car-photos-actions">
@@ -636,7 +650,10 @@ export default function TransactionPage({
           {extraPhotos.map((item, index) => (
             <figure key={item.id || `extra-${index}`} className="transaction-photo-card">
               <img src={item.uri} alt={item.label || `Extra ${index + 1}`} />
-              <figcaption>{item.label || `Extra ${index + 1}`}</figcaption>
+              <figcaption>
+                {item.label || `Extra ${index + 1}`}
+                {item.addedBy ? ` · ${item.addedBy}` : ''}
+              </figcaption>
               {canEditCarPhotos ? (
                 <button
                   type="button"

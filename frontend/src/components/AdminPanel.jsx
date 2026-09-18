@@ -2309,10 +2309,7 @@ export default function AdminPanel() {
                           embedded
                           canApprove={isAdminUser}
                           canEditCarPhotos
-                          addedByName={sessionDisplayName}
-                          onSaveCarPhotos={(rentalId, carPhotos, addedBy) =>
-                            updateRentalCarPhotos(rentalId, carPhotos, addedBy)
-                          }
+                          onOpenPhotos={(rental) => openTransaction(rental, 'dashboard')}
                         />
                       )}
                     </div>

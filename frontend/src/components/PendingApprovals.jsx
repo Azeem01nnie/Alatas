@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   acceptPendingRental as acceptPendingRentalApi,
   rejectPendingRental as rejectPendingRentalApi,
@@ -12,7 +12,6 @@ import {
   rejectCloudPendingRental,
 } from '../api/cloudSync'
 import ConfirmModal from './ConfirmModal'
-import { compressImageDataUrl } from '../utils/storage'
 
 function customerName(rental) {
   const p = rental?.personal
@@ -61,16 +60,6 @@ function hasVehiclePhotos(rental) {
   return countVehiclePhotos(rental?.carPhotos) > 0
 }
 
-async function readAndCompress(file) {
-  const dataUrl = await new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result || ''))
-    reader.onerror = () => reject(new Error('Could not read file'))
-    reader.readAsDataURL(file)
-  })
-  return compressImageDataUrl(dataUrl, 960, 0.8)
-}
-
 /** Merge pending lists without letting stale cloud rows revive locally approved rentals. */
 function mergePendingLists(localPending, cloudPending, localRentals) {
   const localById = new Map(
@@ -112,18 +101,13 @@ export default function PendingApprovals({
   embedded = false,
   canApprove = true,
   canEditCarPhotos = true,
-  addedByName = '',
-  onSaveCarPhotos,
+  onOpenPhotos,
 }) {
   const [pending, setPending] = useState([])
   const [busyId, setBusyId] = useState(null)
   const [rejectReason, setRejectReason] = useState('')
   const [confirm, setConfirm] = useState(null)
   const [error, setError] = useState('')
-  const [photoDrafts, setPhotoDrafts] = useState({})
-  const [photoBusyId, setPhotoBusyId] = useState('')
-  const [photoErrorById, setPhotoErrorById] = useState({})
-  const fileInputRefs = useRef({})
 
   const loadPending = useCallback(async () => {
     try {
@@ -155,6 +139,11 @@ export default function PendingApprovals({
     const vid = rental.vehicleId || rental.vehicle?.id
     return vehicles.find((v) => String(v.id) === String(vid)) || rental.vehicle
   }
+
+  const photoTakenBy = (rental) =>
+    rental?.carPhotosAddedBy ||
+    rental?.carPhotos?._addedBy ||
+    ''
 
   const closeConfirm = () => {
     if (busyId) return
@@ -231,169 +220,32 @@ export default function PendingApprovals({
     }
   }
 
-  const addDraftPhotos = async (rentalId, fileList) => {
-    const files = Array.from(fileList || []).filter((file) => file?.type?.startsWith('image/'))
-    if (!files.length) {
-      setPhotoErrorById((prev) => ({
-        ...prev,
-        [rentalId]: 'Please choose an image file',
-      }))
-      return
-    }
-
-    setPhotoBusyId(rentalId)
-    setPhotoErrorById((prev) => ({ ...prev, [rentalId]: '' }))
-    try {
-      const nextItems = []
-      for (const file of files) {
-        const compressed = await readAndCompress(file)
-        if (!compressed) continue
-        nextItems.push({
-          id: `extra-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          uri: compressed,
-          label: `Photo ${Date.now().toString().slice(-4)}`,
-        })
-      }
-      if (!nextItems.length) {
-        setPhotoErrorById((prev) => ({
-          ...prev,
-          [rentalId]: 'Could not process that image. Try another file.',
-        }))
-        return
-      }
-      setPhotoDrafts((prev) => ({
-        ...prev,
-        [rentalId]: [...(prev[rentalId] || []), ...nextItems],
-      }))
-    } catch {
-      setPhotoErrorById((prev) => ({
-        ...prev,
-        [rentalId]: 'Upload failed. Please try again.',
-      }))
-    } finally {
-      setPhotoBusyId('')
-      const input = fileInputRefs.current[rentalId]
-      if (input) input.value = ''
-    }
-  }
-
-  const removeDraftPhoto = (rentalId, photoId) => {
-    setPhotoDrafts((prev) => ({
-      ...prev,
-      [rentalId]: (prev[rentalId] || []).filter((item) => item.id !== photoId),
-    }))
-  }
-
-  const saveDraftPhotos = async (rental) => {
-    if (!canEditCarPhotos || typeof onSaveCarPhotos !== 'function') return
-    const draft = photoDrafts[rental.id] || []
-    if (!draft.length) {
-      setPhotoErrorById((prev) => ({
-        ...prev,
-        [rental.id]: 'Add at least one photo before saving.',
-      }))
-      return
-    }
-
-    setPhotoBusyId(rental.id)
-    setPhotoErrorById((prev) => ({ ...prev, [rental.id]: '' }))
-    try {
-      const existing = normalizeCarPhotos(rental.carPhotos)
-      const nextPhotos = {
-        ...existing,
-        extras: [...existing.extras, ...draft],
-      }
-      await onSaveCarPhotos(rental.id, nextPhotos, addedByName)
-      setPhotoDrafts((prev) => {
-        const next = { ...prev }
-        delete next[rental.id]
-        return next
-      })
-      setPending((prev) =>
-        prev.map((row) =>
-          String(row.id) === String(rental.id)
-            ? {
-                ...row,
-                carPhotos: nextPhotos,
-                carPhotosAddedBy: addedByName || row.carPhotosAddedBy || null,
-              }
-            : row,
-        ),
-      )
-      if (onChanged) await onChanged()
-    } catch (err) {
-      setPhotoErrorById((prev) => ({
-        ...prev,
-        [rental.id]: err?.message || 'Could not save vehicle photos.',
-      }))
-    } finally {
-      setPhotoBusyId('')
-    }
-  }
-
   const renderPhotoBlock = (rental) => {
     if (!canEditCarPhotos) return null
 
     const photosReady = hasVehiclePhotos(rental)
-    const draft = photoDrafts[rental.id] || []
-    const isPhotoBusy = photoBusyId === rental.id
-    const photoError = photoErrorById[rental.id] || ''
+    const takenBy = photoTakenBy(rental)
 
     return (
       <div className={`pending-photo-block${photosReady ? ' is-ready' : ''}`}>
         <p className={`pending-photo-note${photosReady ? ' is-ok' : ''}`}>
           {photosReady
-            ? `Vehicle photos added${countVehiclePhotos(rental.carPhotos) ? ` (${countVehiclePhotos(rental.carPhotos)})` : ''}.`
+            ? `Vehicle photos added (${countVehiclePhotos(rental.carPhotos)})`
             : 'Vehicle photo needs to be added'}
         </p>
-
-        {draft.length > 0 ? (
-          <div className="pending-photo-drafts">
-            {draft.map((item, index) => (
-              <figure key={item.id} className="pending-photo-draft">
-                <img src={item.uri} alt={item.label || `Draft ${index + 1}`} />
-                <button
-                  type="button"
-                  className="btn-ghost btn-sm"
-                  disabled={isPhotoBusy}
-                  onClick={() => removeDraftPhoto(rental.id, item.id)}
-                >
-                  Remove
-                </button>
-              </figure>
-            ))}
-          </div>
+        {takenBy ? (
+          <p className="pending-photo-credit">Taken by {takenBy}</p>
+        ) : photosReady ? (
+          <p className="pending-photo-credit">Photographer not recorded</p>
         ) : null}
-
-        {photoError ? <span className="error-msg">{photoError}</span> : null}
-
         <div className="pending-photo-actions">
-          <input
-            ref={(el) => {
-              fileInputRefs.current[rental.id] = el
-            }}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            multiple
-            className="sr-only"
-            onChange={(e) => addDraftPhotos(rental.id, e.target.files)}
-          />
           <button
             type="button"
             className="btn-outline btn-sm"
-            disabled={isPhotoBusy}
-            onClick={() => fileInputRefs.current[rental.id]?.click()}
+            onClick={() => onOpenPhotos?.(rental)}
+            disabled={typeof onOpenPhotos !== 'function'}
           >
-            {isPhotoBusy ? 'Working…' : 'Add photo'}
-          </button>
-          <button
-            type="button"
-            className="btn-primary btn-sm"
-            disabled={isPhotoBusy || draft.length === 0}
-            onClick={() => saveDraftPhotos(rental)}
-          >
-            {isPhotoBusy ? 'Saving…' : 'Save'}
+            {photosReady ? 'Add / view photos' : 'Add photo'}
           </button>
         </div>
       </div>

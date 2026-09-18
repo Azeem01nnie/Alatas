@@ -243,7 +243,10 @@ export function VehicleProvider({ children }) {
         if (String(r.id) !== key) return r
         updated = {
           ...r,
-          carPhotos: nextPhotos,
+          carPhotos: {
+            ...nextPhotos,
+            ...(addedByName ? { _addedBy: addedByName } : {}),
+          },
           carPhotosAddedBy: addedByName || r.carPhotosAddedBy || null,
           updatedAt: now,
         }

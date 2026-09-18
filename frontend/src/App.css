@@ -4457,6 +4457,13 @@ html[data-theme='dark'] .password-strength.is-weak .password-strength-value {
   color: #047857;
 }
 
+.pending-photo-credit {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
 .pending-photo-drafts {
   display: flex;
   flex-wrap: wrap;
@@ -8816,6 +8823,16 @@ html[data-theme='dark'] .transaction-photo-card figcaption {
   margin: 0.2rem 0 0;
   font-size: 0.8rem;
   color: var(--muted);
+}
+
+.transaction-photo-credit {
+  margin: 0.35rem 0 0 !important;
+  font-size: 0.78rem !important;
+  color: var(--text) !important;
+}
+
+.transaction-photo-credit strong {
+  font-weight: 700;
 }
 
 .transaction-car-photos-actions {
