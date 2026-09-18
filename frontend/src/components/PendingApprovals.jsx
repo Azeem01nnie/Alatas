@@ -225,29 +225,32 @@ export default function PendingApprovals({
 
     const photosReady = hasVehiclePhotos(rental)
     const takenBy = photoTakenBy(rental)
+    const count = countVehiclePhotos(rental.carPhotos)
 
     return (
       <div className={`pending-photo-block${photosReady ? ' is-ready' : ''}`}>
-        <p className={`pending-photo-note${photosReady ? ' is-ok' : ''}`}>
-          {photosReady
-            ? `Vehicle photos added (${countVehiclePhotos(rental.carPhotos)})`
-            : 'Vehicle photo needs to be added'}
-        </p>
-        {takenBy ? (
-          <p className="pending-photo-credit">Taken by {takenBy}</p>
-        ) : photosReady ? (
-          <p className="pending-photo-credit">Photographer not recorded</p>
-        ) : null}
-        <div className="pending-photo-actions">
-          <button
-            type="button"
-            className="btn-outline btn-sm"
-            onClick={() => onOpenPhotos?.(rental)}
-            disabled={typeof onOpenPhotos !== 'function'}
-          >
-            {photosReady ? 'Add / view photos' : 'Add photo'}
-          </button>
+        <div className="pending-photo-copy">
+          <p className={`pending-photo-note${photosReady ? ' is-ok' : ''}`}>
+            {photosReady
+              ? `Vehicle photos added${count ? ` · ${count}` : ''}`
+              : 'Vehicle photo needs to be added'}
+          </p>
+          {takenBy ? (
+            <p className="pending-photo-credit">Taken by {takenBy}</p>
+          ) : photosReady ? (
+            <p className="pending-photo-credit">Photographer not recorded</p>
+          ) : (
+            <p className="pending-photo-credit">Open the rental to attach photos before approving</p>
+          )}
         </div>
+        <button
+          type="button"
+          className={`btn-sm pending-photo-btn${photosReady ? ' btn-outline' : ' btn-primary'}`}
+          onClick={() => onOpenPhotos?.(rental)}
+          disabled={typeof onOpenPhotos !== 'function'}
+        >
+          {photosReady ? 'View / add photos' : 'Add photo'}
+        </button>
       </div>
     )
   }
@@ -342,7 +345,7 @@ export default function PendingApprovals({
     const vehicle = vehicleFor(rental)
     const isBusy = busyId === rental.id
     return (
-      <li key={rental.id} className="pending-approvals-item dash-attn-row">
+      <li key={rental.id} className="pending-approvals-item">
         <div className="pending-approvals-main">
           <div className="pending-approvals-meta dash-attn-meta">
             <strong>

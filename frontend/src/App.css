@@ -4374,36 +4374,58 @@ html[data-theme='dark'] .password-strength.is-weak .password-strength-value {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 0.85rem 1rem;
   flex-wrap: wrap;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
 }
 
 .pending-approvals-main {
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
+  gap: 0.7rem;
   min-width: 0;
-  flex: 1 1 12rem;
+  flex: 1 1 14rem;
 }
 
 .pending-approvals-actions {
   flex: 0 0 auto;
   margin-left: auto;
+  align-self: flex-start;
 }
 
 .pending-approvals-meta {
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: 0.2rem;
   min-width: 0;
+}
+
+.pending-approvals-meta strong {
+  font-size: 0.98rem;
+  line-height: 1.25;
+  color: var(--text);
+}
+
+.pending-approvals-meta span {
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.35;
 }
 
 .pending-approvals-actions,
 .pending-approvals-reject-form {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.5rem;
   flex-wrap: wrap;
+}
+
+.pending-approvals-actions .btn-sm {
+  min-width: 5.5rem;
+  justify-content: center;
 }
 
 .pending-approvals-readonly-note {
@@ -4437,25 +4459,34 @@ html[data-theme='dark'] .password-strength.is-weak .password-strength-value {
 
 .pending-photo-block {
   display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-  padding: 0.55rem 0.65rem;
-  border-radius: 10px;
-  border: 1px dashed rgba(179, 32, 37, 0.35);
-  background: rgba(179, 32, 37, 0.04);
-  max-width: 28rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  border: 1px solid rgba(179, 32, 37, 0.18);
+  background: linear-gradient(180deg, rgba(179, 32, 37, 0.06), rgba(179, 32, 37, 0.03));
 }
 
 .pending-photo-block.is-ready {
-  border-color: rgba(4, 120, 87, 0.35);
-  background: rgba(4, 120, 87, 0.05);
+  border-color: rgba(4, 120, 87, 0.22);
+  background: linear-gradient(180deg, rgba(4, 120, 87, 0.08), rgba(4, 120, 87, 0.03));
+}
+
+.pending-photo-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+  flex: 1;
 }
 
 .pending-photo-note {
   margin: 0;
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   font-weight: 700;
   color: #b91c1c;
+  line-height: 1.3;
 }
 
 .pending-photo-note.is-ok {
@@ -4466,46 +4497,30 @@ html[data-theme='dark'] .password-strength.is-weak .password-strength-value {
   margin: 0;
   font-size: 0.72rem;
   color: var(--muted);
-  font-weight: 600;
+  font-weight: 500;
+  line-height: 1.35;
 }
 
-.pending-photo-drafts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
+.pending-photo-btn {
+  flex-shrink: 0;
+  min-width: 7.25rem;
+  justify-content: center;
+  white-space: nowrap;
 }
 
-.pending-photo-draft {
-  margin: 0;
-  width: 4.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-
-.pending-photo-draft img {
-  width: 4.5rem;
-  height: 3.25rem;
-  object-fit: cover;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: #fff;
-}
-
-.pending-photo-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
+html[data-theme='dark'] .pending-approvals-item {
+  background: var(--surface);
+  border-color: var(--border);
 }
 
 html[data-theme='dark'] .pending-photo-block {
-  background: rgba(179, 32, 37, 0.12);
-  border-color: rgba(252, 165, 165, 0.35);
+  background: rgba(179, 32, 37, 0.14);
+  border-color: rgba(252, 165, 165, 0.28);
 }
 
 html[data-theme='dark'] .pending-photo-block.is-ready {
-  background: rgba(4, 120, 87, 0.14);
-  border-color: rgba(110, 231, 183, 0.35);
+  background: rgba(4, 120, 87, 0.16);
+  border-color: rgba(110, 231, 183, 0.28);
 }
 
 html[data-theme='dark'] .pending-photo-note {
@@ -4514,6 +4529,10 @@ html[data-theme='dark'] .pending-photo-note {
 
 html[data-theme='dark'] .pending-photo-note.is-ok {
   color: #6ee7b7;
+}
+
+html[data-theme='dark'] .pending-photo-credit {
+  color: rgba(240, 234, 234, 0.65);
 }
 
 .admin-offline-badge,
@@ -10542,9 +10561,10 @@ html[data-theme='dark'] .employees-role-option.is-active {
     padding: 0.75rem 0;
   }
 
-  .pending-approvals-item.dash-attn-row {
+  .pending-approvals-item {
     flex-direction: column;
     align-items: stretch;
+    padding: 0.85rem 0.9rem;
   }
 
   .pending-approvals-item .pending-approvals-actions {
@@ -10555,10 +10575,19 @@ html[data-theme='dark'] .employees-role-option.is-active {
   .pending-approvals-item .pending-approvals-actions .btn-sm {
     flex: 1;
     justify-content: center;
+    min-height: 2.4rem;
   }
 
   .pending-photo-block {
-    max-width: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.65rem;
+    padding: 0.8rem 0.85rem;
+  }
+
+  .pending-photo-btn {
+    width: 100%;
+    min-height: 2.4rem;
   }
 
   .dash-attn-row > .btn-outline,
