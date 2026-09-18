@@ -1622,8 +1622,8 @@ export default function AdminPanel() {
     setTab(returnTab)
   }
 
-  const handleSaveTransactionCarPhotos = (rentalId, carPhotos, addedBy) => {
-    const updated = updateRentalCarPhotos(rentalId, carPhotos, addedBy)
+  const handleSaveTransactionCarPhotos = async (rentalId, carPhotos, addedBy) => {
+    const updated = await updateRentalCarPhotos(rentalId, carPhotos, addedBy)
     if (updated) {
       setSelectedTransaction((prev) =>
         prev && String(prev.id) === String(rentalId)

@@ -27,7 +27,7 @@ async function readAndCompress(file) {
     reader.onerror = () => reject(new Error('Could not read file'))
     reader.readAsDataURL(file)
   })
-  return compressImageDataUrl(dataUrl, 960, 0.8)
+  return compressImageDataUrl(dataUrl, 720, 0.72)
 }
 
 function formatDateTime(value) {
@@ -401,6 +401,7 @@ export default function TransactionPage({
   const [carPhotos, setCarPhotos] = useState(() => normalizeCarPhotos(transaction.carPhotos))
   const [photoBusy, setPhotoBusy] = useState('')
   const [photoError, setPhotoError] = useState('')
+  const [photoSuccess, setPhotoSuccess] = useState('')
   const [photoDirty, setPhotoDirty] = useState(false)
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false)
   const [customerPhotosOpen, setCustomerPhotosOpen] = useState(true)
@@ -412,7 +413,11 @@ export default function TransactionPage({
     setCarPhotos(normalizeCarPhotos(transaction.carPhotos))
     setPhotoDirty(false)
     setSaveConfirmOpen(false)
-  }, [transaction.id, transaction.carPhotos])
+    setPhotoSuccess('')
+    setPhotoError('')
+    // Only re-sync when opening a different rental — not on every parent object refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transaction.id])
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 860px)')
@@ -454,6 +459,7 @@ export default function TransactionPage({
     setCarPhotos(stamped)
     setPhotoDirty(true)
     setPhotoError('')
+    setPhotoSuccess('')
   }
 
   const persistCarPhotos = async () => {
@@ -464,13 +470,17 @@ export default function TransactionPage({
     }
     setPhotoBusy('save')
     setPhotoError('')
+    setPhotoSuccess('')
     try {
-      await onSaveCarPhotos(transaction.id, stamped, sessionPhotographer)
-      setCarPhotos(stamped)
+      const saved = await onSaveCarPhotos(transaction.id, stamped, sessionPhotographer)
+      const next = normalizeCarPhotos(saved?.carPhotos || stamped)
+      setCarPhotos(next)
       setPhotoDirty(false)
       setSaveConfirmOpen(false)
+      setPhotoSuccess('Photos saved. They will stay after refresh.')
     } catch (err) {
       setPhotoError(err?.message || 'Could not save car photos.')
+      setSaveConfirmOpen(false)
     } finally {
       setPhotoBusy('')
     }
@@ -699,6 +709,7 @@ export default function TransactionPage({
           </div>
 
           {photoError ? <span className="error-msg">{photoError}</span> : null}
+          {photoSuccess ? <span className="success-msg">{photoSuccess}</span> : null}
 
           <div className="transaction-photos transaction-car-photos">
             {CAR_SLOTS.map((slot) => {

@@ -211,10 +211,73 @@ export function fetchRentals() {
     })
 }
 
+function countCarPhotoEntries(carPhotos) {
+  if (!carPhotos || typeof carPhotos !== 'object' || Array.isArray(carPhotos)) return 0
+  let n = 0
+  for (const key of ['front', 'rear', 'left', 'right']) {
+    if (carPhotos[key]) n += 1
+  }
+  if (Array.isArray(carPhotos.extras)) n += carPhotos.extras.filter((x) => x?.uri).length
+  return n
+}
+
+async function dataUrlToBlob(dataUrl) {
+  const res = await fetch(dataUrl)
+  if (!res.ok) throw new Error('Could not read image data')
+  return res.blob()
+}
+
+/** Upload a data-URL image into the public `rentals` bucket; return a stable public URL. */
+async function uploadRentalImage(rentalId, fileKey, dataUrl) {
+  if (!dataUrl || typeof dataUrl !== 'string') return ''
+  if (!dataUrl.startsWith('data:')) return dataUrl
+
+  const sb = requireSupabase()
+  const blob = await dataUrlToBlob(dataUrl)
+  const ext = (blob.type || '').includes('png') ? 'png' : 'jpg'
+  const safeKey = String(fileKey || 'photo').replace(/[^\w\-]+/g, '_').slice(0, 40)
+  const path = `${String(rentalId)}/${safeKey}-${Date.now()}.${ext}`
+
+  const { error } = await sb.storage.from('rentals').upload(path, blob, {
+    contentType: blob.type || 'image/jpeg',
+    upsert: true,
+  })
+  if (error) throwSb(error)
+
+  const { data } = sb.storage.from('rentals').getPublicUrl(path)
+  return data?.publicUrl || ''
+}
+
+/** Convert embedded data-URLs in carPhotos to Storage URLs so the DB row stays small. */
+async function materializeCarPhotos(rentalId, carPhotos) {
+  const source =
+    carPhotos && typeof carPhotos === 'object' && !Array.isArray(carPhotos) ? carPhotos : {}
+  const out = { ...source }
+
+  for (const key of ['front', 'rear', 'left', 'right']) {
+    if (typeof out[key] === 'string' && out[key].startsWith('data:')) {
+      out[key] = await uploadRentalImage(rentalId, key, out[key])
+    }
+  }
+
+  if (Array.isArray(out.extras)) {
+    out.extras = await Promise.all(
+      out.extras.map(async (item, index) => {
+        if (!item || typeof item !== 'object') return item
+        if (typeof item.uri !== 'string' || !item.uri.startsWith('data:')) return item
+        const uri = await uploadRentalImage(rentalId, `extra-${item.id || index}`, item.uri)
+        return { ...item, uri }
+      }),
+    )
+  }
+
+  return out
+}
+
 export async function replaceRentals(rentals) {
   const sb = requireSupabase()
   const vehicleIds = await knownVehicleIdSet(sb)
-  const items = (Array.isArray(rentals) ? rentals : [])
+  let items = (Array.isArray(rentals) ? rentals : [])
     .map(toRentalRow)
     .filter((r) => r.id)
     .map((row) => withSafeVehicleFk(row, vehicleIds))
@@ -235,6 +298,27 @@ export async function replaceRentals(rentals) {
         vehicleIds,
       ),
     )
+
+  // Never let a stale desk autosave wipe photos that already exist on the server.
+  const { data: existingPhotoRows, error: photoErr } = await sb
+    .from('rentals')
+    .select('id, car_photos, car_photos_added_by')
+  if (photoErr) throwSb(photoErr)
+  const photoById = new Map((existingPhotoRows || []).map((r) => [String(r.id), r]))
+  items = items.map((row) => {
+    const prev = photoById.get(String(row.id))
+    if (!prev) return row
+    const incomingCount = countCarPhotoEntries(row.car_photos)
+    const existingCount = countCarPhotoEntries(prev.car_photos)
+    if (existingCount > 0 && incomingCount === 0) {
+      return {
+        ...row,
+        car_photos: prev.car_photos,
+        car_photos_added_by: prev.car_photos_added_by ?? row.car_photos_added_by,
+      }
+    }
+    return row
+  })
 
   const { data: existing, error: listErr } = await sb.from('rentals').select('id')
   if (listErr) throwSb(listErr)
@@ -287,6 +371,38 @@ export async function addRental(rental) {
   const row = withSafeVehicleFk(toRentalRow(rental), vehicleIds)
   const { data, error } = await sb.from('rentals').upsert(row, { onConflict: 'id' }).select('*').single()
   if (error) throwSb(error)
+  return mapRental(data)
+}
+
+/** Targeted car-photo update — uploads images to Storage, then patches only this rental. */
+export async function patchRentalCarPhotos(rentalId, carPhotos, addedBy = '') {
+  const sb = requireSupabase()
+  const id = String(rentalId || '').trim()
+  if (!id) throw new Error('Rental id is required')
+
+  const nextPhotos =
+    carPhotos && typeof carPhotos === 'object' && !Array.isArray(carPhotos) ? carPhotos : {}
+  const addedByName = String(addedBy || '').trim() || nextPhotos._addedBy || null
+  const materialized = await materializeCarPhotos(id, nextPhotos)
+  const stamped = {
+    ...materialized,
+    ...(addedByName ? { _addedBy: addedByName } : {}),
+  }
+  const now = new Date().toISOString()
+
+  const { data, error } = await sb
+    .from('rentals')
+    .update({
+      car_photos: stamped,
+      car_photos_added_by: addedByName,
+      updated_at: now,
+    })
+    .eq('id', id)
+    .select('*')
+    .maybeSingle()
+
+  if (error) throwSb(error)
+  if (!data) throw new Error('Rental not found — could not save photos')
   return mapRental(data)
 }
 

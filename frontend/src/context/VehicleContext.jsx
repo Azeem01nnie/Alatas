@@ -5,6 +5,7 @@ import {
   saveRentals,
   addRental as addRentalApi,
   submitPendingRental as submitPendingRentalApi,
+  patchRentalCarPhotos as patchRentalCarPhotosApi,
 } from '../data/backendRentals'
 import { getArchivedIdSet, ARCHIVE_EVENT } from '../utils/archivedVehicles'
 import { isScheduledWindow } from '../utils/vehicleDisplayStatus'
@@ -47,6 +48,10 @@ export function VehicleProvider({ children }) {
   const [ready, setReady] = useState(false)
   const [loadError, setLoadError] = useState(null)
   const hasLoaded = useRef(false)
+  const skipRentalAutosave = useRef(false)
+  const rentalsRef = useRef(rentals)
+  const rentalSaveGen = useRef(0)
+  rentalsRef.current = rentals
 
   useEffect(() => {
     const id = window.setInterval(() => setTick((t) => t + 1), 60_000)
@@ -112,9 +117,18 @@ export function VehicleProvider({ children }) {
 
   useEffect(() => {
     if (!hasLoaded.current) return
-    saveRentals(rentals).catch((err) => {
-      console.warn('Rental save failed', err)
-    })
+    if (skipRentalAutosave.current) {
+      skipRentalAutosave.current = false
+      return
+    }
+    const gen = ++rentalSaveGen.current
+    const timer = window.setTimeout(() => {
+      if (gen !== rentalSaveGen.current) return
+      saveRentals(rentalsRef.current).catch((err) => {
+        console.warn('Rental save failed', err)
+      })
+    }, 750)
+    return () => window.clearTimeout(timer)
   }, [rentals])
 
   const reloadData = useCallback(async () => {
@@ -123,6 +137,7 @@ export function VehicleProvider({ children }) {
     const nextRentals = Array.isArray(rentalsData)
       ? rentalsData.map(normalizeRental)
       : []
+    skipRentalAutosave.current = true
     setVehicles(nextVehicles)
     setRentals(nextRentals)
     hasLoaded.current = true
@@ -145,9 +160,51 @@ export function VehicleProvider({ children }) {
         const nextRentals = Array.isArray(rentalsData)
           ? rentalsData.map(normalizeRental)
           : []
-        setRentals((prev) =>
-          JSON.stringify(prev) === JSON.stringify(nextRentals) ? prev : nextRentals,
-        )
+        setRentals((prev) => {
+          const byId = new Map(nextRentals.map((row) => [String(row.id), row]))
+          let changed = false
+          const merged = []
+          const seen = new Set()
+
+          for (const a of prev) {
+            const key = String(a.id)
+            seen.add(key)
+            const b = byId.get(key)
+            if (!b) {
+              // Dropped on server (or filtered) — keep local until explicit reload.
+              merged.push(a)
+              continue
+            }
+            const aTs = Date.parse(a.updatedAt || '') || 0
+            const bTs = Date.parse(b.updatedAt || '') || 0
+            if (aTs > bTs) {
+              merged.push(a)
+              continue
+            }
+            if (
+              aTs < bTs ||
+              String(a.approvalStatus || '') !== String(b.approvalStatus || '') ||
+              String(a.rentalLifecycle || '') !== String(b.rentalLifecycle || '') ||
+              String(a.carPhotosAddedBy || '') !== String(b.carPhotosAddedBy || '')
+            ) {
+              changed = true
+              merged.push(b)
+            } else {
+              merged.push(a)
+            }
+          }
+
+          for (const b of nextRentals) {
+            const key = String(b.id)
+            if (seen.has(key)) continue
+            changed = true
+            merged.push(b)
+          }
+
+          if (!changed && merged.length === prev.length) return prev
+          skipRentalAutosave.current = true
+          return merged
+        })
       } catch (err) {
         console.warn('Periodic rental refresh failed', err)
       }
@@ -229,33 +286,29 @@ export function VehicleProvider({ children }) {
     )
   }, [])
 
-  const updateRentalCarPhotos = useCallback((rentalId, carPhotos, addedBy = '') => {
+  const updateRentalCarPhotos = useCallback(async (rentalId, carPhotos, addedBy = '') => {
     if (!rentalId) return null
     const key = String(rentalId)
-    const now = new Date().toISOString()
+    const addedByName = String(addedBy || '').trim()
     const nextPhotos =
       carPhotos && typeof carPhotos === 'object' && !Array.isArray(carPhotos) ? carPhotos : {}
-    const addedByName = String(addedBy || '').trim()
-    let updated = null
 
+    // Invalidate any in-flight full rental autosave before/while patching photos.
+    rentalSaveGen.current += 1
+    skipRentalAutosave.current = true
+
+    const saved = await patchRentalCarPhotosApi(key, nextPhotos, addedByName)
+    const normalized = saved ? normalizeRental(saved) : null
+
+    skipRentalAutosave.current = true
+    rentalSaveGen.current += 1
     setRentals((prev) => {
-      const next = prev.map((r) => {
-        if (String(r.id) !== key) return r
-        updated = {
-          ...r,
-          carPhotos: {
-            ...nextPhotos,
-            ...(addedByName ? { _addedBy: addedByName } : {}),
-          },
-          carPhotosAddedBy: addedByName || r.carPhotosAddedBy || null,
-          updatedAt: now,
-        }
-        return updated
-      })
-      return updated ? next : prev
+      const exists = prev.some((r) => String(r.id) === key)
+      if (!exists && normalized) return [normalized, ...prev]
+      return prev.map((r) => (String(r.id) === key ? { ...r, ...normalized } : r))
     })
 
-    return updated
+    return normalized
   }, [])
 
   useEffect(() => {

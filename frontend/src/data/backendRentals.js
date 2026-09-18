@@ -3,6 +3,7 @@ import {
   replaceRentals,
   addRental as postRental,
   submitPendingRental as postPendingRental,
+  patchRentalCarPhotos as patchRentalCarPhotosApi,
 } from '../api/backend'
 import { enqueueOfflineOp } from '../utils/offlineQueue'
 
@@ -39,5 +40,14 @@ export async function submitPendingRental(rental) {
     console.warn('Unable to submit pending rental to backend', err)
     enqueueOfflineOp({ type: 'pending-rental', payload: rental })
     return null
+  }
+}
+
+export async function patchRentalCarPhotos(rentalId, carPhotos, addedBy = '') {
+  try {
+    return await patchRentalCarPhotosApi(rentalId, carPhotos, addedBy)
+  } catch (err) {
+    console.warn('Unable to patch rental car photos', err)
+    throw err
   }
 }

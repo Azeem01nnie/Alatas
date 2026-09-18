@@ -1504,6 +1504,12 @@ input[type='number']:focus {
   font-weight: 400;
 }
 
+.success-msg {
+  font-size: 0.75rem;
+  color: #067647;
+  font-weight: 500;
+}
+
 .error-center {
   display: block;
   text-align: center;
