@@ -11,7 +11,15 @@ export function isAdminLoggedIn() {
 }
 
 export function getSessionRole() {
-  return sessionStorage.getItem(ROLE_KEY) === 'employee' ? 'employee' : 'admin'
+  const stored = sessionStorage.getItem(ROLE_KEY)
+  if (stored === 'employee' || stored === 'admin') return stored
+  try {
+    const user = JSON.parse(sessionStorage.getItem(USER_KEY) || 'null')
+    if (user?.role === 'employee' || user?.role === 'admin') return user.role
+  } catch {
+    // ignore
+  }
+  return 'admin'
 }
 
 export function getSessionUser() {

@@ -989,7 +989,7 @@ export default function AdminPanel() {
     e.target.value = ''
   }
 
-  const isAdminUser = sessionRole !== 'employee'
+  const isAdminUser = sessionRole === 'admin' || sessionUser?.role === 'admin'
   const visibleNav = useMemo(
     () => NAV.filter((item) => isAdminUser || !item.adminOnly),
     [isAdminUser],

@@ -99,7 +99,7 @@ export default function PendingApprovals({
   onChanged,
   compact = false,
   embedded = false,
-  canApprove = true,
+  canApprove = false,
   canEditCarPhotos = true,
   onOpenPhotos,
 }) {
@@ -240,38 +240,27 @@ export default function PendingApprovals({
           ) : photosReady ? (
             <p className="pending-photo-credit">Photographer not recorded</p>
           ) : (
-            <p className="pending-photo-credit">Open the rental to attach photos before approving</p>
+            <p className="pending-photo-credit">Attach photos from the rental page</p>
           )}
         </div>
         <button
           type="button"
-          className={`btn-sm pending-photo-btn${photosReady ? ' btn-outline' : ' btn-primary'}`}
+          className="btn-outline btn-sm pending-photo-btn"
           onClick={() => onOpenPhotos?.(rental)}
           disabled={typeof onOpenPhotos !== 'function'}
         >
-          {photosReady ? 'View / add photos' : 'Add photo'}
+          {photosReady ? 'View photos' : 'Add photo'}
         </button>
       </div>
     )
   }
 
   const renderActions = (rental, isBusy) => {
-    if (!canApprove) {
-      return (
-        <div className="pending-approvals-actions">
-          <button type="button" className="btn-primary btn-sm" disabled title="Only admin can approve">
-            Accept
-          </button>
-          <button type="button" className="btn-outline btn-sm" disabled title="Only admin can reject">
-            Reject
-          </button>
-          <span className="pending-approvals-readonly-note">View only — admin approves</span>
-        </div>
-      )
-    }
+    // Employees never see Accept / Reject — admin-only.
+    if (!canApprove) return null
 
     return (
-      <div className="pending-approvals-actions">
+      <div className="pending-approvals-footer">
         <button
           type="button"
           className="btn-primary btn-sm"
@@ -345,22 +334,20 @@ export default function PendingApprovals({
     const vehicle = vehicleFor(rental)
     const isBusy = busyId === rental.id
     return (
-      <li key={rental.id} className="pending-approvals-item">
-        <div className="pending-approvals-main">
-          <div className="pending-approvals-meta dash-attn-meta">
-            <strong>
-              {vehicle?.make || 'Vehicle'} — {vehicle?.series || ''}
-            </strong>
-            <span>
-              {vehicle?.plateNo || 'No plate'} · {customerName(rental)}
-              {accountProof(rental) ? ` · by ${accountProof(rental)}` : ''}
-            </span>
-            {showTime ? (
-              <span className="dash-attn-time">{formatDateTime(rental.rental?.periodFrom)}</span>
-            ) : null}
-          </div>
-          {renderPhotoBlock(rental)}
+      <li key={rental.id} className={`pending-approvals-item${!canApprove ? ' is-readonly' : ''}`}>
+        <div className="pending-approvals-meta">
+          <strong>
+            {vehicle?.make || 'Vehicle'} — {vehicle?.series || ''}
+          </strong>
+          <span>
+            {vehicle?.plateNo || 'No plate'} · {customerName(rental)}
+            {accountProof(rental) ? ` · by ${accountProof(rental)}` : ''}
+          </span>
+          {showTime ? (
+            <span className="pending-approvals-time">{formatDateTime(rental.rental?.periodFrom)}</span>
+          ) : null}
         </div>
+        {renderPhotoBlock(rental)}
         {renderActions(rental, isBusy)}
       </li>
     )
@@ -379,11 +366,6 @@ export default function PendingApprovals({
     return (
       <>
         {error ? <p className="pending-approvals-error">{error}</p> : null}
-        {!canApprove ? (
-          <p className="pending-approvals-readonly-banner">
-            You can view the queue. Only an admin can accept or reject.
-          </p>
-        ) : null}
         <ul className="pending-approvals-list">{pending.map((rental) => renderItem(rental))}</ul>
         {confirmModal}
       </>
@@ -444,31 +426,7 @@ export default function PendingApprovals({
         <p className="pending-approvals-empty">No rentals waiting for approval.</p>
       ) : (
         <ul className="pending-approvals-list">
-          {pending.map((rental) => {
-            const vehicle = vehicleFor(rental)
-            const isBusy = busyId === rental.id
-            return (
-              <li key={rental.id} className="pending-approvals-item">
-                <div className="pending-approvals-main">
-                  <div className="pending-approvals-meta">
-                    <strong>
-                      {vehicle?.make || 'Vehicle'} — {vehicle?.series || ''}
-                    </strong>
-                    <span>
-                      {vehicle?.plateNo || 'No plate'} · {customerName(rental)}
-                      {accountProof(rental) ? ` · by ${accountProof(rental)}` : ''}
-                    </span>
-                    <span className="pending-approvals-time">
-                      From {formatDateTime(rental.rental?.periodFrom)} · source:{' '}
-                      {rental.source || 'field'}
-                    </span>
-                  </div>
-                  {renderPhotoBlock(rental)}
-                </div>
-                {renderActions(rental, isBusy)}
-              </li>
-            )
-          })}
+          {pending.map((rental) => renderItem(rental))}
         </ul>
       )}
       {confirmModal}
