@@ -353,6 +353,10 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
 
       const encoder = String(encodedByName || '').trim() || 'Unknown'
       const safe = (value) => String(value ?? '').trim()
+      const isMobileClient =
+        typeof window !== 'undefined' &&
+        (window.matchMedia('(max-width: 860px)').matches ||
+          /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || ''))
       const record = {
         personal: {
           ...personal,
@@ -404,7 +408,7 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
         encodedAt: new Date().toISOString(),
         encodedBy: encoder,
         autoApprove: Boolean(autoApprove),
-        source: 'desktop',
+        source: isMobileClient ? 'mobile' : 'desktop',
       }
 
       await addRental(record)
@@ -413,7 +417,7 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
       console.error('Submit failed:', err)
       setSubmitError(
         err?.message ||
-          'Could not save this registration. Storage may be full — try a smaller photo or clear old history in Admin.',
+          'Could not save this registration. Check your connection and try again.',
       )
     } finally {
       setSubmitting(false)

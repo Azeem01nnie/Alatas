@@ -482,16 +482,64 @@ export async function replaceRentals(rentals, options = {}) {
   return fetchRentals()
 }
 
+/** Shrink rental media for insert — Storage URLs instead of huge base64 in Postgres. */
+async function materializeRentalMedia(rental) {
+  const id = String(rental?.id || '').trim() || `r-${Date.now()}`
+  const next = { ...rental, id }
+
+  const safeUpload = async (fileKey, dataUrl) => {
+    if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) return dataUrl || ''
+    try {
+      return await uploadRentalImage(id, fileKey, dataUrl)
+    } catch (err) {
+      console.warn(`Storage upload failed for ${fileKey}; keeping compressed data URL`, err)
+      return dataUrl
+    }
+  }
+
+  if (typeof next.photo === 'string' && next.photo.startsWith('data:')) {
+    next.photo = await safeUpload('customer', next.photo)
+  }
+  if (typeof next.licensePhoto === 'string' && next.licensePhoto.startsWith('data:')) {
+    next.licensePhoto = await safeUpload('license', next.licensePhoto)
+  }
+  if (typeof next.signature === 'string' && next.signature.startsWith('data:')) {
+    next.signature = await safeUpload('signature', next.signature)
+  }
+  if (next.personal?.optionalPhoto?.startsWith?.('data:')) {
+    next.personal = {
+      ...next.personal,
+      optionalPhoto: await safeUpload('optional', next.personal.optionalPhoto),
+    }
+  }
+  if (next.carPhotos && typeof next.carPhotos === 'object') {
+    try {
+      next.carPhotos = await materializeCarPhotos(id, next.carPhotos)
+    } catch (err) {
+      console.warn('Car photo storage upload failed; keeping compressed photos', err)
+    }
+  }
+  if (next.vehicle?.image?.startsWith?.('data:')) {
+    next.vehicle = {
+      ...next.vehicle,
+      image: await safeUpload('vehicle', next.vehicle.image),
+    }
+  }
+
+  return next
+}
+
 export async function addRental(rental) {
   const sb = requireSupabase()
   let vehicleIds = await knownVehicleIdSet(sb)
-  const desiredId = rental.vehicleId || rental.vehicle?.id || null
-  const lifecycle = rental.rentalLifecycle || 'completed'
+  const prepared = await materializeRentalMedia(rental)
+  const desiredId = prepared.vehicleId || prepared.vehicle?.id || null
+  const lifecycle = prepared.rentalLifecycle || 'completed'
   const isOpenBooking = lifecycle === 'active' || lifecycle === 'scheduled'
 
   // If the desk has a vehicle snapshot that isn't in Supabase yet, create a minimal row.
-  if (desiredId && !vehicleIds.has(String(desiredId)) && rental.vehicle) {
-    const v = rental.vehicle
+  if (desiredId && !vehicleIds.has(String(desiredId)) && prepared.vehicle) {
+    const v = prepared.vehicle
     const { error: vehicleErr } = await sb.from('vehicles').upsert(
       {
         id: String(desiredId),
@@ -516,7 +564,7 @@ export async function addRental(rental) {
   if (desiredId && isOpenBooking) {
     const { data: blocked, error: blockErr } = await sb.rpc('vehicle_is_blocked', {
       p_vehicle_id: String(desiredId),
-      p_except_rental_id: rental.id ? String(rental.id) : null,
+      p_except_rental_id: prepared.id ? String(prepared.id) : null,
     })
     if (blockErr) throwSb(blockErr)
     if (blocked?.blocked) {
@@ -525,7 +573,7 @@ export async function addRental(rental) {
   }
 
   // Also block when another open rental shares the same plate (re-created vehicle ids).
-  const plate = String(rental.vehicle?.plateNo || '').trim().toUpperCase()
+  const plate = String(prepared.vehicle?.plateNo || '').trim().toUpperCase()
   if (plate && isOpenBooking) {
     const { data: openRows, error: openErr } = await sb
       .from('rentals')
@@ -533,7 +581,7 @@ export async function addRental(rental) {
       .in('rental_lifecycle', ['active', 'scheduled'])
     if (openErr) throwSb(openErr)
     const clash = (openRows || []).find((row) => {
-      if (rental.id && String(row.id) === String(rental.id)) return false
+      if (prepared.id && String(row.id) === String(prepared.id)) return false
       if (row.approval_status === 'pending' || row.approval_status === 'rejected') return false
       const rowPlate = String(row.vehicle?.plateNo || row.vehicle?.plate_no || '')
         .trim()
@@ -545,7 +593,7 @@ export async function addRental(rental) {
     }
   }
 
-  const row = withSafeVehicleFk(toRentalRow(rental), vehicleIds)
+  const row = withSafeVehicleFk(toRentalRow(prepared), vehicleIds)
   const { data, error } = await sb.from('rentals').upsert(row, { onConflict: 'id' }).select('*').single()
   if (error) throwSb(error)
 

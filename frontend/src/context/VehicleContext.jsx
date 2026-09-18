@@ -517,15 +517,11 @@ export function VehicleProvider({ children }) {
     if (autoApprove) {
       const created = await addRentalApi(entry)
       if (!created?.id) {
-        setRentals((prev) => [entry, ...prev])
-        if (entry.rentalLifecycle === 'active' && entry.vehicle?.id) {
-          setVehicles((prev) =>
-            prev.map((v) =>
-              String(v.id) === String(entry.vehicle.id) ? { ...v, status: 'Rented' } : v,
-            ),
-          )
+        if (!navigator.onLine) {
+          setRentals((prev) => [entry, ...prev])
+          return entry
         }
-        return entry
+        throw new Error('Could not save rental to the server. Please try again.')
       }
       setRentals((prev) => [normalizeRental(created), ...prev.filter((r) => String(r.id) !== String(created.id))])
       if (created.rentalLifecycle === 'active' && (created.vehicleId || created.vehicle?.id)) {
@@ -540,8 +536,11 @@ export function VehicleProvider({ children }) {
     // Employee / field submissions wait for admin approval.
     const created = await submitPendingRentalApi(entry)
     if (!created?.id) {
-      setRentals((prev) => [entry, ...prev])
-      return entry
+      if (!navigator.onLine) {
+        setRentals((prev) => [entry, ...prev])
+        return entry
+      }
+      throw new Error('Could not save rental to the server. Please try again.')
     }
 
     setRentals((prev) => [normalizeRental(created), ...prev.filter((r) => String(r.id) !== String(created.id))])

@@ -2005,11 +2005,14 @@ export default function AdminPanel() {
                 Server unavailable — fleet data not loaded. Start the API and refresh.
               </span>
             )}
-            {!loadError && !online && (
-              <span className="admin-offline-badge" role="status">
-                Offline — local desk still works
-              </span>
-            )}
+            <span
+              className={`conn-status${online ? ' is-online' : ' is-offline'}`}
+              role="status"
+              title={online ? 'Connected to the internet' : 'No internet — local desk still works'}
+            >
+              <span className="conn-status-dot" aria-hidden="true" />
+              <span className="conn-status-label">{online ? 'Online' : 'Offline'}</span>
+            </span>
             {pendingApprovalCount > 0 && tab === 'dashboard' && (
               <span className="admin-pending-badge" role="status">
                 {pendingApprovalCount} waiting for approval
@@ -3402,7 +3405,10 @@ export default function AdminPanel() {
                       </li>
                       <li>
                         <strong>Internet</strong>
-                        <span>{online ? 'Online' : 'Offline — desk still works'}</span>
+                        <span className={`conn-status compact${online ? ' is-online' : ' is-offline'}`}>
+                          <span className="conn-status-dot" aria-hidden="true" />
+                          <span className="conn-status-label">{online ? 'Online' : 'Offline'}</span>
+                        </span>
                       </li>
                       <li>
                         <strong>Cloud URL configured</strong>

@@ -7,6 +7,10 @@ import {
 } from '../api/backend'
 import { enqueueOfflineOp } from '../utils/offlineQueue'
 
+function isBrowserOnline() {
+  return typeof navigator === 'undefined' ? true : navigator.onLine !== false
+}
+
 export async function loadRentals() {
   const rentals = await fetchRentals()
   return Array.isArray(rentals) ? rentals : []
@@ -28,8 +32,11 @@ export async function addRental(rental) {
     return await postRental(rental)
   } catch (err) {
     console.warn('Unable to add rental to backend', err)
-    enqueueOfflineOp({ type: 'rentals-add', payload: rental })
-    return null
+    if (!isBrowserOnline()) {
+      enqueueOfflineOp({ type: 'rentals-add', payload: rental })
+      return null
+    }
+    throw err
   }
 }
 
@@ -38,8 +45,11 @@ export async function submitPendingRental(rental) {
     return await postPendingRental(rental)
   } catch (err) {
     console.warn('Unable to submit pending rental to backend', err)
-    enqueueOfflineOp({ type: 'pending-rental', payload: rental })
-    return null
+    if (!isBrowserOnline()) {
+      enqueueOfflineOp({ type: 'pending-rental', payload: rental })
+      return null
+    }
+    throw err
   }
 }
 
