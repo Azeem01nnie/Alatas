@@ -15,6 +15,7 @@ import {
   replaceRentals as apiReplaceRentals,
   addRental as apiAddRental,
   completeVehicleRental as completeVehicleRentalApi,
+  reconcileDuplicateOpenRentals as reconcileDuplicateOpenRentalsApi,
 } from '../api/backend'
 
 const VehicleContext = createContext(null)
@@ -99,6 +100,24 @@ export function VehicleProvider({ children }) {
           loadVehicles(),
           loadRentals(),
         ])
+
+        try {
+          const healed = await reconcileDuplicateOpenRentalsApi()
+          if (healed?.closed > 0) {
+            const refreshed = await loadRentals()
+            if (mounted) {
+              setVehicles(Array.isArray(vehiclesData) ? vehiclesData : [])
+              setRentals(
+                Array.isArray(refreshed) ? refreshed.map(normalizeRental) : [],
+              )
+              hasLoaded.current = true
+              setLoadError(null)
+              return
+            }
+          }
+        } catch (healErr) {
+          console.warn('Duplicate rental reconcile skipped', healErr)
+        }
 
         if (!mounted) return
         setVehicles(Array.isArray(vehiclesData) ? vehiclesData : [])
@@ -276,22 +295,28 @@ export function VehicleProvider({ children }) {
     )
   }, [])
 
-  const completeRentalForVehicle = useCallback(async (vehicleId) => {
-    if (!vehicleId) return
-    const key = String(vehicleId)
+  const completeRentalForVehicle = useCallback(async (vehicleId, plateNo = '') => {
+    if (!vehicleId && !plateNo) return
+    const key = String(vehicleId || '')
+    const plate = String(plateNo || '').trim().toUpperCase()
     const now = new Date().toISOString()
 
     // Optimistic UI update
     skipVehicleAutosave.current = true
     skipRentalAutosave.current = true
     rentalSaveGen.current += 1
-    setVehicles((prev) =>
-      prev.map((v) => (String(v.id) === key ? { ...v, status: 'Available' } : v)),
-    )
+    if (key) {
+      setVehicles((prev) =>
+        prev.map((v) => (String(v.id) === key ? { ...v, status: 'Available' } : v)),
+      )
+    }
     setRentals((prev) =>
       prev.map((r) => {
+        if (r.rentalLifecycle !== 'active') return r
         const rid = String(r.vehicleId || r.vehicle?.id || '')
-        if (rid !== key || r.rentalLifecycle !== 'active') return r
+        const rPlate = String(r.vehicle?.plateNo || '').trim().toUpperCase()
+        const match = (key && rid === key) || (plate && rPlate === plate)
+        if (!match) return r
         return {
           ...r,
           rentalLifecycle: 'completed',
@@ -302,7 +327,7 @@ export function VehicleProvider({ children }) {
     )
 
     try {
-      await completeVehicleRentalApi(key)
+      await completeVehicleRentalApi(key, plate)
     } catch (err) {
       console.warn('Complete rental API failed; local state updated', err)
     }
@@ -446,6 +471,25 @@ export function VehicleProvider({ children }) {
 
   const addRental = async (record) => {
     const autoApprove = Boolean(record?.autoApprove)
+    const vehicleId = String(record?.vehicleId || record?.vehicle?.id || '')
+    const plate = String(record?.vehicle?.plateNo || '').trim().toUpperCase()
+
+    const hasOpenClash = rentalsRef.current.some((r) => {
+      if (!isActiveBooking(r)) return false
+      const rid = String(r.vehicleId || r.vehicle?.id || '')
+      const rPlate = String(r.vehicle?.plateNo || '').trim().toUpperCase()
+      if (vehicleId && rid === vehicleId) return true
+      if (plate && rPlate === plate) return true
+      return false
+    })
+    if (autoApprove && hasOpenClash) {
+      throw new Error(
+        plate
+          ? `Vehicle ${plate} already has an active or scheduled rental.`
+          : 'This vehicle already has an active or scheduled rental.',
+      )
+    }
+
     const entry = {
       ...record,
       id: `r-${Date.now()}`,
@@ -509,7 +553,7 @@ export function VehicleProvider({ children }) {
     const now = Date.now()
     return rentals
       .filter((r) => {
-        const vid = r.vehicle?.id
+        const vid = r.vehicleId || r.vehicle?.id
         if (!vid || archived.has(String(vid))) return false
         if (!isActiveBooking(r)) return false
         if (r.rentalLifecycle === 'active') return true
@@ -518,7 +562,7 @@ export function VehicleProvider({ children }) {
         }
         return false
       })
-      .map((r) => r.vehicle?.id)
+      .map((r) => r.vehicleId || r.vehicle?.id)
       .filter(Boolean)
   }, [rentals, tick])
 

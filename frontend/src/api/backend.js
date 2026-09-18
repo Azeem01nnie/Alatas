@@ -207,64 +207,130 @@ export async function deleteVehicle(id) {
 }
 
 /** Mark active rental(s) for a vehicle completed and set fleet status Available. */
-export async function completeVehicleRental(vehicleId) {
+export async function completeVehicleRental(vehicleId, plateNo = '') {
   const sb = requireSupabase()
   const key = String(vehicleId || '').trim()
-  if (!key) throw new Error('Vehicle id is required')
+  const plate = String(plateNo || '').trim().toUpperCase()
+  if (!key && !plate) throw new Error('Vehicle id is required')
   const now = new Date().toISOString()
 
-  const { data: updatedRentals, error: rentalErr } = await sb
+  let completedRentals = []
+
+  if (key) {
+    const { data: updatedRentals, error: rentalErr } = await sb
+      .from('rentals')
+      .update({
+        rental_lifecycle: 'completed',
+        completed_at: now,
+        updated_at: now,
+      })
+      .eq('rental_lifecycle', 'active')
+      .eq('vehicle_id', key)
+      .select('*')
+    if (rentalErr) throwSb(rentalErr)
+    completedRentals = updatedRentals || []
+  }
+
+  // Complete any other active rows for this vehicle id (JSON) or same plate.
+  const { data: activeRows, error: listErr } = await sb
+    .from('rentals')
+    .select('id, vehicle, vehicle_id')
+    .eq('rental_lifecycle', 'active')
+  if (listErr) throwSb(listErr)
+
+  const doneIds = new Set(completedRentals.map((r) => String(r.id)))
+  const extraIds = (activeRows || [])
+    .filter((row) => {
+      if (doneIds.has(String(row.id))) return false
+      if (key && String(row.vehicle_id || row.vehicle?.id || '') === key) return true
+      if (plate) {
+        const rowPlate = String(row.vehicle?.plateNo || row.vehicle?.plate_no || '')
+          .trim()
+          .toUpperCase()
+        return rowPlate === plate
+      }
+      return false
+    })
+    .map((row) => row.id)
+
+  if (extraIds.length) {
+    const { data: extraUpdated, error } = await sb
+      .from('rentals')
+      .update({
+        rental_lifecycle: 'completed',
+        completed_at: now,
+        updated_at: now,
+      })
+      .in('id', extraIds)
+      .select('*')
+    if (error) throwSb(error)
+    completedRentals = [...completedRentals, ...(extraUpdated || [])]
+  }
+
+  if (key) {
+    const { error: vehicleErr } = await sb
+      .from('vehicles')
+      .update({ status: 'Available', updated_at: now })
+      .eq('id', key)
+    if (vehicleErr) throwSb(vehicleErr)
+  }
+
+  return {
+    vehicle: null,
+    rentals: completedRentals.map(mapRental),
+  }
+}
+
+/** Close duplicate open bookings for the same vehicle/plate — keep the newest. */
+export async function reconcileDuplicateOpenRentals() {
+  const sb = requireSupabase()
+  const { data, error } = await sb
+    .from('rentals')
+    .select('*')
+    .in('rental_lifecycle', ['active', 'scheduled'])
+  if (error) throwSb(error)
+
+  const open = (data || []).filter(
+    (r) => r.approval_status !== 'pending' && r.approval_status !== 'rejected',
+  )
+  const groups = new Map()
+  for (const row of open) {
+    const vid = String(row.vehicle_id || row.vehicle?.id || '')
+    const plate = String(row.vehicle?.plateNo || row.vehicle?.plate_no || '')
+      .trim()
+      .toUpperCase()
+    const key = vid || (plate ? `plate:${plate}` : '')
+    if (!key) continue
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(row)
+  }
+
+  const now = new Date().toISOString()
+  const toClose = []
+  for (const rows of groups.values()) {
+    if (rows.length < 2) continue
+    rows.sort((a, b) => {
+      const ta = new Date(a.encoded_at || a.created_at || a.updated_at || 0).getTime()
+      const tb = new Date(b.encoded_at || b.created_at || b.updated_at || 0).getTime()
+      return tb - ta
+    })
+    // Keep newest; close older duplicates.
+    for (const row of rows.slice(1)) toClose.push(row.id)
+  }
+
+  if (!toClose.length) return { closed: 0 }
+
+  const { error: updErr } = await sb
     .from('rentals')
     .update({
       rental_lifecycle: 'completed',
       completed_at: now,
       updated_at: now,
+      rejection_reason: 'Auto-closed duplicate open rental',
     })
-    .eq('rental_lifecycle', 'active')
-    .eq('vehicle_id', key)
-    .select('*')
-
-  if (rentalErr) throwSb(rentalErr)
-
-  let completedRentals = updatedRentals || []
-
-  // Also complete rows that only match via embedded vehicle JSON id (legacy).
-  if (!completedRentals.length) {
-    const { data: activeRows, error: listErr } = await sb
-      .from('rentals')
-      .select('id, vehicle, vehicle_id')
-      .eq('rental_lifecycle', 'active')
-    if (listErr) throwSb(listErr)
-    const legacyIds = (activeRows || [])
-      .filter((row) => String(row.vehicle_id || row.vehicle?.id || '') === key)
-      .map((row) => row.id)
-    if (legacyIds.length) {
-      const { data: legacyUpdated, error } = await sb
-        .from('rentals')
-        .update({
-          rental_lifecycle: 'completed',
-          completed_at: now,
-          updated_at: now,
-        })
-        .in('id', legacyIds)
-        .select('*')
-      if (error) throwSb(error)
-      completedRentals = legacyUpdated || []
-    }
-  }
-
-  const { data: vehicleRow, error: vehicleErr } = await sb
-    .from('vehicles')
-    .update({ status: 'Available', updated_at: now })
-    .eq('id', key)
-    .select('*')
-    .maybeSingle()
-  if (vehicleErr) throwSb(vehicleErr)
-
-  return {
-    vehicle: vehicleRow ? mapVehicle(vehicleRow) : null,
-    rentals: completedRentals.map(mapRental),
-  }
+    .in('id', toClose)
+  if (updErr) throwSb(updErr)
+  return { closed: toClose.length }
 }
 
 export function fetchRentals() {
@@ -420,6 +486,8 @@ export async function addRental(rental) {
   const sb = requireSupabase()
   let vehicleIds = await knownVehicleIdSet(sb)
   const desiredId = rental.vehicleId || rental.vehicle?.id || null
+  const lifecycle = rental.rentalLifecycle || 'completed'
+  const isOpenBooking = lifecycle === 'active' || lifecycle === 'scheduled'
 
   // If the desk has a vehicle snapshot that isn't in Supabase yet, create a minimal row.
   if (desiredId && !vehicleIds.has(String(desiredId)) && rental.vehicle) {
@@ -444,9 +512,50 @@ export async function addRental(rental) {
     }
   }
 
+  // Prevent double-booking the same vehicle (admin auto-approve used to skip this).
+  if (desiredId && isOpenBooking) {
+    const { data: blocked, error: blockErr } = await sb.rpc('vehicle_is_blocked', {
+      p_vehicle_id: String(desiredId),
+      p_except_rental_id: rental.id ? String(rental.id) : null,
+    })
+    if (blockErr) throwSb(blockErr)
+    if (blocked?.blocked) {
+      throw new Error(blocked.reason || 'Vehicle already has an active or scheduled rental.')
+    }
+  }
+
+  // Also block when another open rental shares the same plate (re-created vehicle ids).
+  const plate = String(rental.vehicle?.plateNo || '').trim().toUpperCase()
+  if (plate && isOpenBooking) {
+    const { data: openRows, error: openErr } = await sb
+      .from('rentals')
+      .select('id, vehicle, vehicle_id, rental_lifecycle, approval_status')
+      .in('rental_lifecycle', ['active', 'scheduled'])
+    if (openErr) throwSb(openErr)
+    const clash = (openRows || []).find((row) => {
+      if (rental.id && String(row.id) === String(rental.id)) return false
+      if (row.approval_status === 'pending' || row.approval_status === 'rejected') return false
+      const rowPlate = String(row.vehicle?.plateNo || row.vehicle?.plate_no || '')
+        .trim()
+        .toUpperCase()
+      return rowPlate && rowPlate === plate
+    })
+    if (clash) {
+      throw new Error(`Vehicle ${plate} already has an active or scheduled rental.`)
+    }
+  }
+
   const row = withSafeVehicleFk(toRentalRow(rental), vehicleIds)
   const { data, error } = await sb.from('rentals').upsert(row, { onConflict: 'id' }).select('*').single()
   if (error) throwSb(error)
+
+  if (isOpenBooking && desiredId && lifecycle === 'active') {
+    await sb
+      .from('vehicles')
+      .update({ status: 'Rented', updated_at: new Date().toISOString() })
+      .eq('id', String(desiredId))
+  }
+
   return mapRental(data)
 }
 

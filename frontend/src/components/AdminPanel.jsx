@@ -1209,10 +1209,36 @@ export default function AdminPanel() {
   }, [scheduledRentals, vehicles])
 
   const onRentQueue = useMemo(() => {
-    return activeRentals.map((r) => ({
+    const rows = activeRentals.map((r) => ({
       rental: r,
-      vehicle: vehicles.find((v) => v.id === r.vehicle?.id) || r.vehicle,
+      vehicle:
+        vehicles.find((v) => String(v.id) === String(r.vehicleId || r.vehicle?.id)) ||
+        vehicles.find(
+          (v) =>
+            String(v.plateNo || '').trim().toUpperCase() ===
+            String(r.vehicle?.plateNo || '').trim().toUpperCase(),
+        ) ||
+        r.vehicle,
     }))
+
+    // One card per vehicle/plate — prefer the earliest return (most overdue).
+    const byKey = new Map()
+    for (const row of rows) {
+      const vid = String(row.rental.vehicleId || row.vehicle?.id || row.rental.vehicle?.id || '')
+      const plate = String(row.vehicle?.plateNo || row.rental.vehicle?.plateNo || '')
+        .trim()
+        .toUpperCase()
+      const key = vid || (plate ? `plate:${plate}` : row.rental.id)
+      const prev = byKey.get(key)
+      if (!prev) {
+        byKey.set(key, row)
+        continue
+      }
+      const prevTo = new Date(prev.rental.rental?.periodTo || 0).getTime() || Infinity
+      const nextTo = new Date(row.rental.rental?.periodTo || 0).getTime() || Infinity
+      if (nextTo < prevTo) byKey.set(key, row)
+    }
+    return [...byKey.values()]
   }, [activeRentals, vehicles])
 
   const maintenanceVehicles = useMemo(
@@ -1646,6 +1672,7 @@ export default function AdminPanel() {
       message: `Confirm that the rental for ${vehicle.make} — ${vehicle.series} (${vehicle.plateNo}) is completed? The vehicle will be set back to Available.`,
       confirmLabel: 'Rent Completed',
       vehicleId: vehicle.id,
+      plateNo: vehicle.plateNo || '',
     })
   }
 
@@ -1805,7 +1832,7 @@ export default function AdminPanel() {
       updateVehicleStatus(confirm.vehicleId, confirm.status)
     }
     if (confirm.type === 'complete-rental') {
-      completeRentalForVehicle(confirm.vehicleId)
+      void completeRentalForVehicle(confirm.vehicleId, confirm.plateNo)
     }
     if (confirm.type === 'cancel-rental') {
       cancelScheduledRental(confirm.rentalId)

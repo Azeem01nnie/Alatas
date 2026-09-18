@@ -23,11 +23,15 @@ export function isScheduledWindow(periodFrom, now = Date.now()) {
 
 export function openRentalsForVehicle(vehicleId, rentals) {
   const key = String(vehicleId)
-  return (rentals || []).filter(
-    (r) =>
-      String(r.vehicle?.id) === key &&
-      (r.rentalLifecycle === 'scheduled' || r.rentalLifecycle === 'active'),
-  )
+  return (rentals || []).filter((r) => {
+    const rid = String(r.vehicleId || r.vehicle?.id || '')
+    return (
+      rid === key &&
+      (r.rentalLifecycle === 'scheduled' || r.rentalLifecycle === 'active') &&
+      r.approvalStatus !== 'pending' &&
+      r.approvalStatus !== 'rejected'
+    )
+  })
 }
 
 /**
