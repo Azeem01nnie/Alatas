@@ -503,14 +503,14 @@ export function VehicleProvider({ children }) {
             return !Number.isNaN(start) && start > Date.now() ? 'scheduled' : 'active'
           })()
         : 'pending_approval',
-      startedAt:
-        autoApprove &&
-        (() => {
-          const start = record?.rental?.periodFrom
-            ? new Date(record.rental.periodFrom).getTime()
-            : NaN
-          return Number.isNaN(start) || start <= Date.now() ? new Date().toISOString() : null
-        })(),
+      startedAt: autoApprove
+        ? (() => {
+            const start = record?.rental?.periodFrom
+              ? new Date(record.rental.periodFrom).getTime()
+              : NaN
+            return Number.isNaN(start) || start <= Date.now() ? new Date().toISOString() : null
+          })()
+        : null,
       autoApprove: undefined,
     }
 

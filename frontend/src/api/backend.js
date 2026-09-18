@@ -94,6 +94,15 @@ function mapRental(row) {
   }
 }
 
+function toTimestampOrNull(value) {
+  if (value == null || value === false || value === true) return null
+  const text = String(value).trim()
+  if (!text || text === 'false' || text === 'true') return null
+  const ms = Date.parse(text)
+  if (Number.isNaN(ms)) return null
+  return new Date(ms).toISOString()
+}
+
 function toRentalRow(rental) {
   const now = new Date().toISOString()
   const vehicleId = rental.vehicleId || rental.vehicle?.id || null
@@ -110,10 +119,10 @@ function toRentalRow(rental) {
       rental.carPhotos && typeof rental.carPhotos === 'object' ? rental.carPhotos : {},
     terms_accepted: Boolean(rental.termsAccepted),
     rental_lifecycle: rental.rentalLifecycle ?? null,
-    started_at: rental.startedAt ?? null,
-    completed_at: rental.completedAt ?? null,
-    encoded_at: rental.encodedAt ?? null,
-    created_at: rental.createdAt || now,
+    started_at: toTimestampOrNull(rental.startedAt),
+    completed_at: toTimestampOrNull(rental.completedAt),
+    encoded_at: toTimestampOrNull(rental.encodedAt),
+    created_at: toTimestampOrNull(rental.createdAt) || now,
     approval_status: rental.approvalStatus || 'accepted',
     source: rental.source || 'desktop',
     rejection_reason: rental.rejectionReason ?? null,
