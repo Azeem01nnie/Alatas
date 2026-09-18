@@ -4422,6 +4422,88 @@ html[data-theme='dark'] .password-strength.is-weak .password-strength-value {
   color: var(--muted);
 }
 
+.pending-approvals-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.pending-photo-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 10px;
+  border: 1px dashed rgba(179, 32, 37, 0.35);
+  background: rgba(179, 32, 37, 0.04);
+  max-width: 28rem;
+}
+
+.pending-photo-block.is-ready {
+  border-color: rgba(4, 120, 87, 0.35);
+  background: rgba(4, 120, 87, 0.05);
+}
+
+.pending-photo-note {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #b91c1c;
+}
+
+.pending-photo-note.is-ok {
+  color: #047857;
+}
+
+.pending-photo-drafts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.pending-photo-draft {
+  margin: 0;
+  width: 4.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.pending-photo-draft img {
+  width: 4.5rem;
+  height: 3.25rem;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #fff;
+}
+
+.pending-photo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+html[data-theme='dark'] .pending-photo-block {
+  background: rgba(179, 32, 37, 0.12);
+  border-color: rgba(252, 165, 165, 0.35);
+}
+
+html[data-theme='dark'] .pending-photo-block.is-ready {
+  background: rgba(4, 120, 87, 0.14);
+  border-color: rgba(110, 231, 183, 0.35);
+}
+
+html[data-theme='dark'] .pending-photo-note {
+  color: #fca5a5;
+}
+
+html[data-theme='dark'] .pending-photo-note.is-ok {
+  color: #6ee7b7;
+}
+
 .admin-offline-badge,
 .admin-pending-badge {
   font-size: 0.78rem;

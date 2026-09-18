@@ -2308,6 +2308,11 @@ export default function AdminPanel() {
                           onChanged={reloadData}
                           embedded
                           canApprove={isAdminUser}
+                          canEditCarPhotos
+                          addedByName={sessionDisplayName}
+                          onSaveCarPhotos={(rentalId, carPhotos, addedBy) =>
+                            updateRentalCarPhotos(rentalId, carPhotos, addedBy)
+                          }
                         />
                       )}
                     </div>

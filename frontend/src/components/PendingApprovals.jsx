@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   acceptPendingRental as acceptPendingRentalApi,
   rejectPendingRental as rejectPendingRentalApi,
@@ -12,6 +12,7 @@ import {
   rejectCloudPendingRental,
 } from '../api/cloudSync'
 import ConfirmModal from './ConfirmModal'
+import { compressImageDataUrl } from '../utils/storage'
 
 function customerName(rental) {
   const p = rental?.personal
@@ -41,6 +42,35 @@ function isStillPending(rental) {
   return rental.approvalStatus === 'pending' || rental.rentalLifecycle === 'pending_approval'
 }
 
+function normalizeCarPhotos(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { extras: [] }
+  return {
+    ...value,
+    extras: Array.isArray(value.extras) ? value.extras : [],
+  }
+}
+
+function countVehiclePhotos(carPhotos) {
+  const cp = normalizeCarPhotos(carPhotos)
+  const sides = ['front', 'rear', 'left', 'right'].filter((key) => Boolean(cp[key])).length
+  const extras = cp.extras.filter((item) => item?.uri).length
+  return sides + extras
+}
+
+function hasVehiclePhotos(rental) {
+  return countVehiclePhotos(rental?.carPhotos) > 0
+}
+
+async function readAndCompress(file) {
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(new Error('Could not read file'))
+    reader.readAsDataURL(file)
+  })
+  return compressImageDataUrl(dataUrl, 960, 0.8)
+}
+
 /** Merge pending lists without letting stale cloud rows revive locally approved rentals. */
 function mergePendingLists(localPending, cloudPending, localRentals) {
   const localById = new Map(
@@ -58,7 +88,6 @@ function mergePendingLists(localPending, cloudPending, localRentals) {
       const localStatus = local.approvalStatus
       const localTs = new Date(local.updatedAt || local.createdAt || 0).getTime() || 0
       const cloudTs = new Date(row.updatedAt || row.createdAt || 0).getTime() || 0
-      // Only hide cloud pending when desk has a real newer accept/reject.
       if (
         (localStatus === 'accepted' || localStatus === 'rejected') &&
         localTs >= cloudTs
@@ -69,7 +98,6 @@ function mergePendingLists(localPending, cloudPending, localRentals) {
     byId.set(key, row)
   }
 
-  // Local pending always wins / is included (covers local-only submissions).
   for (const row of Array.isArray(localPending) ? localPending : []) {
     if (row?.id) byId.set(String(row.id), row)
   }
@@ -83,12 +111,19 @@ export default function PendingApprovals({
   compact = false,
   embedded = false,
   canApprove = true,
+  canEditCarPhotos = true,
+  addedByName = '',
+  onSaveCarPhotos,
 }) {
   const [pending, setPending] = useState([])
   const [busyId, setBusyId] = useState(null)
   const [rejectReason, setRejectReason] = useState('')
   const [confirm, setConfirm] = useState(null)
   const [error, setError] = useState('')
+  const [photoDrafts, setPhotoDrafts] = useState({})
+  const [photoBusyId, setPhotoBusyId] = useState('')
+  const [photoErrorById, setPhotoErrorById] = useState({})
+  const fileInputRefs = useRef({})
 
   const loadPending = useCallback(async () => {
     try {
@@ -144,7 +179,6 @@ export default function PendingApprovals({
     setBusyId(id)
     setError('')
     try {
-      // Prefer local desk DB first (source of truth for this PC), then mirror to cloud.
       try {
         await acceptPendingRentalApi(id)
       } catch (localErr) {
@@ -195,6 +229,175 @@ export default function PendingApprovals({
     } finally {
       setBusyId(null)
     }
+  }
+
+  const addDraftPhotos = async (rentalId, fileList) => {
+    const files = Array.from(fileList || []).filter((file) => file?.type?.startsWith('image/'))
+    if (!files.length) {
+      setPhotoErrorById((prev) => ({
+        ...prev,
+        [rentalId]: 'Please choose an image file',
+      }))
+      return
+    }
+
+    setPhotoBusyId(rentalId)
+    setPhotoErrorById((prev) => ({ ...prev, [rentalId]: '' }))
+    try {
+      const nextItems = []
+      for (const file of files) {
+        const compressed = await readAndCompress(file)
+        if (!compressed) continue
+        nextItems.push({
+          id: `extra-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          uri: compressed,
+          label: `Photo ${Date.now().toString().slice(-4)}`,
+        })
+      }
+      if (!nextItems.length) {
+        setPhotoErrorById((prev) => ({
+          ...prev,
+          [rentalId]: 'Could not process that image. Try another file.',
+        }))
+        return
+      }
+      setPhotoDrafts((prev) => ({
+        ...prev,
+        [rentalId]: [...(prev[rentalId] || []), ...nextItems],
+      }))
+    } catch {
+      setPhotoErrorById((prev) => ({
+        ...prev,
+        [rentalId]: 'Upload failed. Please try again.',
+      }))
+    } finally {
+      setPhotoBusyId('')
+      const input = fileInputRefs.current[rentalId]
+      if (input) input.value = ''
+    }
+  }
+
+  const removeDraftPhoto = (rentalId, photoId) => {
+    setPhotoDrafts((prev) => ({
+      ...prev,
+      [rentalId]: (prev[rentalId] || []).filter((item) => item.id !== photoId),
+    }))
+  }
+
+  const saveDraftPhotos = async (rental) => {
+    if (!canEditCarPhotos || typeof onSaveCarPhotos !== 'function') return
+    const draft = photoDrafts[rental.id] || []
+    if (!draft.length) {
+      setPhotoErrorById((prev) => ({
+        ...prev,
+        [rental.id]: 'Add at least one photo before saving.',
+      }))
+      return
+    }
+
+    setPhotoBusyId(rental.id)
+    setPhotoErrorById((prev) => ({ ...prev, [rental.id]: '' }))
+    try {
+      const existing = normalizeCarPhotos(rental.carPhotos)
+      const nextPhotos = {
+        ...existing,
+        extras: [...existing.extras, ...draft],
+      }
+      await onSaveCarPhotos(rental.id, nextPhotos, addedByName)
+      setPhotoDrafts((prev) => {
+        const next = { ...prev }
+        delete next[rental.id]
+        return next
+      })
+      setPending((prev) =>
+        prev.map((row) =>
+          String(row.id) === String(rental.id)
+            ? {
+                ...row,
+                carPhotos: nextPhotos,
+                carPhotosAddedBy: addedByName || row.carPhotosAddedBy || null,
+              }
+            : row,
+        ),
+      )
+      if (onChanged) await onChanged()
+    } catch (err) {
+      setPhotoErrorById((prev) => ({
+        ...prev,
+        [rental.id]: err?.message || 'Could not save vehicle photos.',
+      }))
+    } finally {
+      setPhotoBusyId('')
+    }
+  }
+
+  const renderPhotoBlock = (rental) => {
+    if (!canEditCarPhotos) return null
+
+    const photosReady = hasVehiclePhotos(rental)
+    const draft = photoDrafts[rental.id] || []
+    const isPhotoBusy = photoBusyId === rental.id
+    const photoError = photoErrorById[rental.id] || ''
+
+    return (
+      <div className={`pending-photo-block${photosReady ? ' is-ready' : ''}`}>
+        <p className={`pending-photo-note${photosReady ? ' is-ok' : ''}`}>
+          {photosReady
+            ? `Vehicle photos added${countVehiclePhotos(rental.carPhotos) ? ` (${countVehiclePhotos(rental.carPhotos)})` : ''}.`
+            : 'Vehicle photo needs to be added'}
+        </p>
+
+        {draft.length > 0 ? (
+          <div className="pending-photo-drafts">
+            {draft.map((item, index) => (
+              <figure key={item.id} className="pending-photo-draft">
+                <img src={item.uri} alt={item.label || `Draft ${index + 1}`} />
+                <button
+                  type="button"
+                  className="btn-ghost btn-sm"
+                  disabled={isPhotoBusy}
+                  onClick={() => removeDraftPhoto(rental.id, item.id)}
+                >
+                  Remove
+                </button>
+              </figure>
+            ))}
+          </div>
+        ) : null}
+
+        {photoError ? <span className="error-msg">{photoError}</span> : null}
+
+        <div className="pending-photo-actions">
+          <input
+            ref={(el) => {
+              fileInputRefs.current[rental.id] = el
+            }}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            multiple
+            className="sr-only"
+            onChange={(e) => addDraftPhotos(rental.id, e.target.files)}
+          />
+          <button
+            type="button"
+            className="btn-outline btn-sm"
+            disabled={isPhotoBusy}
+            onClick={() => fileInputRefs.current[rental.id]?.click()}
+          >
+            {isPhotoBusy ? 'Working…' : 'Add photo'}
+          </button>
+          <button
+            type="button"
+            className="btn-primary btn-sm"
+            disabled={isPhotoBusy || draft.length === 0}
+            onClick={() => saveDraftPhotos(rental)}
+          >
+            {isPhotoBusy ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
+    )
   }
 
   const renderActions = (rental, isBusy) => {
@@ -283,6 +486,31 @@ export default function PendingApprovals({
     </ConfirmModal>
   ) : null
 
+  const renderItem = (rental, { showTime = true } = {}) => {
+    const vehicle = vehicleFor(rental)
+    const isBusy = busyId === rental.id
+    return (
+      <li key={rental.id} className="pending-approvals-item dash-attn-row">
+        <div className="pending-approvals-main">
+          <div className="pending-approvals-meta dash-attn-meta">
+            <strong>
+              {vehicle?.make || 'Vehicle'} — {vehicle?.series || ''}
+            </strong>
+            <span>
+              {vehicle?.plateNo || 'No plate'} · {customerName(rental)}
+              {accountProof(rental) ? ` · by ${accountProof(rental)}` : ''}
+            </span>
+            {showTime ? (
+              <span className="dash-attn-time">{formatDateTime(rental.rental?.periodFrom)}</span>
+            ) : null}
+          </div>
+          {renderPhotoBlock(rental)}
+        </div>
+        {renderActions(rental, isBusy)}
+      </li>
+    )
+  }
+
   if (embedded) {
     if (pending.length === 0) {
       return (
@@ -301,29 +529,7 @@ export default function PendingApprovals({
             You can view the queue. Only an admin can accept or reject.
           </p>
         ) : null}
-        <ul className="pending-approvals-list">
-          {pending.map((rental) => {
-            const vehicle = vehicleFor(rental)
-            const isBusy = busyId === rental.id
-            return (
-              <li key={rental.id} className="pending-approvals-item dash-attn-row">
-                <div className="pending-approvals-meta dash-attn-meta">
-                  <strong>
-                    {vehicle?.make || 'Vehicle'} — {vehicle?.series || ''}
-                  </strong>
-                  <span>
-                    {vehicle?.plateNo || 'No plate'} · {customerName(rental)}
-                    {accountProof(rental) ? ` · by ${accountProof(rental)}` : ''}
-                  </span>
-                  <span className="dash-attn-time">
-                    {formatDateTime(rental.rental?.periodFrom)}
-                  </span>
-                </div>
-                {renderActions(rental, isBusy)}
-              </li>
-            )
-          })}
-        </ul>
+        <ul className="pending-approvals-list">{pending.map((rental) => renderItem(rental))}</ul>
         {confirmModal}
       </>
     )
@@ -351,24 +557,7 @@ export default function PendingApprovals({
         </header>
         {error ? <p className="pending-approvals-error">{error}</p> : null}
         <ul className="pending-approvals-list pending-approvals-list-compact">
-          {pending.slice(0, 2).map((rental) => {
-            const vehicle = vehicleFor(rental)
-            const isBusy = busyId === rental.id
-            return (
-              <li key={rental.id} className="pending-approvals-item dash-attn-row">
-                <div className="pending-approvals-meta dash-attn-meta">
-                  <strong>
-                    {vehicle?.make || 'Vehicle'} — {vehicle?.series || ''}
-                  </strong>
-                  <span>
-                    {vehicle?.plateNo || 'No plate'} · {customerName(rental)}
-                    {accountProof(rental) ? ` · by ${accountProof(rental)}` : ''}
-                  </span>
-                </div>
-                {renderActions(rental, isBusy)}
-              </li>
-            )
-          })}
+          {pending.slice(0, 2).map((rental) => renderItem(rental, { showTime: false }))}
         </ul>
         {pending.length > 2 ? (
           <p className="dash-attn-empty">+ {pending.length - 2} more in queue</p>
@@ -405,18 +594,21 @@ export default function PendingApprovals({
             const isBusy = busyId === rental.id
             return (
               <li key={rental.id} className="pending-approvals-item">
-                <div className="pending-approvals-meta">
-                  <strong>
-                    {vehicle?.make || 'Vehicle'} — {vehicle?.series || ''}
-                  </strong>
-                  <span>
-                    {vehicle?.plateNo || 'No plate'} · {customerName(rental)}
-                    {accountProof(rental) ? ` · by ${accountProof(rental)}` : ''}
-                  </span>
-                  <span className="pending-approvals-time">
-                    From {formatDateTime(rental.rental?.periodFrom)} · source:{' '}
-                    {rental.source || 'field'}
-                  </span>
+                <div className="pending-approvals-main">
+                  <div className="pending-approvals-meta">
+                    <strong>
+                      {vehicle?.make || 'Vehicle'} — {vehicle?.series || ''}
+                    </strong>
+                    <span>
+                      {vehicle?.plateNo || 'No plate'} · {customerName(rental)}
+                      {accountProof(rental) ? ` · by ${accountProof(rental)}` : ''}
+                    </span>
+                    <span className="pending-approvals-time">
+                      From {formatDateTime(rental.rental?.periodFrom)} · source:{' '}
+                      {rental.source || 'field'}
+                    </span>
+                  </div>
+                  {renderPhotoBlock(rental)}
                 </div>
                 {renderActions(rental, isBusy)}
               </li>
