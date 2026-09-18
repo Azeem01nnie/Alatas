@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import SignatureCanvas from 'react-signature-canvas'
-import { CONTRACT_TERMS, LIABILITY_CLAUSE } from '../data/contract'
+import { CONTRACT_TERMS, LIABILITY_CLAUSE, CONTRACT_DOCUMENT_TITLE, getContractClauseNumber } from '../data/contract'
 
 const PAD_HEIGHT = 180
 
@@ -176,20 +176,26 @@ export default function StepTerms({
             role="region"
             aria-label="Terms and conditions"
           >
-            <h3>Rental Agreement</h3>
-            <ol>
-              {CONTRACT_TERMS.map((item, index) => (
-                <li key={typeof item === 'string' ? item : item.title || index}>
-                  {typeof item === 'string' ? (
-                    item
-                  ) : (
-                    <>
+            <h3>{CONTRACT_DOCUMENT_TITLE}</h3>
+            <ol className="terms-list">
+              {CONTRACT_TERMS.map((item, index) => {
+                if (item?.type === 'section') {
+                  return (
+                    <li key={item.title || index} className="terms-section-heading">
                       <strong>{item.title}</strong>
-                      <p className="terms-item-body">{item.body}</p>
-                    </>
-                  )}
-                </li>
-              ))}
+                    </li>
+                  )
+                }
+                const num = getContractClauseNumber(CONTRACT_TERMS, index)
+                return (
+                  <li key={item.title || index} value={num}>
+                    <strong>
+                      {num}. {item.title}
+                    </strong>
+                    <p className="terms-item-body">{item.body}</p>
+                  </li>
+                )
+              })}
             </ol>
             {!scrolledToEnd && (
               <p className="terms-scroll-hint">Keep scrolling to unlock the confirmation…</p>
@@ -208,19 +214,26 @@ export default function StepTerms({
           )}
         </div>
         <p className="signature-block-note">
-          Sign with finger, stylus, or mouse. Signing automatically accepts the terms
+          Click and drag on the pad to sign (touchpad, mouse, or touchscreen). Signing
+          automatically accepts the terms
           {canAccept ? '' : ' (finish reading or collapse the terms first)'}.
         </p>
 
         <div
           className={`signature-pad${signatureError ? ' has-error' : ''}${!canAccept ? ' is-disabled' : ''}`}
         >
-          <div className="signature-pad-frame" ref={frameRef} style={{ height: PAD_HEIGHT }}>
+          <div
+            className="signature-pad-frame"
+            ref={frameRef}
+            style={{ height: PAD_HEIGHT }}
+            onWheel={(e) => e.preventDefault()}
+          >
             <SignatureCanvas
               ref={sigRef}
               penColor="#111"
-              minWidth={1.2}
-              maxWidth={2.6}
+              minWidth={1.6}
+              maxWidth={3.2}
+              velocityFilterWeight={0.6}
               clearOnResize={false}
               canvasProps={{
                 className: 'signature-pad-canvas',
@@ -228,7 +241,7 @@ export default function StepTerms({
               onEnd={handleStrokeEnd}
             />
             {isEmpty && !signature && (
-              <span className="signature-pad-hint">Sign here</span>
+              <span className="signature-pad-hint">Click and drag to sign</span>
             )}
           </div>
           <div className="signature-pad-bar">

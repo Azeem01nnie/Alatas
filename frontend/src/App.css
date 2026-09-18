@@ -2236,7 +2236,8 @@ input[type='number']:focus {
 }
 
 .terms-scroll ol {
-  padding-left: 1.25rem;
+  padding-left: 0;
+  list-style: none;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -2248,6 +2249,21 @@ input[type='number']:focus {
   color: var(--text);
   line-height: 1.55;
   font-weight: 400;
+}
+
+.terms-section-heading {
+  list-style: none;
+  margin: 0.85rem 0 0.25rem;
+  padding: 0.65rem 0 0.15rem;
+  border-top: 1px solid var(--border);
+}
+
+.terms-section-heading strong {
+  display: block;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--brand-deep);
 }
 
 .terms-item-body {
@@ -7946,7 +7962,8 @@ html[data-theme='dark'] .pending-approvals-status-chip {
 }
 
 .contract-terms {
-  padding-left: 1.25rem;
+  padding-left: 0;
+  list-style: none;
   display: flex;
   flex-direction: column;
   gap: 0.7rem;
@@ -7957,6 +7974,10 @@ html[data-theme='dark'] .pending-approvals-status-chip {
   font-size: 0.875rem;
   line-height: 1.55;
   color: var(--text);
+}
+
+.contract-terms .terms-section-heading {
+  margin-top: 0.5rem;
 }
 
 .contract-terms .terms-item-body {

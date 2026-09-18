@@ -1,15 +1,21 @@
 /**
- * Alatas Car Rental Services — Rental Agreement Terms
+ * Alatas Car Rental Services — TERMS, CONDITIONS, AND UNDERTAKING
+ * Source: official printed rental contract.
  * Coverage default: Zamboanga City (venue of actions under this agreement).
  */
 export const COVERAGE_AREA = 'Zamboanga City'
 
+export const CONTRACT_DOCUMENT_TITLE = 'TERMS, CONDITIONS, AND UNDERTAKING'
+
+export const NO_INSURANCE_SECTION_TITLE =
+  'NO INSURANCE DISCLOSURE, WAIVER, AND ASSUMPTION OF LIABILITY'
+
 export const CONTRACT_TERMS = [
   {
     title: 'Coverage Area',
-    body: `The leased vehicle shall be used only within the territorial jurisdiction of ${COVERAGE_AREA}.
+    body: `The leased vehicle shall be used only within the territorial jurisdiction of: ${COVERAGE_AREA}.
 
-Any use of the vehicle outside the stated coverage without prior written notice and approval of the LESSOR shall subject the RENTER to a penalty of P10,000.00, without prejudice to investigation by proper authorities and further legal action.`,
+Any use of the vehicle outside the stated coverage without prior written notice and approval of the LESSOR shall subject the RENTER to a penalty of ₱10,000.00, without prejudice to investigation by proper authorities and further legal action.`,
   },
   {
     title: 'Fuel and Incidental Expenses',
@@ -17,11 +23,11 @@ Any use of the vehicle outside the stated coverage without prior written notice 
   },
   {
     title: 'Third-Party Liability',
-    body: `Any damage, injury, loss, or liability caused to third parties or to the public arising from the use or operation of the vehicle shall be the sole responsibility of the RENTER, who shall indemnify and hold the LESSOR free from any claims.`,
+    body: `Any damage, injury, loss, or liability caused to third parties or to the public arising from the use or operation of the vehicle shall be the sole responsibility of the RENTER, who shall indemnify and hold the LESSOR free from any claim.`,
   },
   {
     title: 'Prohibition Against Subleasing',
-    body: `Subleasing, lending, or allowing the use of the vehicle by any unauthorized person is strictly prohibited. Violation shall result in a penalty of P5,000.00, in addition to termination of the contract and other legal remedies.`,
+    body: `Subleasing, lending, or allowing the use of the vehicle by any unauthorized person is strictly prohibited. Violation shall result in a penalty of ₱5,000.00, in addition to termination of the contract and other legal remedies.`,
   },
   {
     title: 'Care, Cleanliness, and Misuse',
@@ -63,7 +69,7 @@ Any use of the vehicle outside the stated coverage without prior written notice 
   },
   {
     title: 'Late Return Charges',
-    body: `Any delay beyond the agreed return date and time shall be charged an additional fee equivalent to one (1) full rental period OR P200.00 per hour, computed from the agreed return time, whichever is higher, without prejudice to further legal remedies.`,
+    body: `Any delay beyond the agreed return date and time shall be charged an additional fee equivalent to one (1) full rental period OR ₱200.00 per hour, computed from the agreed return time, whichever is higher, without prejudice to further legal remedies.`,
   },
   {
     title: 'Non-Refundability of Payments',
@@ -75,7 +81,7 @@ Any use of the vehicle outside the stated coverage without prior written notice 
   },
   {
     title: 'Undertaking for Damages and Loss of Income',
-    body: `The RENTER expressly undertakes to shoulder the daily rental cost of the vehicle during any period of disablement or loss of revenue/hooking opportunities caused by damage, accident, or misuse attributable to the RENTER, until the vehicle is fully repaired and restored to rentable condition.`,
+    body: `The RENTER expressly undertakes to shoulder the daily rental cost of the vehicle during any period of disablement or loss of booking opportunities caused by damage, accident, or misuse attributable to the RENTER, until the vehicle is fully repaired and restored to rentable condition.`,
   },
   {
     title: 'Lawful Use Undertaking',
@@ -85,14 +91,16 @@ Any use of the vehicle outside the stated coverage without prior written notice 
     title: 'Confiscation and Severe Violation Clause',
     body: `Should the RENTER use or permit the use of the vehicle for any illegal or unlawful purpose resulting in confiscation, seizure, or impoundment by authorities, the RENTER agrees to:
 
-• Pay liquidated damages in the amount of P100,000.00, and
+• Pay liquidated damages in the amount of ₱100,000.00, and
 • Replace the rented vehicle with a brand-new unit of the same or equivalent model, without prejudice to further civil or criminal liabilities.`,
   },
   {
+    type: 'section',
+    title: NO_INSURANCE_SECTION_TITLE,
+  },
+  {
     title: 'No Insurance Coverage',
-    body: `NO INSURANCE DISCLOSURE, WAIVER, AND ASSUMPTION OF LIABILITY
-
-The RENTER expressly acknowledges, confirms, and agrees that the rented vehicle is NOT COVERED BY ANY INSURANCE, including but not limited to Comprehensive, Collision, Own Damage, or Third-Party Liability Insurance, for the entire duration of the rental period.`,
+    body: `The RENTER expressly acknowledges, confirms, and agrees that the rented vehicle is NOT COVERED BY ANY INSURANCE, including but not limited to Comprehensive, Collision, Own Damage, or Third-Party Liability Insurance, for the entire duration of the rental period.`,
   },
   {
     title: 'Full Assumption of Risk',
@@ -123,9 +131,9 @@ The RENTER expressly acknowledges, confirms, and agrees that the rented vehicle 
     title: 'Informed and Voluntary Consent',
     body: `The RENTER confirms that:
 
-• The absence of insurance coverage was fully disclosed and clearly explained prior to rental.
-• The RENTER was given the option NOT TO PROCEED with the rental.
-• The RENTER VOLUNTARILY ACCEPTED the rental under these conditions.`,
+• The absence of insurance coverage was fully disclosed and clearly explained prior to rental
+• The RENTER was given the option NOT TO PROCEED with the rental
+• The RENTER VOLUNTARILY ACCEPTED the rental under these conditions`,
   },
   {
     title: 'Binding Effect',
@@ -133,10 +141,23 @@ The RENTER expressly acknowledges, confirms, and agrees that the rented vehicle 
   },
 ]
 
-export function formatContractTerm(term, index) {
+export function formatContractTerm(term, index, terms = CONTRACT_TERMS) {
   if (typeof term === 'string') return `${index + 1}. ${term}`
-  return `${index + 1}. ${term.title}\n\n${term.body}`
+  if (term?.type === 'section') return String(term.title || '')
+  const num = getContractClauseNumber(terms, index)
+  return `${num}. ${term.title}\n\n${term.body}`
+}
+
+/** Numbered clauses only (skips section headers) for display counters. */
+export function getContractClauseNumber(terms, index) {
+  let n = 0
+  for (let i = 0; i <= index; i += 1) {
+    const term = terms[i]
+    if (term && typeof term === 'object' && term.type === 'section') continue
+    n += 1
+  }
+  return n
 }
 
 export const LIABILITY_CLAUSE =
-  'I CONFIRM THAT I WAS INFORMED THAT THE VEHICLE HAS NO INSURANCE COVERAGE AND I ACCEPT THE FULL LIABILITY FOR ANY LOSS, DAMAGE, OR CLAIM ARISING FROM THE RENTAL, AND THAT I HAVE READ AND AGREED TO ALL TERMS ABOVE.'
+  'I CONFIRM THAT I WAS INFORMED THAT THE VEHICLE HAS NO INSURANCE COVERAGE AND I ACCEPT FULL LIABILITY FOR ANY LOSS, DAMAGE, OR CLAIM.'

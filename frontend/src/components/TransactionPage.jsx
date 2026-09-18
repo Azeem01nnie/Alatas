@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { jsPDF } from 'jspdf'
-import { CONTRACT_TERMS, LIABILITY_CLAUSE, formatContractTerm } from '../data/contract'
+import { CONTRACT_TERMS, LIABILITY_CLAUSE, formatContractTerm, CONTRACT_DOCUMENT_TITLE, getContractClauseNumber } from '../data/contract'
 import { formatEmergencyContact } from '../utils/phone'
 import { compressImageDataUrl } from '../utils/storage'
 import { collectPhotographerCredits, formatTakenByLabel, mergePhotographerCredits } from '../utils/photoCredits'
@@ -89,7 +89,7 @@ async function downloadContractPdf(transaction) {
 
   // Centered company branding
   centerText('ALATAS CAR RENTAL SERVICES', { size: 16, style: 'bold', gap: 16 })
-  centerText('Rental Contract Agreement', { size: 11, style: 'normal', gap: 12 })
+  centerText(CONTRACT_DOCUMENT_TITLE, { size: 10, style: 'bold', gap: 12 })
   centerText(`Transaction ID: ${transaction.id}`, {
     size: 8,
     color: [90, 90, 90],
@@ -191,14 +191,15 @@ async function downloadContractPdf(transaction) {
   y += 8
 
   CONTRACT_TERMS.forEach((term, index) => {
-    const block = writeBlock(formatContractTerm(term, index), margin, contentWidth, {
-      size: 8.5,
+    const block = writeBlock(formatContractTerm(term, index, CONTRACT_TERMS), margin, contentWidth, {
+      size: term?.type === 'section' ? 9 : 8.5,
       lineHeight: 11,
+      style: term?.type === 'section' ? 'bold' : 'normal',
     })
     ensureSpace(block.height + 4)
     block.lines.forEach((line) => {
-      doc.setFont('helvetica', 'normal')
-      doc.setFontSize(8.5)
+      doc.setFont('helvetica', term?.type === 'section' ? 'bold' : 'normal')
+      doc.setFontSize(term?.type === 'section' ? 9 : 8.5)
       doc.setTextColor(17, 17, 17)
       doc.text(line, margin, y)
       y += 11
@@ -923,18 +924,24 @@ export default function TransactionPage({
         </p>
 
         <ol className="contract-terms">
-          {CONTRACT_TERMS.map((item, index) => (
-            <li key={typeof item === 'string' ? item : item.title || index}>
-              {typeof item === 'string' ? (
-                item
-              ) : (
-                <>
+          {CONTRACT_TERMS.map((item, index) => {
+            if (item?.type === 'section') {
+              return (
+                <li key={item.title || index} className="terms-section-heading">
                   <strong>{item.title}</strong>
-                  <p className="terms-item-body">{item.body}</p>
-                </>
-              )}
-            </li>
-          ))}
+                </li>
+              )
+            }
+            const num = getContractClauseNumber(CONTRACT_TERMS, index)
+            return (
+              <li key={item.title || index} value={num}>
+                <strong>
+                  {num}. {item.title}
+                </strong>
+                <p className="terms-item-body">{item.body}</p>
+              </li>
+            )
+          })}
         </ol>
 
         <div className="contract-liability">
