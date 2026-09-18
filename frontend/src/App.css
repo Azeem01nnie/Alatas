@@ -4378,6 +4378,19 @@ html[data-theme='dark'] .password-strength.is-weak .password-strength-value {
   flex-wrap: wrap;
 }
 
+.pending-approvals-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  min-width: 0;
+  flex: 1 1 12rem;
+}
+
+.pending-approvals-actions {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
 .pending-approvals-meta {
   display: flex;
   flex-direction: column;
@@ -4420,14 +4433,6 @@ html[data-theme='dark'] .password-strength.is-weak .password-strength-value {
   margin: 0;
   font-size: 0.82rem;
   color: var(--muted);
-}
-
-.pending-approvals-main {
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
-  min-width: 0;
-  flex: 1;
 }
 
 .pending-photo-block {
@@ -10535,6 +10540,25 @@ html[data-theme='dark'] .employees-role-option.is-active {
     flex-wrap: wrap;
     gap: 0.65rem;
     padding: 0.75rem 0;
+  }
+
+  .pending-approvals-item.dash-attn-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .pending-approvals-item .pending-approvals-actions {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .pending-approvals-item .pending-approvals-actions .btn-sm {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .pending-photo-block {
+    max-width: none;
   }
 
   .dash-attn-row > .btn-outline,

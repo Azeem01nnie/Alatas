@@ -3,6 +3,7 @@ import { jsPDF } from 'jspdf'
 import { CONTRACT_TERMS, LIABILITY_CLAUSE, formatContractTerm } from '../data/contract'
 import { formatEmergencyContact } from '../utils/phone'
 import { compressImageDataUrl } from '../utils/storage'
+import ConfirmModal from './ConfirmModal'
 
 const CAR_SLOTS = [
   { key: 'front', label: 'Front' },
@@ -400,6 +401,8 @@ export default function TransactionPage({
   const [carPhotos, setCarPhotos] = useState(() => normalizeCarPhotos(transaction.carPhotos))
   const [photoBusy, setPhotoBusy] = useState('')
   const [photoError, setPhotoError] = useState('')
+  const [photoDirty, setPhotoDirty] = useState(false)
+  const [saveConfirmOpen, setSaveConfirmOpen] = useState(false)
   const [customerPhotosOpen, setCustomerPhotosOpen] = useState(true)
   const [carPhotosOpen, setCarPhotosOpen] = useState(true)
   const slotInputRefs = useRef({})
@@ -407,6 +410,8 @@ export default function TransactionPage({
 
   useEffect(() => {
     setCarPhotos(normalizeCarPhotos(transaction.carPhotos))
+    setPhotoDirty(false)
+    setSaveConfirmOpen(false)
   }, [transaction.id, transaction.carPhotos])
 
   useEffect(() => {
@@ -426,8 +431,9 @@ export default function TransactionPage({
   }, [])
 
   const optionalPhoto = personal?.optionalPhoto || ''
+  const sessionPhotographer = String(addedByName || '').trim()
   const photographer =
-    transaction.carPhotosAddedBy || carPhotos?._addedBy || String(addedByName || '').trim() || ''
+    transaction.carPhotosAddedBy || carPhotos?._addedBy || sessionPhotographer || ''
   const customerPhotoCount =
     (photo ? 1 : 0) + (licensePhoto ? 1 : 0) + (optionalPhoto ? 1 : 0) + (vehicle.image ? 1 : 0)
   const extraPhotos = Array.isArray(carPhotos?.extras)
@@ -440,19 +446,33 @@ export default function TransactionPage({
   const carPhotoCount =
     CAR_SLOTS.filter((slot) => Boolean(carPhotos?.[slot.key])).length + extraPhotos.length
 
-  const persistCarPhotos = async (nextPhotos) => {
-    const byName = String(addedByName || '').trim()
+  const applyDraftPhotos = (nextPhotos) => {
     const stamped = {
       ...nextPhotos,
-      ...(byName ? { _addedBy: byName } : {}),
+      ...(sessionPhotographer ? { _addedBy: sessionPhotographer } : {}),
     }
     setCarPhotos(stamped)
+    setPhotoDirty(true)
+    setPhotoError('')
+  }
+
+  const persistCarPhotos = async () => {
     if (!canEditCarPhotos || typeof onSaveCarPhotos !== 'function') return
+    const stamped = {
+      ...carPhotos,
+      ...(sessionPhotographer ? { _addedBy: sessionPhotographer } : {}),
+    }
+    setPhotoBusy('save')
+    setPhotoError('')
     try {
-      await onSaveCarPhotos(transaction.id, stamped, byName)
-      setPhotoError('')
+      await onSaveCarPhotos(transaction.id, stamped, sessionPhotographer)
+      setCarPhotos(stamped)
+      setPhotoDirty(false)
+      setSaveConfirmOpen(false)
     } catch (err) {
       setPhotoError(err?.message || 'Could not save car photos.')
+    } finally {
+      setPhotoBusy('')
     }
   }
 
@@ -470,7 +490,7 @@ export default function TransactionPage({
         setPhotoError('Could not process that image. Try another file.')
         return
       }
-      await persistCarPhotos({
+      applyDraftPhotos({
         ...carPhotos,
         [slotKey]: compressed,
       })
@@ -497,7 +517,7 @@ export default function TransactionPage({
         return
       }
       const extras = Array.isArray(carPhotos.extras) ? carPhotos.extras : []
-      await persistCarPhotos({
+      applyDraftPhotos({
         ...carPhotos,
         extras: [
           ...extras,
@@ -505,7 +525,7 @@ export default function TransactionPage({
             id: `extra-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
             uri: compressed,
             label: `Extra ${extras.length + 1}`,
-            addedBy: String(addedByName || '').trim() || undefined,
+            addedBy: sessionPhotographer || undefined,
           },
         ],
       })
@@ -517,17 +537,12 @@ export default function TransactionPage({
     }
   }
 
-  const removeExtra = async (id) => {
+  const removeExtra = (id) => {
     if (!canEditCarPhotos) return
     const extras = (Array.isArray(carPhotos.extras) ? carPhotos.extras : []).filter(
       (item) => item.id !== id,
     )
-    setPhotoBusy(`remove-${id}`)
-    try {
-      await persistCarPhotos({ ...carPhotos, extras })
-    } finally {
-      setPhotoBusy('')
-    }
+    applyDraftPhotos({ ...carPhotos, extras })
   }
 
   return (
@@ -665,11 +680,19 @@ export default function TransactionPage({
                 />
                 <button
                   type="button"
-                  className="btn-primary btn-sm"
+                  className="btn-outline btn-sm"
                   disabled={Boolean(photoBusy)}
                   onClick={() => extraInputRef.current?.click()}
                 >
                   {photoBusy === 'extra' ? 'Adding…' : 'Add photo'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary btn-sm"
+                  disabled={Boolean(photoBusy) || !photoDirty}
+                  onClick={() => setSaveConfirmOpen(true)}
+                >
+                  {photoBusy === 'save' ? 'Saving…' : 'Save photo'}
                 </button>
               </div>
             ) : null}
@@ -910,6 +933,23 @@ export default function TransactionPage({
           </div>
         </div>
       </article>
+
+      {saveConfirmOpen ? (
+        <ConfirmModal
+          title="Save vehicle photos?"
+          message={`This photo is taken by ${sessionPhotographer || photographer || 'the current user'}. Do you want to save it?`}
+          confirmLabel={photoBusy === 'save' ? 'Saving…' : 'Yes, save'}
+          cancelLabel="Cancel"
+          confirmDisabled={photoBusy === 'save'}
+          onCancel={() => {
+            if (photoBusy === 'save') return
+            setSaveConfirmOpen(false)
+          }}
+          onConfirm={() => {
+            void persistCarPhotos()
+          }}
+        />
+      ) : null}
     </section>
   )
 }

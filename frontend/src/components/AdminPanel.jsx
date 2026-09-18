@@ -2309,7 +2309,11 @@ export default function AdminPanel() {
                           embedded
                           canApprove={isAdminUser}
                           canEditCarPhotos
-                          onOpenPhotos={(rental) => openTransaction(rental, 'dashboard')}
+                          onOpenPhotos={(rental) => {
+                            const fresh =
+                              rentals.find((row) => String(row.id) === String(rental.id)) || rental
+                            openTransaction(fresh, 'dashboard')
+                          }}
                         />
                       )}
                     </div>
