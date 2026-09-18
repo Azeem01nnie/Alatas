@@ -27,6 +27,14 @@ That inserts into `auth.users` + `public.employees` for:
 | Email (internal) | `alatas@alatas.local` |
 
 You do **not** need Authentication → Add user.
+
+## 2b. Clear-data RPC (optional, for Settings → Clear data)
+
+1. Open SQL Editor again
+2. Paste and **Run** [`supabase/migrations/005_clear_app_data.sql`](migrations/005_clear_app_data.sql)
+
+This lets admins wipe fleet/rental/staff data from Settings while keeping the admin login.
+
 ## 3. Run the desk app
 
 ```bash

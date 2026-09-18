@@ -233,6 +233,15 @@ export function VehicleProvider({ children }) {
     return { vehicles: vehiclesPayload, rentals: rentalsPayload }
   }, [])
 
+  /** Reset in-memory fleet after an admin Clear data wipe (no immediate re-upload). */
+  const wipeLocalFleet = useCallback(() => {
+    skipRentalAutosave.current = true
+    rentalSaveGen.current += 1
+    setVehicles([])
+    setRentals([])
+    hasLoaded.current = true
+  }, [])
+
   const updateVehicleStatus = useCallback((id, status) => {
     if (!id) return
     const key = String(id)
@@ -452,6 +461,7 @@ export function VehicleProvider({ children }) {
         updateRentalCarPhotos,
         reloadData,
         replaceAllData,
+        wipeLocalFleet,
       }}
     >
       {children}

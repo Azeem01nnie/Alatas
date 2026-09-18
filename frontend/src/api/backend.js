@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, requireSupabase } from './supabaseClient'
+import { collectPhotographerCredits, mergePhotographerCredits } from '../utils/photoCredits'
 
 function mapVehicle(row) {
   if (!row) return null
@@ -382,7 +383,24 @@ export async function patchRentalCarPhotos(rentalId, carPhotos, addedBy = '') {
 
   const nextPhotos =
     carPhotos && typeof carPhotos === 'object' && !Array.isArray(carPhotos) ? carPhotos : {}
-  const addedByName = String(addedBy || '').trim() || nextPhotos._addedBy || null
+
+  const { data: existingRow, error: existingErr } = await sb
+    .from('rentals')
+    .select('car_photos, car_photos_added_by')
+    .eq('id', id)
+    .maybeSingle()
+  if (existingErr) throwSb(existingErr)
+  if (!existingRow) throw new Error('Rental not found — could not save photos')
+
+  const newName = String(addedBy || '').trim()
+  const mergedCredit = mergePhotographerCredits(
+    existingRow.car_photos_added_by,
+    collectPhotographerCredits(existingRow.car_photos),
+    collectPhotographerCredits(nextPhotos),
+    newName,
+  )
+  const addedByName = mergedCredit || null
+
   const materialized = await materializeCarPhotos(id, nextPhotos)
   const stamped = {
     ...materialized,
@@ -519,6 +537,79 @@ export async function saveAdminProfileRemote(profile) {
   })
   if (error) throwSb(error)
   return next
+}
+
+function isPreservedAdminEmployee(row, currentUserId) {
+  const username = String(row?.username || '').trim().toLowerCase()
+  const id = String(row?.id || '')
+  if (username === 'alatas' || id === 'emp-alatas-admin') return true
+  if (currentUserId && String(row?.auth_user_id || '') === String(currentUserId)) return true
+  return false
+}
+
+async function clearAppDataClientFallback(sb) {
+  const {
+    data: { user },
+  } = await sb.auth.getUser()
+  const currentUserId = user?.id || null
+
+  const { error: rentalsErr } = await sb.from('rentals').delete().neq('id', '')
+  if (rentalsErr) throwSb(rentalsErr)
+
+  const { error: vehiclesErr } = await sb.from('vehicles').delete().neq('id', '')
+  if (vehiclesErr) throwSb(vehiclesErr)
+
+  const { data: employees, error: empListErr } = await sb.from('employees').select('id, username, auth_user_id')
+  if (empListErr) throwSb(empListErr)
+
+  const toDelete = (employees || []).filter((row) => !isPreservedAdminEmployee(row, currentUserId))
+  if (toDelete.length) {
+    const { error: empDelErr } = await sb
+      .from('employees')
+      .delete()
+      .in(
+        'id',
+        toDelete.map((row) => row.id),
+      )
+    if (empDelErr) throwSb(empDelErr)
+  }
+
+  const { error: reportsErr } = await sb.from('app_settings').upsert({
+    key: 'vehicle_reports',
+    value: { entries: [], submissions: [] },
+    updated_at: new Date().toISOString(),
+  })
+  if (reportsErr) throwSb(reportsErr)
+
+  return {
+    ok: true,
+    mode: 'client-fallback',
+    rentalsDeleted: true,
+    vehiclesDeleted: true,
+    employeesDeleted: toDelete.length,
+  }
+}
+
+/**
+ * Wipe fleet / rentals / staff data. Keeps admin Auth credentials + admin employee row.
+ * Prefers RPC `clear_app_data` (migration 005); falls back to direct table deletes.
+ */
+export async function clearAllAppData() {
+  const sb = requireSupabase()
+  const { data, error } = await sb.rpc('clear_app_data')
+  if (!error) {
+    return data || { ok: true, mode: 'rpc' }
+  }
+
+  const msg = String(error?.message || '')
+  const missingFn =
+    /could not find the function/i.test(msg) ||
+    /function .*clear_app_data/i.test(msg) ||
+    error?.code === 'PGRST202'
+
+  if (!missingFn) throwSb(error)
+
+  return clearAppDataClientFallback(sb)
 }
 
 export function fetchEmployees() {

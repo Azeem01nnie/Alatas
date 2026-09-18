@@ -12,6 +12,7 @@ import {
   rejectCloudPendingRental,
 } from '../api/cloudSync'
 import ConfirmModal from './ConfirmModal'
+import { collectPhotographerCredits, formatTakenByLabel } from '../utils/photoCredits'
 
 function customerName(rental) {
   const p = rental?.personal
@@ -23,8 +24,7 @@ function accountProof(rental) {
   return (
     rental?.submittedBy ||
     rental?.personal?.submittedBy ||
-    rental?.carPhotosAddedBy ||
-    rental?.carPhotos?._addedBy ||
+    collectPhotographerCredits(rental?.carPhotos, rental?.carPhotosAddedBy) ||
     ''
   )
 }
@@ -141,9 +141,7 @@ export default function PendingApprovals({
   }
 
   const photoTakenBy = (rental) =>
-    rental?.carPhotosAddedBy ||
-    rental?.carPhotos?._addedBy ||
-    ''
+    collectPhotographerCredits(rental?.carPhotos, rental?.carPhotosAddedBy)
 
   const closeConfirm = () => {
     if (busyId) return
@@ -236,7 +234,7 @@ export default function PendingApprovals({
               : 'Vehicle photo needs to be added'}
           </p>
           {takenBy ? (
-            <p className="pending-photo-credit">Taken by {takenBy}</p>
+            <p className="pending-photo-credit">{formatTakenByLabel(takenBy)}</p>
           ) : photosReady ? (
             <p className="pending-photo-credit">Photographer not recorded</p>
           ) : (

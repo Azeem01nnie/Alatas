@@ -44,7 +44,7 @@ import EmployeesPanel from './EmployeesPanel'
 import { addOwner, autoCapitalizeWords, loadOwners, purgeOrphanOwners, updateOwner } from '../utils/owners'
 import { loadReportStore } from '../utils/vehicleReports'
 import { scanOrcrImage, mergeScanFields } from '../utils/orcrOcr'
-import { fetchSystemStatus, runCloudSync, saveAdminProfileRemote } from '../api/backend'
+import { fetchSystemStatus, runCloudSync, saveAdminProfileRemote, clearAllAppData } from '../api/backend'
 import { CLOUD_SYNC_ENABLED, isCloudConfigured } from '../api/cloudSync'
 import { describeCloudConnection } from '../config/cloudConnection'
 import { useConnectivity } from '../hooks/useConnectivity'
@@ -581,6 +581,7 @@ export default function AdminPanel() {
     updateRentalCarPhotos,
     replaceAllData,
     reloadData,
+    wipeLocalFleet,
   } = useVehicles()
   const { online } = useConnectivity()
   const [authed, setAuthed] = useState(() => isAdminLoggedIn())
@@ -943,6 +944,64 @@ export default function AdminPanel() {
         'This clears temporary browser cache and notification markers. Vehicles, rentals, owners, and settings are not deleted.',
       confirmLabel: 'Clear cache',
     })
+  }
+
+  const requestClearData = () => {
+    if (!isAdminUser) return
+    setConfirm({
+      type: 'clear-data',
+      title: 'Clear all app data?',
+      message:
+        'This permanently deletes vehicles, rentals, employees (except admin), owners, archives, and reports. Your admin login credentials are kept. This cannot be undone.',
+      confirmLabel: 'Yes, clear all data',
+      danger: true,
+    })
+  }
+
+  const clearAllData = async () => {
+    if (!isAdminUser) return
+    setDataBusy(true)
+    setDataMessage('')
+    try {
+      await clearAllAppData()
+
+      wipeLocalFleet()
+      saveArchivedVehicles([])
+      setArchivedVehicles([])
+      localStorage.removeItem('alatas-owners')
+      setOwners([])
+      localStorage.removeItem('alatas-vehicle-reports')
+      localStorage.removeItem('alatas-offline-queue')
+      localStorage.removeItem('alatas-vehicles-v6')
+      localStorage.removeItem('alatas-manage-layout')
+
+      // Clear notification markers; keep admin session keys.
+      const authKey = 'customer-encoder-admin-auth'
+      const keepSession = new Set([authKey, 'alatas-session-role', 'alatas-session-user'])
+      const sessionKeys = []
+      for (let i = 0; i < sessionStorage.length; i += 1) {
+        const key = sessionStorage.key(i)
+        if (key) sessionKeys.push(key)
+      }
+      sessionKeys.forEach((key) => {
+        if (keepSession.has(key)) return
+        if (key.startsWith('alatas-browser-notif:')) sessionStorage.removeItem(key)
+      })
+
+      setDismissedAlerts(new Set())
+      setSelectedTransaction(null)
+      setTab('settings')
+      setDataMessage('All data cleared. Admin login credentials were kept.')
+      setMessage('All data cleared.')
+      window.setTimeout(() => {
+        setDataMessage('')
+        setMessage('')
+      }, 3200)
+    } catch (err) {
+      setDataMessage(err?.message || 'Could not clear data.')
+    } finally {
+      setDataBusy(false)
+    }
   }
 
   const clearAppCache = async () => {
@@ -1820,6 +1879,11 @@ export default function AdminPanel() {
     if (confirm.type === 'clear-cache') {
       setConfirm(null)
       void clearAppCache()
+      return
+    }
+    if (confirm.type === 'clear-data') {
+      setConfirm(null)
+      void clearAllData()
       return
     }
     setConfirm(null)
@@ -3227,7 +3291,7 @@ export default function AdminPanel() {
                       <h4 className="settings-card-title">Data &amp; cache</h4>
                       <p className="settings-card-copy">
                         {isAdminUser
-                          ? 'Back up or migrate fleet data, or clear temporary browser cache without deleting records.'
+                          ? 'Back up or migrate fleet data, clear temporary cache, or permanently wipe all app data (admin login is kept).'
                           : 'Clear temporary browser cache without deleting records.'}
                       </p>
                     </div>
@@ -3261,6 +3325,16 @@ export default function AdminPanel() {
                       >
                         Clear cache
                       </button>
+                      {isAdminUser && (
+                        <button
+                          type="button"
+                          className="btn-danger-outline settings-clear-data-btn"
+                          disabled={dataBusy}
+                          onClick={requestClearData}
+                        >
+                          {dataBusy ? 'Working…' : 'Clear data'}
+                        </button>
+                      )}
                       {isAdminUser && (
                         <input
                           ref={importDataRef}

@@ -3,6 +3,7 @@ import { jsPDF } from 'jspdf'
 import { CONTRACT_TERMS, LIABILITY_CLAUSE, formatContractTerm } from '../data/contract'
 import { formatEmergencyContact } from '../utils/phone'
 import { compressImageDataUrl } from '../utils/storage'
+import { collectPhotographerCredits, formatTakenByLabel, mergePhotographerCredits } from '../utils/photoCredits'
 import ConfirmModal from './ConfirmModal'
 
 const CAR_SLOTS = [
@@ -437,8 +438,11 @@ export default function TransactionPage({
 
   const optionalPhoto = personal?.optionalPhoto || ''
   const sessionPhotographer = String(addedByName || '').trim()
-  const photographer =
-    transaction.carPhotosAddedBy || carPhotos?._addedBy || sessionPhotographer || ''
+  const photographer = collectPhotographerCredits(
+    carPhotos,
+    transaction.carPhotosAddedBy || sessionPhotographer,
+  )
+  const takenByLabel = formatTakenByLabel(photographer)
   const customerPhotoCount =
     (photo ? 1 : 0) + (licensePhoto ? 1 : 0) + (optionalPhoto ? 1 : 0) + (vehicle.image ? 1 : 0)
   const extraPhotos = Array.isArray(carPhotos?.extras)
@@ -452,9 +456,16 @@ export default function TransactionPage({
     CAR_SLOTS.filter((slot) => Boolean(carPhotos?.[slot.key])).length + extraPhotos.length
 
   const applyDraftPhotos = (nextPhotos) => {
+    const mergedCredit = mergePhotographerCredits(
+      transaction.carPhotosAddedBy,
+      carPhotos?._addedBy,
+      nextPhotos?._addedBy,
+      sessionPhotographer,
+      Array.isArray(nextPhotos?.extras) ? nextPhotos.extras.map((item) => item?.addedBy) : [],
+    )
     const stamped = {
       ...nextPhotos,
-      ...(sessionPhotographer ? { _addedBy: sessionPhotographer } : {}),
+      ...(mergedCredit ? { _addedBy: mergedCredit } : {}),
     }
     setCarPhotos(stamped)
     setPhotoDirty(true)
@@ -464,9 +475,15 @@ export default function TransactionPage({
 
   const persistCarPhotos = async () => {
     if (!canEditCarPhotos || typeof onSaveCarPhotos !== 'function') return
+    const mergedCredit = mergePhotographerCredits(
+      transaction.carPhotosAddedBy,
+      carPhotos?._addedBy,
+      sessionPhotographer,
+      Array.isArray(carPhotos?.extras) ? carPhotos.extras.map((item) => item?.addedBy) : [],
+    )
     const stamped = {
       ...carPhotos,
-      ...(sessionPhotographer ? { _addedBy: sessionPhotographer } : {}),
+      ...(mergedCredit ? { _addedBy: mergedCredit } : {}),
     }
     setPhotoBusy('save')
     setPhotoError('')
@@ -652,9 +669,9 @@ export default function TransactionPage({
             <strong>Pre-rental car photos</strong>
             <small>
               {carPhotoCount
-                ? `${carPhotoCount} photo${carPhotoCount === 1 ? '' : 's'}${photographer ? ` · by ${photographer}` : ''}`
+                ? `${carPhotoCount} photo${carPhotoCount === 1 ? '' : 's'}${photographer ? ` · ${takenByLabel}` : ''}`
                 : photographer
-                  ? `None yet · signed in as ${photographer}`
+                  ? `None yet · signed in as ${sessionPhotographer || photographer}`
                   : 'Optional — add photos if needed'}
             </small>
           </span>
@@ -672,10 +689,8 @@ export default function TransactionPage({
                   ? 'Optional — click an empty slot or Add photo to attach as many as you need.'
                   : 'Vehicle condition photos for this rental.'}
               </p>
-              {photographer ? (
-                <p className="transaction-photo-credit">
-                  Photos taken by <strong>{photographer}</strong>
-                </p>
+              {takenByLabel ? (
+                <p className="transaction-photo-credit">{takenByLabel}</p>
               ) : null}
             </div>
             {canEditCarPhotos ? (

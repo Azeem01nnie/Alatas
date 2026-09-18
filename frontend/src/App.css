@@ -6788,6 +6788,10 @@ html[data-theme='dark'] .pending-approvals-status-chip {
   border-color: var(--brand);
 }
 
+.settings-clear-data-btn {
+  margin-left: 0;
+}
+
 .settings-data-message {
   margin: 0.75rem 0 0;
   font-size: 0.82rem;
