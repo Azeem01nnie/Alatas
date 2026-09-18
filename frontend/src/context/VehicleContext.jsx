@@ -10,7 +10,12 @@ import {
 import { getArchivedIdSet, ARCHIVE_EVENT } from '../utils/archivedVehicles'
 import { isScheduledWindow } from '../utils/vehicleDisplayStatus'
 import { flushOfflineQueue } from '../utils/offlineQueue'
-import { replaceVehicles as apiReplaceVehicles, replaceRentals as apiReplaceRentals, addRental as apiAddRental } from '../api/backend'
+import {
+  replaceVehicles as apiReplaceVehicles,
+  replaceRentals as apiReplaceRentals,
+  addRental as apiAddRental,
+  completeVehicleRental as completeVehicleRentalApi,
+} from '../api/backend'
 
 const VehicleContext = createContext(null)
 
@@ -49,6 +54,7 @@ export function VehicleProvider({ children }) {
   const [loadError, setLoadError] = useState(null)
   const hasLoaded = useRef(false)
   const skipRentalAutosave = useRef(false)
+  const skipVehicleAutosave = useRef(false)
   const rentalsRef = useRef(rentals)
   const rentalSaveGen = useRef(0)
   rentalsRef.current = rentals
@@ -70,8 +76,8 @@ export function VehicleProvider({ children }) {
     async function loadInitialData() {
       try {
         await flushOfflineQueue({
-          vehicles: (payload) => apiReplaceVehicles(payload),
-          rentals: (payload) => apiReplaceRentals(payload),
+          vehicles: (payload) => apiReplaceVehicles(payload, { prune: false }),
+          rentals: (payload) => apiReplaceRentals(payload, { prune: false }),
           'rentals-add': (payload) => apiAddRental(payload),
           'pending-rental': (payload) => submitPendingRentalApi(payload),
         })
@@ -110,6 +116,10 @@ export function VehicleProvider({ children }) {
 
   useEffect(() => {
     if (!hasLoaded.current) return
+    if (skipVehicleAutosave.current) {
+      skipVehicleAutosave.current = false
+      return
+    }
     saveVehicles(vehicles).catch((err) => {
       console.warn('Vehicle save failed', err)
     })
@@ -221,12 +231,14 @@ export function VehicleProvider({ children }) {
       ? nextRentals.map(normalizeRental)
       : []
 
-    const savedVehicles = await saveVehicles(vehiclesPayload)
-    const savedRentals = await saveRentals(rentalsPayload)
+    const savedVehicles = await saveVehicles(vehiclesPayload, { prune: true })
+    const savedRentals = await saveRentals(rentalsPayload, { prune: true })
     if (!savedVehicles || !savedRentals) {
       throw new Error('Could not save imported data to the backend.')
     }
 
+    skipVehicleAutosave.current = true
+    skipRentalAutosave.current = true
     setVehicles(vehiclesPayload)
     setRentals(rentalsPayload)
     hasLoaded.current = true
@@ -235,6 +247,7 @@ export function VehicleProvider({ children }) {
 
   /** Reset in-memory fleet after an admin Clear data wipe (no immediate re-upload). */
   const wipeLocalFleet = useCallback(() => {
+    skipVehicleAutosave.current = true
     skipRentalAutosave.current = true
     rentalSaveGen.current += 1
     setVehicles([])
@@ -250,22 +263,36 @@ export function VehicleProvider({ children }) {
     )
   }, [])
 
-  const completeRentalForVehicle = useCallback((vehicleId) => {
+  const completeRentalForVehicle = useCallback(async (vehicleId) => {
     if (!vehicleId) return
+    const key = String(vehicleId)
+    const now = new Date().toISOString()
+
+    // Optimistic UI update
+    skipVehicleAutosave.current = true
+    skipRentalAutosave.current = true
+    rentalSaveGen.current += 1
     setVehicles((prev) =>
-      prev.map((v) => (String(v.id) === String(vehicleId) ? { ...v, status: 'Available' } : v)),
+      prev.map((v) => (String(v.id) === key ? { ...v, status: 'Available' } : v)),
     )
     setRentals((prev) =>
-      prev.map((r) =>
-        r.vehicle?.id === vehicleId && r.rentalLifecycle === 'active'
-          ? {
-              ...r,
-              rentalLifecycle: 'completed',
-              completedAt: new Date().toISOString(),
-            }
-          : r,
-      ),
+      prev.map((r) => {
+        const rid = String(r.vehicleId || r.vehicle?.id || '')
+        if (rid !== key || r.rentalLifecycle !== 'active') return r
+        return {
+          ...r,
+          rentalLifecycle: 'completed',
+          completedAt: now,
+          updatedAt: now,
+        }
+      }),
     )
+
+    try {
+      await completeVehicleRentalApi(key)
+    } catch (err) {
+      console.warn('Complete rental API failed; local state updated', err)
+    }
   }, [])
 
   const cancelScheduledRental = useCallback((rentalId) => {
@@ -351,10 +378,11 @@ export function VehicleProvider({ children }) {
       })
 
       if (vehicleIds.length) {
+        const dueVehicleKeys = new Set(vehicleIds.map((id) => String(id)))
         setTimeout(() => {
           setVehicles((vehiclesPrev) =>
             vehiclesPrev.map((v) =>
-              vehicleIds.includes(v.id) ? { ...v, status: 'Rented' } : v,
+              dueVehicleKeys.has(String(v.id)) ? { ...v, status: 'Rented' } : v,
             ),
           )
         }, 0)

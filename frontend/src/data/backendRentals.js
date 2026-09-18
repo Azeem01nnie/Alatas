@@ -12,9 +12,9 @@ export async function loadRentals() {
   return Array.isArray(rentals) ? rentals : []
 }
 
-export async function saveRentals(rentals) {
+export async function saveRentals(rentals, options = {}) {
   try {
-    await replaceRentals(rentals)
+    await replaceRentals(rentals, options)
     return true
   } catch (err) {
     console.warn('Unable to persist rentals to backend', err)

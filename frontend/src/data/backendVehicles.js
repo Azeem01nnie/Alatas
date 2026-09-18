@@ -6,9 +6,9 @@ export async function loadVehicles() {
   return Array.isArray(vehicles) ? vehicles : []
 }
 
-export async function saveVehicles(vehicles) {
+export async function saveVehicles(vehicles, options = {}) {
   try {
-    await replaceVehicles(vehicles)
+    await replaceVehicles(vehicles, options)
     return true
   } catch (err) {
     console.warn('Unable to persist vehicles to backend', err)

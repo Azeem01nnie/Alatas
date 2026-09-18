@@ -166,21 +166,27 @@ export function fetchVehicles() {
     })
 }
 
-export async function replaceVehicles(vehicles) {
+export async function replaceVehicles(vehicles, options = {}) {
+  const prune = Boolean(options.prune)
   const sb = requireSupabase()
   const items = (Array.isArray(vehicles) ? vehicles : [])
     .map(toVehicleRow)
     .filter((v) => v.id)
 
-  const { data: existing, error: listErr } = await sb.from('vehicles').select('id')
-  if (listErr) throwSb(listErr)
+  // Only delete missing rows for explicit full replaces (import / clear sync).
+  // Autosave must never delete fleet rows — a partial client list was wiping vehicles
+  // after rental completion and other status updates.
+  if (prune) {
+    const { data: existing, error: listErr } = await sb.from('vehicles').select('id')
+    if (listErr) throwSb(listErr)
 
-  const nextIds = new Set(items.map((v) => v.id))
-  const toDelete = (existing || []).map((r) => r.id).filter((id) => !nextIds.has(id))
+    const nextIds = new Set(items.map((v) => v.id))
+    const toDelete = (existing || []).map((r) => r.id).filter((id) => !nextIds.has(id))
 
-  if (toDelete.length) {
-    const { error } = await sb.from('vehicles').delete().in('id', toDelete)
-    if (error) throwSb(error)
+    if (toDelete.length) {
+      const { error } = await sb.from('vehicles').delete().in('id', toDelete)
+      if (error) throwSb(error)
+    }
   }
 
   if (items.length) {
@@ -198,6 +204,67 @@ export async function deleteVehicle(id) {
   const { error } = await sb.from('vehicles').delete().eq('id', key)
   if (error) throwSb(error)
   return fetchVehicles()
+}
+
+/** Mark active rental(s) for a vehicle completed and set fleet status Available. */
+export async function completeVehicleRental(vehicleId) {
+  const sb = requireSupabase()
+  const key = String(vehicleId || '').trim()
+  if (!key) throw new Error('Vehicle id is required')
+  const now = new Date().toISOString()
+
+  const { data: updatedRentals, error: rentalErr } = await sb
+    .from('rentals')
+    .update({
+      rental_lifecycle: 'completed',
+      completed_at: now,
+      updated_at: now,
+    })
+    .eq('rental_lifecycle', 'active')
+    .eq('vehicle_id', key)
+    .select('*')
+
+  if (rentalErr) throwSb(rentalErr)
+
+  let completedRentals = updatedRentals || []
+
+  // Also complete rows that only match via embedded vehicle JSON id (legacy).
+  if (!completedRentals.length) {
+    const { data: activeRows, error: listErr } = await sb
+      .from('rentals')
+      .select('id, vehicle, vehicle_id')
+      .eq('rental_lifecycle', 'active')
+    if (listErr) throwSb(listErr)
+    const legacyIds = (activeRows || [])
+      .filter((row) => String(row.vehicle_id || row.vehicle?.id || '') === key)
+      .map((row) => row.id)
+    if (legacyIds.length) {
+      const { data: legacyUpdated, error } = await sb
+        .from('rentals')
+        .update({
+          rental_lifecycle: 'completed',
+          completed_at: now,
+          updated_at: now,
+        })
+        .in('id', legacyIds)
+        .select('*')
+      if (error) throwSb(error)
+      completedRentals = legacyUpdated || []
+    }
+  }
+
+  const { data: vehicleRow, error: vehicleErr } = await sb
+    .from('vehicles')
+    .update({ status: 'Available', updated_at: now })
+    .eq('id', key)
+    .select('*')
+    .maybeSingle()
+  if (vehicleErr) throwSb(vehicleErr)
+
+  return {
+    vehicle: vehicleRow ? mapVehicle(vehicleRow) : null,
+    rentals: completedRentals.map(mapRental),
+  }
 }
 
 export function fetchRentals() {
@@ -275,7 +342,8 @@ async function materializeCarPhotos(rentalId, carPhotos) {
   return out
 }
 
-export async function replaceRentals(rentals) {
+export async function replaceRentals(rentals, options = {}) {
+  const prune = Boolean(options.prune)
   const sb = requireSupabase()
   const vehicleIds = await knownVehicleIdSet(sb)
   let items = (Array.isArray(rentals) ? rentals : [])
@@ -321,15 +389,17 @@ export async function replaceRentals(rentals) {
     return row
   })
 
-  const { data: existing, error: listErr } = await sb.from('rentals').select('id')
-  if (listErr) throwSb(listErr)
+  if (prune) {
+    const { data: existing, error: listErr } = await sb.from('rentals').select('id')
+    if (listErr) throwSb(listErr)
 
-  const keepIds = new Set([...incomingIds, ...preserved.map((r) => r.id)])
-  const toDelete = (existing || []).map((r) => r.id).filter((id) => !keepIds.has(id))
+    const keepIds = new Set([...incomingIds, ...preserved.map((r) => r.id)])
+    const toDelete = (existing || []).map((r) => r.id).filter((id) => !keepIds.has(id))
 
-  if (toDelete.length) {
-    const { error } = await sb.from('rentals').delete().in('id', toDelete)
-    if (error) throwSb(error)
+    if (toDelete.length) {
+      const { error } = await sb.from('rentals').delete().in('id', toDelete)
+      if (error) throwSb(error)
+    }
   }
 
   const upsertRows = [...items, ...preserved]
