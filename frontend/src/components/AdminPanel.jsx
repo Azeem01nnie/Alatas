@@ -3218,7 +3218,7 @@ export default function AdminPanel() {
                   <p className="settings-lead">
                     {isAdminUser
                       ? 'Account, preferences, security, and data for the fleet desk.'
-                      : 'Your account, preferences, and session for this desk.'}
+                      : 'Your account, appearance, alerts, and session for this desk.'}
                   </p>
                 </div>
                 {profileMessage && <span className="admin-success settings-toast">{profileMessage}</span>}
@@ -3474,21 +3474,19 @@ export default function AdminPanel() {
                   </article>
                 </section>
 
-                {/* 3. Security */}
+                {/* 3. Security — admin only */}
+                {isAdminUser && (
                 <section className="settings-section" aria-labelledby="settings-security-heading">
                   <header className="settings-section-head">
                     <h3 id="settings-security-heading" className="settings-section-title">
                       Security
                     </h3>
                     <p className="settings-section-copy">
-                      {isAdminUser
-                        ? 'Desk hardening and full sign-in history for admin and employee accounts.'
-                        : 'Your own sign-in history for this account.'}
+                      Desk hardening and full sign-in history for admin and employee accounts.
                     </p>
                   </header>
 
                   <div className="settings-section-stack">
-                    {isAdminUser && (
                       <article
                         className={`settings-card settings-security-card${securityControlsOpen ? ' is-open' : ''}`}
                       >
@@ -3554,7 +3552,6 @@ export default function AdminPanel() {
                           </div>
                         )}
                       </article>
-                    )}
 
                     <article
                       className={`settings-card settings-audit-card${loginAuditOpen ? ' is-open' : ''}`}
@@ -3568,9 +3565,8 @@ export default function AdminPanel() {
                         <span className="settings-card-head">
                           <h4 className="settings-card-title">Login audit trail</h4>
                           <p className="settings-card-copy">
-                            {isAdminUser
-                              ? 'All admin and employee sign-in attempts — username, role, status, and date/time'
-                              : 'Your own sign-in history — status and date/time'}
+                            All admin and employee sign-in attempts — username, role, status, and
+                            date/time
                             {visibleLoginAudit.length
                               ? ` · ${visibleLoginAudit.length} event${visibleLoginAudit.length === 1 ? '' : 's'}`
                               : ''}
@@ -3605,19 +3601,15 @@ export default function AdminPanel() {
                           </div>
 
                           {visibleLoginAudit.length === 0 ? (
-                            <p className="settings-data-message">
-                              {isAdminUser
-                                ? 'No login events recorded yet.'
-                                : 'No login events for your account yet.'}
-                            </p>
+                            <p className="settings-data-message">No login events recorded yet.</p>
                           ) : (
                             <>
                               <div className="settings-audit-table-wrap">
                                 <table className="settings-audit-table">
                                   <thead>
                                     <tr>
-                                      {isAdminUser && <th scope="col">Username</th>}
-                                      {isAdminUser && <th scope="col">Role</th>}
+                                      <th scope="col">Username</th>
+                                      <th scope="col">Role</th>
                                       <th scope="col">Login status</th>
                                       <th scope="col">Date and time</th>
                                     </tr>
@@ -3625,16 +3617,14 @@ export default function AdminPanel() {
                                   <tbody>
                                     {loginAuditPageRows.map((row) => (
                                       <tr key={row.id}>
-                                        {isAdminUser && <td>{row.username}</td>}
-                                        {isAdminUser && (
-                                          <td>
-                                            <span
-                                              className={`settings-audit-role is-${row.role || 'unknown'}`}
-                                            >
-                                              {formatAuditRole(row.role)}
-                                            </span>
-                                          </td>
-                                        )}
+                                        <td>{row.username}</td>
+                                        <td>
+                                          <span
+                                            className={`settings-audit-role is-${row.role || 'unknown'}`}
+                                          >
+                                            {formatAuditRole(row.role)}
+                                          </span>
+                                        </td>
                                         <td>
                                           <span
                                             className={`settings-audit-status is-${row.status}`}
@@ -3686,52 +3676,47 @@ export default function AdminPanel() {
                     </article>
                   </div>
                 </section>
+                )}
 
-                {/* 4. Data */}
+                {/* 4. Data — admin only */}
+                {isAdminUser && (
                 <section className="settings-section" aria-labelledby="settings-data-heading">
                   <header className="settings-section-head">
                     <h3 id="settings-data-heading" className="settings-section-title">
                       Data
                     </h3>
                     <p className="settings-section-copy">
-                      {isAdminUser
-                        ? 'Backups, cache, and cloud sync for the fleet desk.'
-                        : 'Clear temporary browser cache without deleting records.'}
+                      Backups, cache, and cloud sync for the fleet desk.
                     </p>
                   </header>
 
-                  <div className={`settings-section-grid${isAdminUser ? '' : ' is-single'}`}>
+                  <div className="settings-section-grid">
                     <article className="settings-card settings-data-card">
                       <div className="settings-card-head">
                         <h4 className="settings-card-title">Data &amp; cache</h4>
                         <p className="settings-card-copy">
-                          {isAdminUser
-                            ? 'Back up or migrate fleet data, clear temporary cache, or permanently wipe all app data (admin login is kept).'
-                            : 'Clear temporary browser cache without deleting records.'}
+                          Back up or migrate fleet data, clear temporary cache, or permanently wipe
+                          all app data (admin login is kept).
                         </p>
                       </div>
 
                       <div className="settings-data-actions">
-                        {isAdminUser && (
-                          <>
-                            <button
-                              type="button"
-                              className="btn-primary"
-                              disabled={dataBusy}
-                              onClick={downloadAppData}
-                            >
-                              Download data
-                            </button>
-                            <button
-                              type="button"
-                              className="btn-outline"
-                              disabled={dataBusy}
-                              onClick={requestImportData}
-                            >
-                              {dataBusy ? 'Working…' : 'Import / migrate'}
-                            </button>
-                          </>
-                        )}
+                        <button
+                          type="button"
+                          className="btn-primary"
+                          disabled={dataBusy}
+                          onClick={downloadAppData}
+                        >
+                          Download data
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-outline"
+                          disabled={dataBusy}
+                          onClick={requestImportData}
+                        >
+                          {dataBusy ? 'Working…' : 'Import / migrate'}
+                        </button>
                         <button
                           type="button"
                           className="btn-outline settings-clear-cache-btn"
@@ -3740,29 +3725,25 @@ export default function AdminPanel() {
                         >
                           Clear cache
                         </button>
-                        {isAdminUser && (
-                          <button
-                            type="button"
-                            className="btn-outline settings-clear-data-btn"
-                            disabled={dataBusy}
-                            onClick={requestClearData}
-                          >
-                            {dataBusy ? 'Working…' : 'Clear data'}
-                          </button>
-                        )}
-                        {isAdminUser && (
-                          <input
-                            ref={importDataRef}
-                            type="file"
-                            accept="application/json,.json"
-                            className="sr-only"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0]
-                              e.target.value = ''
-                              void importAppData(file)
-                            }}
-                          />
-                        )}
+                        <button
+                          type="button"
+                          className="btn-outline settings-clear-data-btn"
+                          disabled={dataBusy}
+                          onClick={requestClearData}
+                        >
+                          {dataBusy ? 'Working…' : 'Clear data'}
+                        </button>
+                        <input
+                          ref={importDataRef}
+                          type="file"
+                          accept="application/json,.json"
+                          className="sr-only"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0]
+                            e.target.value = ''
+                            void importAppData(file)
+                          }}
+                        />
                       </div>
                       {dataMessage && (
                         <p className="settings-data-message" role="status">
@@ -3771,75 +3752,74 @@ export default function AdminPanel() {
                       )}
                     </article>
 
-                    {isAdminUser && (
-                      <article className="settings-card settings-cloud-card">
-                        <div className="settings-card-head">
-                          <h4 className="settings-card-title">Cloud connection</h4>
-                          <p className="settings-card-copy">
-                            {describeCloudConnection()} Push local changes to Render, then pull
-                            mobile submissions into this desk.
-                          </p>
-                        </div>
+                    <article className="settings-card settings-cloud-card">
+                      <div className="settings-card-head">
+                        <h4 className="settings-card-title">Cloud connection</h4>
+                        <p className="settings-card-copy">
+                          {describeCloudConnection()} Push local changes to Render, then pull
+                          mobile submissions into this desk.
+                        </p>
+                      </div>
 
-                        <ul className="settings-cloud-status">
-                          <li>
-                            <strong>Local API</strong>
-                            <span>{loadError ? 'Unavailable' : 'Running (offline-capable)'}</span>
-                          </li>
-                          <li>
-                            <strong>Internet</strong>
-                            <span
-                              className={`conn-status compact${online ? ' is-online' : ' is-offline'}`}
-                            >
-                              <span className="conn-status-dot" aria-hidden="true" />
-                              <span className="conn-status-label">
-                                {online ? 'Online' : 'Offline'}
-                              </span>
-                            </span>
-                          </li>
-                          <li>
-                            <strong>Cloud URL configured</strong>
-                            <span>{isCloudConfigured() ? 'Yes' : 'Not yet'}</span>
-                          </li>
-                          <li>
-                            <strong>Cloud sync enabled</strong>
-                            <span>
-                              {CLOUD_SYNC_ENABLED
-                                ? 'Yes'
-                                : 'No — set VITE_CLOUD_SYNC_ENABLED=true'}
-                            </span>
-                          </li>
-                          <li>
-                            <strong>Pending sync queue</strong>
-                            <span>{systemStatus?.pendingSyncCount ?? '—'}</span>
-                          </li>
-                          <li>
-                            <strong>Waiting for approval</strong>
-                            <span>
-                              {systemStatus?.pendingApprovalCount ?? pendingApprovalCount}
-                            </span>
-                          </li>
-                        </ul>
-
-                        <div className="settings-cloud-actions">
-                          <button
-                            type="button"
-                            className="btn-primary"
-                            disabled={syncBusy || !online || !CLOUD_SYNC_ENABLED}
-                            onClick={() => void handleCloudSync()}
+                      <ul className="settings-cloud-status">
+                        <li>
+                          <strong>Local API</strong>
+                          <span>{loadError ? 'Unavailable' : 'Running (offline-capable)'}</span>
+                        </li>
+                        <li>
+                          <strong>Internet</strong>
+                          <span
+                            className={`conn-status compact${online ? ' is-online' : ' is-offline'}`}
                           >
-                            {syncBusy ? 'Syncing…' : 'Sync now'}
-                          </button>
-                          {syncMessage && (
-                            <p className="settings-data-message" role="status">
-                              {syncMessage}
-                            </p>
-                          )}
-                        </div>
-                      </article>
-                    )}
+                            <span className="conn-status-dot" aria-hidden="true" />
+                            <span className="conn-status-label">
+                              {online ? 'Online' : 'Offline'}
+                            </span>
+                          </span>
+                        </li>
+                        <li>
+                          <strong>Cloud URL configured</strong>
+                          <span>{isCloudConfigured() ? 'Yes' : 'Not yet'}</span>
+                        </li>
+                        <li>
+                          <strong>Cloud sync enabled</strong>
+                          <span>
+                            {CLOUD_SYNC_ENABLED
+                              ? 'Yes'
+                              : 'No — set VITE_CLOUD_SYNC_ENABLED=true'}
+                          </span>
+                        </li>
+                        <li>
+                          <strong>Pending sync queue</strong>
+                          <span>{systemStatus?.pendingSyncCount ?? '—'}</span>
+                        </li>
+                        <li>
+                          <strong>Waiting for approval</strong>
+                          <span>
+                            {systemStatus?.pendingApprovalCount ?? pendingApprovalCount}
+                          </span>
+                        </li>
+                      </ul>
+
+                      <div className="settings-cloud-actions">
+                        <button
+                          type="button"
+                          className="btn-primary"
+                          disabled={syncBusy || !online || !CLOUD_SYNC_ENABLED}
+                          onClick={() => void handleCloudSync()}
+                        >
+                          {syncBusy ? 'Syncing…' : 'Sync now'}
+                        </button>
+                        {syncMessage && (
+                          <p className="settings-data-message" role="status">
+                            {syncMessage}
+                          </p>
+                        )}
+                      </div>
+                    </article>
                   </div>
                 </section>
+                )}
 
                 {/* 5. Session */}
                 <section className="settings-section settings-section-session" aria-labelledby="settings-session-heading">
