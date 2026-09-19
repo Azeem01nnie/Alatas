@@ -10,14 +10,21 @@ const LOCAL_AUDIT_KEY = 'alatas-login-audit'
 const MAX_LOCAL = 100
 const REMOTE_KEY = 'login_audit'
 
+function resolveAuditRole(username, role) {
+  const roleRaw = String(role || '').trim().toLowerCase()
+  if (roleRaw === 'admin' || roleRaw === 'employee') return roleRaw
+  const user = String(username || '').trim().toLowerCase()
+  if (user === 'alatas') return 'admin'
+  if (user && user !== 'unknown') return 'employee'
+  return 'unknown'
+}
+
 function normalizeEntry(entry) {
-  const roleRaw = String(entry?.role || '').trim().toLowerCase()
-  const role =
-    roleRaw === 'admin' || roleRaw === 'employee' ? roleRaw : entry?.role ? 'unknown' : ''
+  const username = sanitizeUsername(entry?.username || 'unknown') || 'unknown'
   return {
     id: String(entry?.id || `aud_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`),
-    username: sanitizeUsername(entry?.username || 'unknown') || 'unknown',
-    role: role || 'unknown',
+    username,
+    role: resolveAuditRole(username, entry?.role),
     status: ['success', 'failed', 'suspicious'].includes(entry?.status)
       ? entry.status
       : 'failed',

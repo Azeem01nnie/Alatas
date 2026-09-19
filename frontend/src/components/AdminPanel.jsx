@@ -648,7 +648,7 @@ export default function AdminPanel() {
   const [loginAuditBusy, setLoginAuditBusy] = useState(false)
   const [securityNotice, setSecurityNotice] = useState('')
   const [securityControlsOpen, setSecurityControlsOpen] = useState(false)
-  const [loginAuditOpen, setLoginAuditOpen] = useState(false)
+  const [loginAuditOpen, setLoginAuditOpen] = useState(true)
   const [loginAuditPage, setLoginAuditPage] = useState(1)
   const [selectedTransaction, setSelectedTransaction] = useState(null)
   const [transactionReturnTab, setTransactionReturnTab] = useState('history')

@@ -208,7 +208,7 @@ export default function AdminLogin({ onSuccess }) {
       if (authError) {
         await recordLoginAudit({
           username: safeUser || 'unknown',
-          role: safeUser.toLowerCase() === 'alatas' ? 'admin' : 'unknown',
+          role: safeUser.toLowerCase() === 'alatas' ? 'admin' : 'employee',
           status: 'failed',
           detail: 'Invalid username or password',
         })
@@ -253,7 +253,7 @@ export default function AdminLogin({ onSuccess }) {
       }
       await recordLoginAudit({
         username: safeUser || 'unknown',
-        role: safeUser.toLowerCase() === 'alatas' ? 'admin' : 'unknown',
+        role: safeUser.toLowerCase() === 'alatas' ? 'admin' : 'employee',
         status: 'failed',
         detail: err?.message || 'Sign-in error',
       })
