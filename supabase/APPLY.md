@@ -36,12 +36,13 @@ You do **not** need Authentication → Add user.
 This lets admins wipe fleet/rental/staff data from Settings while keeping the admin login.
 If the RPC is missing or fails, the app still clears vehicles/rentals via a client fallback.
 
-## 2c. Login audit table (optional)
+## 2c. Login audit (required for failed logins from other devices)
 
 1. Open SQL Editor
-2. Paste and **Run** [`supabase/migrations/006_audit_logs.sql`](migrations/006_audit_logs.sql)
+2. Paste and **Run** [`supabase/migrations/007_login_audit_rpc.sql`](migrations/007_login_audit_rpc.sql)
 
-Login audit also stores in `app_settings` (`login_audit`) so Settings works even before this migration.
+This adds `record_login_audit` so wrong-password attempts (no session) still appear in Settings → Login audit trail.
+Optional earlier file [`006_audit_logs.sql`](migrations/006_audit_logs.sql) is covered by 007.
 
 ## 3. Run the desk app
 

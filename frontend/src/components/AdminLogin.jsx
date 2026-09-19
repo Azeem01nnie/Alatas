@@ -208,6 +208,7 @@ export default function AdminLogin({ onSuccess }) {
       if (authError) {
         await recordLoginAudit({
           username: safeUser || 'unknown',
+          role: safeUser.toLowerCase() === 'alatas' ? 'admin' : 'unknown',
           status: 'failed',
           detail: 'Invalid username or password',
         })
@@ -225,6 +226,7 @@ export default function AdminLogin({ onSuccess }) {
       if (suspicious) {
         await recordLoginAudit({
           username: sessionUser.username,
+          role: sessionUser.role,
           status: 'suspicious',
           detail: 'Successful sign-in from an unrecognized device/browser',
           suspicious: true,
@@ -235,6 +237,7 @@ export default function AdminLogin({ onSuccess }) {
       } else {
         await recordLoginAudit({
           username: sessionUser.username,
+          role: sessionUser.role,
           status: 'success',
           detail: 'Signed in successfully over HTTPS',
         })
@@ -250,6 +253,7 @@ export default function AdminLogin({ onSuccess }) {
       }
       await recordLoginAudit({
         username: safeUser || 'unknown',
+        role: safeUser.toLowerCase() === 'alatas' ? 'admin' : 'unknown',
         status: 'failed',
         detail: err?.message || 'Sign-in error',
       })

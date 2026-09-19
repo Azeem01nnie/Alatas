@@ -6903,6 +6903,43 @@ html[data-theme='dark'] .conn-status.is-offline {
   border-color: rgba(37, 99, 235, 0.18);
 }
 
+.settings-collapse-toggle {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-collapse-toggle .settings-card-head {
+  margin-bottom: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-collapse-chevron {
+  flex-shrink: 0;
+  margin-top: 1.35rem;
+  font-size: 1rem;
+  color: var(--muted);
+  transition: transform 0.18s ease;
+}
+
+.settings-collapse-chevron.is-open {
+  transform: rotate(180deg);
+}
+
+.settings-collapse-body {
+  margin-top: 1rem;
+}
+
 .settings-https-banner {
   display: flex;
   gap: 0.75rem;
@@ -7073,6 +7110,30 @@ html[data-theme='dark'] .conn-status.is-offline {
   color: #92400e;
   background: rgba(245, 158, 11, 0.14);
   border-color: rgba(245, 158, 11, 0.35);
+}
+
+.settings-audit-role {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  background: var(--surface-muted);
+}
+
+.settings-audit-role.is-admin {
+  color: #1e40af;
+  background: rgba(37, 99, 235, 0.1);
+  border-color: rgba(37, 99, 235, 0.3);
+}
+
+.settings-audit-role.is-employee {
+  color: #0f766e;
+  background: rgba(20, 184, 166, 0.12);
+  border-color: rgba(20, 184, 166, 0.3);
 }
 
 .settings-data-actions {

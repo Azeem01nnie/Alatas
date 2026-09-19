@@ -49,7 +49,7 @@ import { fetchSystemStatus, runCloudSync, saveAdminProfileRemote, clearAllAppDat
 import { CLOUD_SYNC_ENABLED, isCloudConfigured } from '../api/cloudSync'
 import { describeCloudConnection } from '../config/cloudConnection'
 import { useConnectivity } from '../hooks/useConnectivity'
-import { fetchLoginAudit, formatAuditStatus } from '../utils/loginAudit'
+import { fetchLoginAudit, formatAuditRole, formatAuditStatus } from '../utils/loginAudit'
 import {
   assertSameOriginRequest,
   ensureCsrfToken,
@@ -647,6 +647,7 @@ export default function AdminPanel() {
   const [loginAudit, setLoginAudit] = useState([])
   const [loginAuditBusy, setLoginAuditBusy] = useState(false)
   const [securityNotice, setSecurityNotice] = useState('')
+  const [securityControlsOpen, setSecurityControlsOpen] = useState(false)
   const [selectedTransaction, setSelectedTransaction] = useState(null)
   const [transactionReturnTab, setTransactionReturnTab] = useState('history')
   const [rentDirty, setRentDirty] = useState(false)
@@ -1100,7 +1101,7 @@ export default function AdminPanel() {
   const isAdminUser = sessionRole === 'admin' || sessionUser?.role === 'admin'
 
   useEffect(() => {
-    if (!authed || tab !== 'settings' || !isAdminUser) return
+    if (!authed || tab !== 'settings') return
     let mounted = true
     setLoginAuditBusy(true)
     fetchLoginAudit()
@@ -1113,16 +1114,16 @@ export default function AdminPanel() {
     return () => {
       mounted = false
     }
-  }, [authed, tab, isAdminUser])
+  }, [authed, tab])
 
   useEffect(() => {
     const suspicious = loginAudit.find((row) => row.status === 'suspicious')
-    if (suspicious && isAdminUser) {
+    if (suspicious) {
       setSecurityNotice(
-        `Suspicious login recorded for ${suspicious.username} at ${new Date(suspicious.createdAt).toLocaleString()}.`,
+        `Suspicious login recorded for ${suspicious.username} (${formatAuditRole(suspicious.role)}) at ${new Date(suspicious.createdAt).toLocaleString()}.`,
       )
     }
-  }, [loginAudit, isAdminUser])
+  }, [loginAudit])
 
   const visibleNav = useMemo(
     () => NAV.filter((item) => isAdminUser || !item.adminOnly),
@@ -3379,59 +3380,81 @@ export default function AdminPanel() {
                   </article>
 
                   {isAdminUser && (
-                  <article className="settings-card settings-security-card">
-                    <div className="settings-card-head">
-                      <span className="settings-eyebrow">Security</span>
-                      <h4 className="settings-card-title">Security controls</h4>
-                      <p className="settings-card-copy">
-                        Transport protection and desk hardening controls.
-                      </p>
-                    </div>
+                  <article
+                    className={`settings-card settings-security-card${securityControlsOpen ? ' is-open' : ''}`}
+                  >
+                    <button
+                      type="button"
+                      className="settings-collapse-toggle"
+                      aria-expanded={securityControlsOpen}
+                      onClick={() => setSecurityControlsOpen((v) => !v)}
+                    >
+                      <span className="settings-card-head">
+                        <span className="settings-eyebrow">Security</span>
+                        <h4 className="settings-card-title">Security controls</h4>
+                        <p className="settings-card-copy">
+                          Transport protection and desk hardening controls.
+                        </p>
+                      </span>
+                      <span
+                        className={`settings-collapse-chevron${securityControlsOpen ? ' is-open' : ''}`}
+                        aria-hidden="true"
+                      >
+                        ▾
+                      </span>
+                    </button>
 
-                    {(() => {
-                      const transport = getTransportLabel()
-                      return (
-                        <div
-                          className={`settings-https-banner${transport.secure ? ' is-secure' : ' is-insecure'}`}
-                          role="status"
-                        >
-                          <span className="settings-https-dot" aria-hidden="true" />
-                          <div>
-                            <strong>
-                              {transport.secure
-                                ? 'Authentication uses secure HTTPS'
-                                : 'Connection is not HTTPS'}
-                            </strong>
-                            <p>{transport.label}. Supabase Auth and API traffic are encrypted in transit.</p>
-                          </div>
-                        </div>
-                      )
-                    })()}
+                    {securityControlsOpen && (
+                      <div className="settings-collapse-body">
+                        {(() => {
+                          const transport = getTransportLabel()
+                          return (
+                            <div
+                              className={`settings-https-banner${transport.secure ? ' is-secure' : ' is-insecure'}`}
+                              role="status"
+                            >
+                              <span className="settings-https-dot" aria-hidden="true" />
+                              <div>
+                                <strong>
+                                  {transport.secure
+                                    ? 'Authentication uses secure HTTPS'
+                                    : 'Connection is not HTTPS'}
+                                </strong>
+                                <p>
+                                  {transport.label}. Supabase Auth and API traffic are encrypted in
+                                  transit.
+                                </p>
+                              </div>
+                            </div>
+                          )
+                        })()}
 
-                    {securityNotice ? (
-                      <p className="settings-security-alert" role="alert">
-                        {securityNotice}
-                      </p>
-                    ) : null}
+                        {securityNotice ? (
+                          <p className="settings-security-alert" role="alert">
+                            {securityNotice}
+                          </p>
+                        ) : null}
 
-                    <ul className="settings-security-features">
-                      {SECURITY_FEATURES.map((item) => (
-                        <li key={item.id}>
-                          <strong>{item.title}</strong>
-                          <span>{item.detail}</span>
-                        </li>
-                      ))}
-                    </ul>
+                        <ul className="settings-security-features">
+                          {SECURITY_FEATURES.map((item) => (
+                            <li key={item.id}>
+                              <strong>{item.title}</strong>
+                              <span>{item.detail}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </article>
                   )}
 
-                  {isAdminUser && (
                   <article className="settings-card settings-audit-card">
                     <div className="settings-card-head">
                       <span className="settings-eyebrow">Audit</span>
                       <h4 className="settings-card-title">Login audit trail</h4>
                       <p className="settings-card-copy">
-                        Username, login status, and date/time for each sign-in attempt.
+                        Sign-in history for both admin and employee accounts — username, role,
+                        login status, and date/time.
                       </p>
                     </div>
 
@@ -3459,6 +3482,7 @@ export default function AdminPanel() {
                           <thead>
                             <tr>
                               <th scope="col">Username</th>
+                              <th scope="col">Role</th>
                               <th scope="col">Login status</th>
                               <th scope="col">Date and time</th>
                             </tr>
@@ -3467,6 +3491,11 @@ export default function AdminPanel() {
                             {loginAudit.slice(0, 40).map((row) => (
                               <tr key={row.id}>
                                 <td>{row.username}</td>
+                                <td>
+                                  <span className={`settings-audit-role is-${row.role || 'unknown'}`}>
+                                    {formatAuditRole(row.role)}
+                                  </span>
+                                </td>
                                 <td>
                                   <span className={`settings-audit-status is-${row.status}`}>
                                     {formatAuditStatus(row.status)}
@@ -3480,7 +3509,6 @@ export default function AdminPanel() {
                       </div>
                     )}
                   </article>
-                  )}
                 </div>
 
                 <div className="settings-stack">

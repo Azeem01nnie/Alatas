@@ -11,9 +11,13 @@ const MAX_LOCAL = 100
 const REMOTE_KEY = 'login_audit'
 
 function normalizeEntry(entry) {
+  const roleRaw = String(entry?.role || '').trim().toLowerCase()
+  const role =
+    roleRaw === 'admin' || roleRaw === 'employee' ? roleRaw : entry?.role ? 'unknown' : ''
   return {
     id: String(entry?.id || `aud_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`),
     username: sanitizeUsername(entry?.username || 'unknown') || 'unknown',
+    role: role || 'unknown',
     status: ['success', 'failed', 'suspicious'].includes(entry?.status)
       ? entry.status
       : 'failed',
@@ -40,7 +44,23 @@ function saveLocalLoginAudit(entries) {
   return next
 }
 
-async function pushRemoteAudit(entries) {
+/** Push via security-definer RPC — works even with wrong credentials (no session). */
+async function pushRemoteAuditViaRpc(entry) {
+  if (!isSupabaseConfigured) return null
+  const sb = requireSupabase()
+  const { data, error } = await sb.rpc('record_login_audit', {
+    p_username: entry.username,
+    p_status: entry.status,
+    p_role: entry.role || 'unknown',
+    p_detail: entry.detail || '',
+    p_user_agent: entry.userAgent || '',
+    p_fingerprint: entry.fingerprint || '',
+  })
+  if (error) throw error
+  return data ? normalizeEntry({ ...entry, ...data }) : entry
+}
+
+async function pushRemoteAuditFallback(entries) {
   if (!isSupabaseConfigured) return
   try {
     const sb = requireSupabase()
@@ -55,7 +75,7 @@ async function pushRemoteAudit(entries) {
       updated_at: new Date().toISOString(),
     })
   } catch (err) {
-    console.warn('Could not sync login audit', err)
+    console.warn('Could not sync login audit fallback', err)
   }
 }
 
@@ -65,15 +85,44 @@ export async function fetchLoginAudit() {
 
   try {
     const sb = requireSupabase()
-    const { data, error } = await sb
+    const remoteEntries = []
+
+    const { data: settingsRow, error: settingsErr } = await sb
       .from('app_settings')
       .select('value')
       .eq('key', REMOTE_KEY)
       .maybeSingle()
-    if (error) throw error
-    const remoteEntries = Array.isArray(data?.value?.entries)
-      ? data.value.entries.map(normalizeEntry)
-      : []
+    if (!settingsErr && Array.isArray(settingsRow?.value?.entries)) {
+      settingsRow.value.entries.forEach((row) => remoteEntries.push(normalizeEntry(row)))
+    }
+
+    // Optional dedicated table (if migration applied)
+    try {
+      const { data: tableRows, error: tableErr } = await sb
+        .from('audit_logs')
+        .select('id, username, role, status, detail, user_agent, fingerprint, created_at')
+        .eq('event_type', 'login')
+        .order('created_at', { ascending: false })
+        .limit(100)
+      if (!tableErr && Array.isArray(tableRows)) {
+        tableRows.forEach((row) =>
+          remoteEntries.push(
+            normalizeEntry({
+              id: row.id,
+              username: row.username,
+              role: row.role,
+              status: row.status,
+              detail: row.detail,
+              userAgent: row.user_agent,
+              fingerprint: row.fingerprint,
+              createdAt: row.created_at,
+            }),
+          ),
+        )
+      }
+    } catch {
+      /* table may not exist yet */
+    }
 
     const byId = new Map()
     ;[...remoteEntries, ...local].forEach((row) => byId.set(row.id, row))
@@ -88,17 +137,20 @@ export async function fetchLoginAudit() {
 }
 
 /**
- * Record a login attempt. Works before/after auth (local first, sync when session exists).
+ * Record a login attempt.
+ * Uses Supabase RPC so failed attempts from any device still reach the admin audit trail.
  */
 export async function recordLoginAudit({
   username,
   status,
   detail = '',
   suspicious = false,
+  role = '',
 } = {}) {
   const fp = getDeviceFingerprint()
   const entry = normalizeEntry({
     username,
+    role,
     status: suspicious ? 'suspicious' : status,
     detail:
       detail ||
@@ -114,7 +166,22 @@ export async function recordLoginAudit({
 
   const next = [entry, ...loadLocalLoginAudit()].slice(0, MAX_LOCAL)
   saveLocalLoginAudit(next)
-  await pushRemoteAudit(next)
+
+  try {
+    const remote = await pushRemoteAuditViaRpc(entry)
+    if (remote?.id && remote.id !== entry.id) {
+      const withRemoteId = [remote, ...loadLocalLoginAudit().filter((r) => r.id !== entry.id)].slice(
+        0,
+        MAX_LOCAL,
+      )
+      saveLocalLoginAudit(withRemoteId)
+      return remote
+    }
+  } catch (err) {
+    console.warn('Login audit RPC unavailable; using session fallback', err?.message || err)
+    await pushRemoteAuditFallback(next)
+  }
+
   return entry
 }
 
@@ -122,4 +189,10 @@ export function formatAuditStatus(status) {
   if (status === 'success') return 'Success'
   if (status === 'suspicious') return 'Suspicious'
   return 'Failed'
+}
+
+export function formatAuditRole(role) {
+  if (role === 'admin') return 'Admin'
+  if (role === 'employee') return 'Employee'
+  return '—'
 }
