@@ -6989,6 +6989,16 @@ html[data-theme='dark'] .conn-status.is-offline {
   margin-top: 0.35rem;
 }
 
+.settings-audit-card {
+  border-color: rgba(15, 23, 42, 0.12);
+}
+
+.settings-audit-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 0 0.75rem;
+}
+
 .settings-audit-head {
   display: flex;
   align-items: center;

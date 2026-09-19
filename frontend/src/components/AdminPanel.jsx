@@ -3382,9 +3382,9 @@ export default function AdminPanel() {
                   <article className="settings-card settings-security-card">
                     <div className="settings-card-head">
                       <span className="settings-eyebrow">Security</span>
-                      <h4 className="settings-card-title">Security &amp; audit trail</h4>
+                      <h4 className="settings-card-title">Security controls</h4>
                       <p className="settings-card-copy">
-                        Login history, transport protection, and desk hardening controls.
+                        Transport protection and desk hardening controls.
                       </p>
                     </div>
 
@@ -3422,58 +3422,63 @@ export default function AdminPanel() {
                         </li>
                       ))}
                     </ul>
+                  </article>
+                  )}
 
-                    <div className="settings-audit-block">
-                      <div className="settings-audit-head">
-                        <h5>Login audit log</h5>
-                        <button
-                          type="button"
-                          className="btn-ghost btn-sm"
-                          disabled={loginAuditBusy}
-                          onClick={() => {
-                            setLoginAuditBusy(true)
-                            fetchLoginAudit()
-                              .then(setLoginAudit)
-                              .finally(() => setLoginAuditBusy(false))
-                          }}
-                        >
-                          {loginAuditBusy ? 'Refreshing…' : 'Refresh'}
-                        </button>
-                      </div>
+                  {isAdminUser && (
+                  <article className="settings-card settings-audit-card">
+                    <div className="settings-card-head">
+                      <span className="settings-eyebrow">Audit</span>
+                      <h4 className="settings-card-title">Login audit trail</h4>
                       <p className="settings-card-copy">
                         Username, login status, and date/time for each sign-in attempt.
                       </p>
-                      {loginAudit.length === 0 ? (
-                        <p className="settings-data-message">No login events recorded yet.</p>
-                      ) : (
-                        <div className="settings-audit-table-wrap">
-                          <table className="settings-audit-table">
-                            <thead>
-                              <tr>
-                                <th scope="col">Username</th>
-                                <th scope="col">Login status</th>
-                                <th scope="col">Date and time</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {loginAudit.slice(0, 40).map((row) => (
-                                <tr key={row.id}>
-                                  <td>{row.username}</td>
-                                  <td>
-                                    <span
-                                      className={`settings-audit-status is-${row.status}`}
-                                    >
-                                      {formatAuditStatus(row.status)}
-                                    </span>
-                                  </td>
-                                  <td>{new Date(row.createdAt).toLocaleString()}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
                     </div>
+
+                    <div className="settings-audit-toolbar">
+                      <button
+                        type="button"
+                        className="btn-ghost btn-sm"
+                        disabled={loginAuditBusy}
+                        onClick={() => {
+                          setLoginAuditBusy(true)
+                          fetchLoginAudit()
+                            .then(setLoginAudit)
+                            .finally(() => setLoginAuditBusy(false))
+                        }}
+                      >
+                        {loginAuditBusy ? 'Refreshing…' : 'Refresh'}
+                      </button>
+                    </div>
+
+                    {loginAudit.length === 0 ? (
+                      <p className="settings-data-message">No login events recorded yet.</p>
+                    ) : (
+                      <div className="settings-audit-table-wrap">
+                        <table className="settings-audit-table">
+                          <thead>
+                            <tr>
+                              <th scope="col">Username</th>
+                              <th scope="col">Login status</th>
+                              <th scope="col">Date and time</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {loginAudit.slice(0, 40).map((row) => (
+                              <tr key={row.id}>
+                                <td>{row.username}</td>
+                                <td>
+                                  <span className={`settings-audit-status is-${row.status}`}>
+                                    {formatAuditStatus(row.status)}
+                                  </span>
+                                </td>
+                                <td>{new Date(row.createdAt).toLocaleString()}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </article>
                   )}
                 </div>
