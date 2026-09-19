@@ -7098,6 +7098,33 @@ html[data-theme='dark'] .conn-status.is-offline {
   margin: 0 0 0.75rem;
 }
 
+.settings-audit-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.settings-audit-page-label {
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-align: center;
+  flex: 1 1 auto;
+}
+
+.settings-audit-page-meta {
+  color: color-mix(in srgb, var(--muted) 80%, transparent);
+}
+
+.settings-audit-pagination .btn-ghost:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .settings-audit-head {
   display: flex;
   align-items: center;

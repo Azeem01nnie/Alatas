@@ -328,7 +328,7 @@ function normalizeCarPhotoExtras(value) {
       if (!item || typeof item !== 'object') return null
       const uri = typeof item.uri === 'string' ? item.uri.trim() : ''
       if (!uri) return null
-      return {
+  return {
         id: String(item.id || `extra-${Date.now()}-${index}`),
         uri,
         label: item.label ? String(item.label).trim() : '',

@@ -649,6 +649,7 @@ export default function AdminPanel() {
   const [securityNotice, setSecurityNotice] = useState('')
   const [securityControlsOpen, setSecurityControlsOpen] = useState(false)
   const [loginAuditOpen, setLoginAuditOpen] = useState(false)
+  const [loginAuditPage, setLoginAuditPage] = useState(1)
   const [selectedTransaction, setSelectedTransaction] = useState(null)
   const [transactionReturnTab, setTransactionReturnTab] = useState('history')
   const [rentDirty, setRentDirty] = useState(false)
@@ -1101,6 +1102,29 @@ export default function AdminPanel() {
 
   const isAdminUser = sessionRole === 'admin' || sessionUser?.role === 'admin'
 
+  const AUDIT_PAGE_SIZE = 7
+
+  const visibleLoginAudit = useMemo(() => {
+    if (isAdminUser) return loginAudit
+    const me = String(sessionUser?.username || '').trim().toLowerCase()
+    if (!me) return []
+    return loginAudit.filter(
+      (row) => String(row.username || '').trim().toLowerCase() === me,
+    )
+  }, [loginAudit, isAdminUser, sessionUser?.username])
+
+  const loginAuditPageCount = Math.max(1, Math.ceil(visibleLoginAudit.length / AUDIT_PAGE_SIZE) || 1)
+
+  const loginAuditPageRows = useMemo(() => {
+    const safePage = Math.min(Math.max(1, loginAuditPage), loginAuditPageCount)
+    const start = (safePage - 1) * AUDIT_PAGE_SIZE
+    return visibleLoginAudit.slice(start, start + AUDIT_PAGE_SIZE)
+  }, [visibleLoginAudit, loginAuditPage, loginAuditPageCount])
+
+  useEffect(() => {
+    setLoginAuditPage((page) => Math.min(Math.max(1, page), loginAuditPageCount))
+  }, [loginAuditPageCount])
+
   useEffect(() => {
     if (!authed || tab !== 'settings') return
     let mounted = true
@@ -1118,13 +1142,17 @@ export default function AdminPanel() {
   }, [authed, tab])
 
   useEffect(() => {
+    if (!isAdminUser) {
+      setSecurityNotice('')
+      return
+    }
     const suspicious = loginAudit.find((row) => row.status === 'suspicious')
     if (suspicious) {
       setSecurityNotice(
         `Suspicious login recorded for ${suspicious.username} (${formatAuditRole(suspicious.role)}) at ${new Date(suspicious.createdAt).toLocaleString()}.`,
       )
     }
-  }, [loginAudit])
+  }, [loginAudit, isAdminUser])
 
   const visibleNav = useMemo(
     () => NAV.filter((item) => isAdminUser || !item.adminOnly),
@@ -3352,12 +3380,12 @@ export default function AdminPanel() {
                               <strong>{opt.label}</strong>
                               <span>{opt.hint}</span>
                             </span>
-                          </button>
-                        ))}
+                  </button>
+                ))}
                       </div>
                     </article>
-                  </div>
-                </section>
+              </div>
+            </section>
 
                 {/* 2. Preferences */}
                 <section className="settings-section" aria-labelledby="settings-prefs-heading">
@@ -3453,7 +3481,9 @@ export default function AdminPanel() {
                       Security
                     </h3>
                     <p className="settings-section-copy">
-                      Desk hardening and sign-in history for admin and employee accounts.
+                      {isAdminUser
+                        ? 'Desk hardening and full sign-in history for admin and employee accounts.'
+                        : 'Your own sign-in history for this account.'}
                     </p>
                   </header>
 
@@ -3538,8 +3568,13 @@ export default function AdminPanel() {
                         <span className="settings-card-head">
                           <h4 className="settings-card-title">Login audit trail</h4>
                           <p className="settings-card-copy">
-                            Username, role, status, and date/time for each sign-in attempt
-                            {loginAudit.length ? ` · ${loginAudit.length} events` : ''}.
+                            {isAdminUser
+                              ? 'All admin and employee sign-in attempts — username, role, status, and date/time'
+                              : 'Your own sign-in history — status and date/time'}
+                            {visibleLoginAudit.length
+                              ? ` · ${visibleLoginAudit.length} event${visibleLoginAudit.length === 1 ? '' : 's'}`
+                              : ''}
+                            .
                           </p>
                         </span>
                         <span
@@ -3559,6 +3594,7 @@ export default function AdminPanel() {
                               disabled={loginAuditBusy}
                               onClick={() => {
                                 setLoginAuditBusy(true)
+                                setLoginAuditPage(1)
                                 fetchLoginAudit()
                                   .then(setLoginAudit)
                                   .finally(() => setLoginAuditBusy(false))
@@ -3568,41 +3604,82 @@ export default function AdminPanel() {
                             </button>
                           </div>
 
-                          {loginAudit.length === 0 ? (
-                            <p className="settings-data-message">No login events recorded yet.</p>
+                          {visibleLoginAudit.length === 0 ? (
+                            <p className="settings-data-message">
+                              {isAdminUser
+                                ? 'No login events recorded yet.'
+                                : 'No login events for your account yet.'}
+                            </p>
                           ) : (
-                            <div className="settings-audit-table-wrap">
-                              <table className="settings-audit-table">
-                                <thead>
-                                  <tr>
-                                    <th scope="col">Username</th>
-                                    <th scope="col">Role</th>
-                                    <th scope="col">Login status</th>
-                                    <th scope="col">Date and time</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {loginAudit.slice(0, 40).map((row) => (
-                                    <tr key={row.id}>
-                                      <td>{row.username}</td>
-                                      <td>
-                                        <span
-                                          className={`settings-audit-role is-${row.role || 'unknown'}`}
-                                        >
-                                          {formatAuditRole(row.role)}
-                                        </span>
-                                      </td>
-                                      <td>
-                                        <span className={`settings-audit-status is-${row.status}`}>
-                                          {formatAuditStatus(row.status)}
-                                        </span>
-                                      </td>
-                                      <td>{new Date(row.createdAt).toLocaleString()}</td>
+                            <>
+                              <div className="settings-audit-table-wrap">
+                                <table className="settings-audit-table">
+                                  <thead>
+                                    <tr>
+                                      {isAdminUser && <th scope="col">Username</th>}
+                                      {isAdminUser && <th scope="col">Role</th>}
+                                      <th scope="col">Login status</th>
+                                      <th scope="col">Date and time</th>
                                     </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
+                                  </thead>
+                                  <tbody>
+                                    {loginAuditPageRows.map((row) => (
+                                      <tr key={row.id}>
+                                        {isAdminUser && <td>{row.username}</td>}
+                                        {isAdminUser && (
+                                          <td>
+                                            <span
+                                              className={`settings-audit-role is-${row.role || 'unknown'}`}
+                                            >
+                                              {formatAuditRole(row.role)}
+                                            </span>
+                                          </td>
+                                        )}
+                                        <td>
+                                          <span
+                                            className={`settings-audit-status is-${row.status}`}
+                                          >
+                                            {formatAuditStatus(row.status)}
+                                          </span>
+                                        </td>
+                                        <td>{new Date(row.createdAt).toLocaleString()}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+
+                              <div className="settings-audit-pagination">
+                                <button
+                                  type="button"
+                                  className="btn-ghost btn-sm"
+                                  disabled={loginAuditPage <= 1}
+                                  onClick={() => setLoginAuditPage((p) => Math.max(1, p - 1))}
+                                >
+                                  Previous
+                                </button>
+                                <span className="settings-audit-page-label">
+                                  Page {Math.min(loginAuditPage, loginAuditPageCount)} of{' '}
+                                  {loginAuditPageCount}
+                                  <span className="settings-audit-page-meta">
+                                    {' '}
+                                    · {AUDIT_PAGE_SIZE} per page
+                                  </span>
+                                </span>
+                                <button
+                                  type="button"
+                                  className="btn-ghost btn-sm"
+                                  disabled={loginAuditPage >= loginAuditPageCount}
+                                  onClick={() =>
+                                    setLoginAuditPage((p) =>
+                                      Math.min(loginAuditPageCount, p + 1),
+                                    )
+                                  }
+                                >
+                                  Next
+                                </button>
+                              </div>
+                            </>
                           )}
                         </div>
                       )}
