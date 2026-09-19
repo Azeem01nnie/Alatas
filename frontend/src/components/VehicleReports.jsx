@@ -297,7 +297,7 @@ function ReportTableRow({ row, onEdit, onDelete, formatPeso }) {
             ) : null}
           </div>
         </td>
-        <td className="col-amount">{row.amount == null || row.amount === '' ? '—' : formatPeso(row.amount)}</td>
+        <td className="col-amount">{row.amount == null || row.amount === '' ? '₱0' : formatPeso(row.amount)}</td>
         <td className="col-status">{row.status}</td>
         <td className="reports-row-actions col-actions">
           <div className="manage-row-actions reports-row-actions-inner">
@@ -636,7 +636,7 @@ export default function VehicleReports({ vehicles = [], adminName = 'Admin', dat
       doc.text(String(row.category || '').slice(0, 12), margin + 130, y)
       const desc = doc.splitTextToSize(String(row.description || ''), 180)
       doc.text(desc, margin + 220, y)
-      doc.text(row.amount == null ? '—' : formatPeso(row.amount), margin + 420, y)
+      doc.text(row.amount == null ? '₱0' : formatPeso(row.amount), margin + 420, y)
       y += Math.max(14, desc.length * 12)
     })
     y += 10

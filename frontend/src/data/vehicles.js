@@ -298,7 +298,7 @@ export const DEFAULT_VEHICLES = [
 ]
 
 export function formatPeso(amount) {
-  if (amount === '' || amount == null || Number.isNaN(Number(amount))) return '—'
+  if (amount === '' || amount == null || Number.isNaN(Number(amount))) return '₱0'
   return `₱${Number(amount).toLocaleString('en-PH', {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
@@ -307,7 +307,7 @@ export function formatPeso(amount) {
 
 export function formatRateSummary(rateCard) {
   if (!rateCard) return 'No rates set'
-  return `5h ${formatPeso(rateCard.hrs5)} · 12h ${formatPeso(rateCard.hrs12)} · 24h ${formatPeso(rateCard.hrs24)} · +${formatPeso(rateCard.exceedHour)}/hr`
+  return `5h ${formatPeso(rateCard.hrs5)} · 12h ${formatPeso(rateCard.hrs12)} · 24h ${formatPeso(rateCard.hrs24)} · exceed ${formatPeso(rateCard.exceedHour)}/hr`
 }
 
 function normalizeRates(ratesInput) {

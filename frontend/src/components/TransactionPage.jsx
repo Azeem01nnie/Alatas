@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { jsPDF } from 'jspdf'
-import { CONTRACT_TERMS, LIABILITY_CLAUSE, formatContractTerm, CONTRACT_DOCUMENT_TITLE, getContractClauseNumber } from '../data/contract'
+import { CONTRACT_TERMS, LIABILITY_CLAUSE, CONTRACT_DOCUMENT_TITLE, getContractClauseNumber } from '../data/contract'
 import { formatEmergencyContact } from '../utils/phone'
 import { compressImageDataUrl } from '../utils/storage'
 import { collectPhotographerCredits, formatTakenByLabel, mergePhotographerCredits } from '../utils/photoCredits'
@@ -246,20 +246,45 @@ async function downloadContractPdf(transaction) {
   y += 8
 
   CONTRACT_TERMS.forEach((term, index) => {
-    const block = writeBlock(formatContractTerm(term, index, CONTRACT_TERMS), margin, contentWidth, {
-      size: term?.type === 'section' ? 9 : 8.5,
-      lineHeight: 11,
-      style: term?.type === 'section' ? 'bold' : 'normal',
+    const isSection = term?.type === 'section'
+    const title = isSection
+      ? String(term.title || '')
+      : `${getContractClauseNumber(CONTRACT_TERMS, index)}. ${term.title}`
+    const body = isSection ? '' : String(term.body || '')
+
+    const titleBlock = writeBlock(title, margin, contentWidth, {
+      size: isSection ? 9 : 9,
+      lineHeight: 12,
+      style: 'bold',
     })
-    ensureSpace(block.height + 4)
-    block.lines.forEach((line) => {
-      doc.setFont('helvetica', term?.type === 'section' ? 'bold' : 'normal')
-      doc.setFontSize(term?.type === 'section' ? 9 : 8.5)
+    ensureSpace(titleBlock.height + (body ? 8 : 6))
+    titleBlock.lines.forEach((line) => {
+      ensureSpace(12)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(isSection ? 9 : 9)
       doc.setTextColor(17, 17, 17)
       doc.text(line, margin, y)
-      y += 11
+      y += 12
     })
-    y += 3
+
+    if (body) {
+      y += 3
+      const bodyBlock = writeBlock(body, margin, contentWidth, {
+        size: 8.5,
+        lineHeight: 11,
+        style: 'normal',
+      })
+      bodyBlock.lines.forEach((line) => {
+        ensureSpace(11)
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(8.5)
+        doc.setTextColor(17, 17, 17)
+        doc.text(line, margin, y)
+        y += 11
+      })
+    }
+
+    y += isSection ? 8 : 10
   })
 
   y += 8

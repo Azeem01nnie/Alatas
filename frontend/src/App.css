@@ -2222,7 +2222,7 @@ input[type='number']:focus {
   margin-bottom: 0;
   border: none;
   border-radius: 0;
-  max-height: 240px;
+  max-height: min(52vh, 360px);
 }
 
 .terms-scroll h3,
@@ -2235,42 +2235,76 @@ input[type='number']:focus {
   color: var(--text);
 }
 
-.terms-scroll ol {
+.terms-scroll ol,
+.terms-list,
+.contract-terms {
   padding-left: 0;
+  margin: 0;
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0;
 }
 
 .terms-scroll li,
-.terms-box li {
+.terms-box li,
+.contract-terms li {
   font-size: 0.875rem;
   color: var(--text);
   line-height: 1.55;
   font-weight: 400;
 }
 
+.terms-list > li,
+.contract-terms > li {
+  display: block;
+  position: static;
+  margin: 0;
+  padding: 0.85rem 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+}
+
+.terms-list > li:last-child,
+.contract-terms > li:last-child {
+  border-bottom: none;
+}
+
+.terms-list > li > strong,
+.contract-terms > li > strong {
+  display: block;
+  margin: 0 0 0.4rem;
+  line-height: 1.35;
+  font-weight: 650;
+  color: var(--metal);
+}
+
 .terms-section-heading {
   list-style: none;
-  margin: 0.85rem 0 0.25rem;
-  padding: 0.65rem 0 0.15rem;
-  border-top: 1px solid var(--border);
+  margin: 0.65rem 0 0.15rem !important;
+  padding: 0.7rem 0.8rem !important;
+  border: 1px solid color-mix(in srgb, var(--brand) 22%, var(--border)) !important;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--brand) 6%, var(--surface));
 }
 
 .terms-section-heading strong {
   display: block;
-  font-size: 0.78rem;
-  letter-spacing: 0.04em;
+  margin: 0 !important;
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--brand-deep);
+  line-height: 1.4;
 }
 
 .terms-item-body {
-  margin: 0.4rem 0 0;
+  display: block;
+  margin: 0;
+  padding: 0;
   white-space: pre-line;
   font-weight: 400;
   color: var(--text);
+  line-height: 1.6;
 }
 
 .terms-box ul {
@@ -8463,8 +8497,8 @@ html[data-theme='dark'] .conn-status.is-offline {
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 0.7rem;
-  margin-bottom: 1.5rem;
+  gap: 0;
+  margin: 0 0 1.5rem;
 }
 
 .contract-terms li {
@@ -8474,11 +8508,11 @@ html[data-theme='dark'] .conn-status.is-offline {
 }
 
 .contract-terms .terms-section-heading {
-  margin-top: 0.5rem;
+  margin-top: 0.85rem !important;
 }
 
 .contract-terms .terms-item-body {
-  margin: 0.35rem 0 0;
+  margin: 0;
   white-space: pre-line;
 }
 
