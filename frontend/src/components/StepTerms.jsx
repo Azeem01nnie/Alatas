@@ -119,9 +119,17 @@ export default function StepTerms({
   const canAccept = scrolledToEnd || !expanded
 
   const handleStrokeEnd = () => {
-    const canvas = sigRef.current
-    if (!canvas || canvas.isEmpty()) return
-    const dataUrl = canvas.toDataURL('image/png')
+    const pad = sigRef.current
+    if (!pad || pad.isEmpty()) return
+    const source = pad.getCanvas()
+    const out = document.createElement('canvas')
+    out.width = 640
+    out.height = PAD_HEIGHT
+    const ctx = out.getContext('2d')
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, out.width, out.height)
+    ctx.drawImage(source, 0, 0, out.width, out.height)
+    const dataUrl = out.toDataURL('image/png')
     setIsEmpty(false)
     onSignatureChange(dataUrl)
     if (canAccept) onAcceptedChange(true)

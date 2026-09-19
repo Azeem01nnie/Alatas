@@ -140,7 +140,9 @@ export default function StepSummary({
                     {signature ? (
                       <>
                         <span className="summary-signed-status">Signed</span>
-                        <img src={signature} alt="Customer signature" className="summary-signature" />
+                        <div className="summary-signature-frame">
+                          <img src={signature} alt="Customer signature" className="summary-signature" />
+                        </div>
                       </>
                     ) : (
                       '—'

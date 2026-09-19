@@ -13,7 +13,8 @@ body,
 #root {
   margin: 0;
   width: 100%;
-  min-height: 100%;
-  background: #ffffff;
+  height: 100%;
+  overflow: hidden;
+  background: #f7f7f7;
   color: #111111;
 }

@@ -1054,7 +1054,9 @@ export default function TransactionPage({
           <div>
             <span className="field-label">Lessee Acknowledgment</span>
             {signature ? (
-              <img src={signature} alt="Customer signature" className="summary-signature" />
+              <div className="summary-signature-frame">
+                <img src={signature} alt="Customer signature" className="summary-signature" />
+              </div>
             ) : (
               <p className="signature-line">{fullName(personal)}</p>
             )}
