@@ -648,6 +648,7 @@ export default function AdminPanel() {
   const [loginAuditBusy, setLoginAuditBusy] = useState(false)
   const [securityNotice, setSecurityNotice] = useState('')
   const [securityControlsOpen, setSecurityControlsOpen] = useState(false)
+  const [loginAuditOpen, setLoginAuditOpen] = useState(false)
   const [selectedTransaction, setSelectedTransaction] = useState(null)
   const [transactionReturnTab, setTransactionReturnTab] = useState('history')
   const [rentDirty, setRentDirty] = useState(false)
@@ -3188,130 +3189,189 @@ export default function AdminPanel() {
                   <h3 className="settings-title">Settings</h3>
                   <p className="settings-lead">
                     {isAdminUser
-                      ? 'Profile, appearance, alerts, backups, and browser cache for the fleet desk.'
-                      : 'Your account, appearance, and alerts for this desk.'}
+                      ? 'Account, preferences, security, and data for the fleet desk.'
+                      : 'Your account, preferences, and session for this desk.'}
                   </p>
                 </div>
                 {profileMessage && <span className="admin-success settings-toast">{profileMessage}</span>}
               </div>
 
-              <div className="settings-layout">
-                <div className="settings-stack">
-                  <article className="settings-card settings-profile-card">
-                    <div className="settings-card-head">
-                      <span className="settings-eyebrow">Account</span>
-                      <h4 className="settings-card-title">
-                        {isAdminUser ? 'Admin profile' : 'Your profile'}
-                      </h4>
-                      <p className="settings-card-copy">
-                        {isAdminUser
-                          ? 'Update how you appear in the sidebar. Your role stays Admin.'
-                          : 'Signed-in employee details. Profile changes are managed by an admin.'}
-                      </p>
-                    </div>
+              <div className="settings-sections">
+                {/* 1. Account */}
+                <section className="settings-section" aria-labelledby="settings-account-heading">
+                  <header className="settings-section-head">
+                    <h3 id="settings-account-heading" className="settings-section-title">
+                      Account
+                    </h3>
+                    <p className="settings-section-copy">Who you are and how the desk looks.</p>
+                  </header>
 
-                    <div className="settings-profile-body">
-                      <div className="settings-avatar-wrap">
-                        <div className="settings-avatar" aria-hidden="true">
-                          {isAdminUser && profileDraft.photo ? (
-                            <img src={profileDraft.photo} alt="" />
-                          ) : (
-                            <span>
-                              {profileInitials(
-                                isAdminUser ? profileDraft.displayName : sessionDisplayName,
-                              )}
-                            </span>
-                          )}
-                        </div>
-                        {isAdminUser && (
-                          <div className="settings-avatar-actions">
-                            <input
-                              ref={profilePhotoRef}
-                              type="file"
-                              accept="image/*"
-                              className="sr-only"
-                              onChange={onProfilePhotoChange}
-                            />
-                            <button
-                              type="button"
-                              className="btn-outline settings-photo-btn"
-                              onClick={() => profilePhotoRef.current?.click()}
-                            >
-                              <IconCamera />
-                              {profileDraft.photo ? 'Change photo' : 'Upload photo'}
-                            </button>
-                            {profileDraft.photo && (
-                              <button
-                                type="button"
-                                className="btn-ghost settings-remove-photo"
-                                onClick={() =>
-                                  setProfileDraft((prev) => ({ ...prev, photo: '' }))
-                                }
-                              >
-                                Remove
-                              </button>
+                  <div className="settings-section-grid">
+                    <article className="settings-card settings-profile-card">
+                      <div className="settings-card-head">
+                        <h4 className="settings-card-title">
+                          {isAdminUser ? 'Admin profile' : 'Your profile'}
+                        </h4>
+                        <p className="settings-card-copy">
+                          {isAdminUser
+                            ? 'Update how you appear in the sidebar. Your role stays Admin.'
+                            : 'Signed-in employee details. Profile changes are managed by an admin.'}
+                        </p>
+                      </div>
+
+                      <div className="settings-profile-body">
+                        <div className="settings-avatar-wrap">
+                          <div className="settings-avatar" aria-hidden="true">
+                            {isAdminUser && profileDraft.photo ? (
+                              <img src={profileDraft.photo} alt="" />
+                            ) : (
+                              <span>
+                                {profileInitials(
+                                  isAdminUser ? profileDraft.displayName : sessionDisplayName,
+                                )}
+                              </span>
                             )}
                           </div>
-                        )}
-                      </div>
-
-                      <div className="settings-profile-fields">
-                        {isAdminUser ? (
-                          <label className="field settings-name-field">
-                            <span className="field-label">Display name</span>
-                            <input
-                              type="text"
-                              value={profileDraft.displayName}
-                              onChange={(e) =>
-                                setProfileDraft((prev) => ({
-                                  ...prev,
-                                  displayName: sanitizeUserText(e.target.value, { maxLength: 40 }),
-                                }))
-                              }
-                              maxLength={40}
-                              placeholder="Your name"
-                            />
-                          </label>
-                        ) : (
-                          <>
-                            <label className="field settings-name-field">
-                              <span className="field-label">Display name</span>
-                              <input type="text" value={sessionDisplayName} readOnly />
-                            </label>
-                            {sessionUser?.username ? (
-                              <label className="field settings-name-field">
-                                <span className="field-label">Username</span>
-                                <input type="text" value={sessionUser.username} readOnly />
-                              </label>
-                            ) : null}
-                          </>
-                        )}
-
-                        <div className="settings-role-row">
-                          <span className="settings-role-label">Role</span>
-                          <span className="settings-role-badge">
-                            {isAdminUser ? 'Admin' : 'Employee'}
-                          </span>
+                          {isAdminUser && (
+                            <div className="settings-avatar-actions">
+                              <input
+                                ref={profilePhotoRef}
+                                type="file"
+                                accept="image/*"
+                                className="sr-only"
+                                onChange={onProfilePhotoChange}
+                              />
+                              <button
+                                type="button"
+                                className="btn-outline settings-photo-btn"
+                                onClick={() => profilePhotoRef.current?.click()}
+                              >
+                                <IconCamera />
+                                {profileDraft.photo ? 'Change photo' : 'Upload photo'}
+                              </button>
+                              {profileDraft.photo && (
+                                <button
+                                  type="button"
+                                  className="btn-ghost settings-remove-photo"
+                                  onClick={() =>
+                                    setProfileDraft((prev) => ({ ...prev, photo: '' }))
+                                  }
+                                >
+                                  Remove
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </div>
 
-                        {isAdminUser && (
-                          <div className="settings-card-actions">
-                            <button
-                              type="button"
-                              className="btn-primary"
-                              onClick={saveProfileChanges}
-                            >
-                              Save profile
-                            </button>
+                        <div className="settings-profile-fields">
+                          {isAdminUser ? (
+                            <label className="field settings-name-field">
+                              <span className="field-label">Display name</span>
+                              <input
+                                type="text"
+                                value={profileDraft.displayName}
+                                onChange={(e) =>
+                                  setProfileDraft((prev) => ({
+                                    ...prev,
+                                    displayName: sanitizeUserText(e.target.value, {
+                                      maxLength: 40,
+                                    }),
+                                  }))
+                                }
+                                maxLength={40}
+                                placeholder="Your name"
+                              />
+                            </label>
+                          ) : (
+                            <>
+                              <label className="field settings-name-field">
+                                <span className="field-label">Display name</span>
+                                <input type="text" value={sessionDisplayName} readOnly />
+                              </label>
+                              {sessionUser?.username ? (
+                                <label className="field settings-name-field">
+                                  <span className="field-label">Username</span>
+                                  <input type="text" value={sessionUser.username} readOnly />
+                                </label>
+                              ) : null}
+                            </>
+                          )}
+
+                          <div className="settings-role-row">
+                            <span className="settings-role-label">Role</span>
+                            <span className="settings-role-badge">
+                              {isAdminUser ? 'Admin' : 'Employee'}
+                            </span>
                           </div>
-                        )}
+
+                          {isAdminUser && (
+                            <div className="settings-card-actions">
+                              <button
+                                type="button"
+                                className="btn-primary"
+                                onClick={saveProfileChanges}
+                              >
+                                Save profile
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  </article>
+                    </article>
+
+                    <article className="settings-card settings-appearance-card">
+                      <div className="settings-card-head">
+                        <h4 className="settings-card-title">Appearance</h4>
+                        <p className="settings-card-copy">
+                          Choose light or dark for the admin panel.
+                        </p>
+                      </div>
+
+                      <div
+                        className="settings-theme-grid"
+                        role="radiogroup"
+                        aria-label="Appearance mode"
+                      >
+                        {[
+                          { id: 'light', label: 'Light', hint: 'Soft desk view' },
+                          { id: 'dark', label: 'Dark', hint: 'Dark gray desk' },
+                        ].map((opt) => (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            role="radio"
+                            aria-checked={systemSettings.theme === opt.id}
+                            className={`settings-theme-option is-${opt.id}${
+                              systemSettings.theme === opt.id ? ' is-selected' : ''
+                            }`}
+                            onClick={() => updateSystemSetting({ theme: opt.id })}
+                          >
+                            <span className="settings-theme-swatch" aria-hidden="true" />
+                            <span className="settings-theme-copy">
+                              <strong>{opt.label}</strong>
+                              <span>{opt.hint}</span>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </article>
+                  </div>
+                </section>
+
+                {/* 2. Preferences */}
+                <section className="settings-section" aria-labelledby="settings-prefs-heading">
+                  <header className="settings-section-head">
+                    <h3 id="settings-prefs-heading" className="settings-section-title">
+                      Preferences
+                    </h3>
+                    <p className="settings-section-copy">
+                      Alerts for overdue returns and upcoming rentals.
+                    </p>
+                  </header>
 
                   <article className="settings-card settings-notifications-card">
                     <div className="settings-card-head">
-                      <span className="settings-eyebrow">System</span>
                       <h4 className="settings-card-title">Notifications</h4>
                       <p className="settings-card-copy">
                         Stay ahead of overdue returns and rentals that are about to start.
@@ -3330,7 +3390,9 @@ export default function AdminPanel() {
                           type="checkbox"
                           className="settings-switch"
                           checked={systemSettings.notifyOverdue}
-                          onChange={(e) => updateSystemSetting({ notifyOverdue: e.target.checked })}
+                          onChange={(e) =>
+                            updateSystemSetting({ notifyOverdue: e.target.checked })
+                          }
                         />
                       </label>
 
@@ -3338,14 +3400,17 @@ export default function AdminPanel() {
                         <span className="settings-toggle-copy">
                           <strong>Upcoming rental (1 hour)</strong>
                           <span>
-                            Notify about 1 hour before a scheduled rental starts so the car is ready.
+                            Notify about 1 hour before a scheduled rental starts so the car is
+                            ready.
                           </span>
                         </span>
                         <input
                           type="checkbox"
                           className="settings-switch"
                           checked={systemSettings.notifyUpcoming}
-                          onChange={(e) => updateSystemSetting({ notifyUpcoming: e.target.checked })}
+                          onChange={(e) =>
+                            updateSystemSetting({ notifyUpcoming: e.target.checked })
+                          }
                         />
                       </label>
 
@@ -3353,7 +3418,8 @@ export default function AdminPanel() {
                         <span className="settings-toggle-copy">
                           <strong>Browser push</strong>
                           <span>
-                            Also show desktop notifications when the browser tab is in the background.
+                            Also show desktop notifications when the browser tab is in the
+                            background.
                           </span>
                         </span>
                         <input
@@ -3378,307 +3444,337 @@ export default function AdminPanel() {
                       </div>
                     )}
                   </article>
+                </section>
 
-                  {isAdminUser && (
-                  <article
-                    className={`settings-card settings-security-card${securityControlsOpen ? ' is-open' : ''}`}
-                  >
-                    <button
-                      type="button"
-                      className="settings-collapse-toggle"
-                      aria-expanded={securityControlsOpen}
-                      onClick={() => setSecurityControlsOpen((v) => !v)}
-                    >
-                      <span className="settings-card-head">
-                        <span className="settings-eyebrow">Security</span>
-                        <h4 className="settings-card-title">Security controls</h4>
-                        <p className="settings-card-copy">
-                          Transport protection and desk hardening controls.
-                        </p>
-                      </span>
-                      <span
-                        className={`settings-collapse-chevron${securityControlsOpen ? ' is-open' : ''}`}
-                        aria-hidden="true"
+                {/* 3. Security */}
+                <section className="settings-section" aria-labelledby="settings-security-heading">
+                  <header className="settings-section-head">
+                    <h3 id="settings-security-heading" className="settings-section-title">
+                      Security
+                    </h3>
+                    <p className="settings-section-copy">
+                      Desk hardening and sign-in history for admin and employee accounts.
+                    </p>
+                  </header>
+
+                  <div className="settings-section-stack">
+                    {isAdminUser && (
+                      <article
+                        className={`settings-card settings-security-card${securityControlsOpen ? ' is-open' : ''}`}
                       >
-                        ▾
-                      </span>
-                    </button>
-
-                    {securityControlsOpen && (
-                      <div className="settings-collapse-body">
-                        {(() => {
-                          const transport = getTransportLabel()
-                          return (
-                            <div
-                              className={`settings-https-banner${transport.secure ? ' is-secure' : ' is-insecure'}`}
-                              role="status"
-                            >
-                              <span className="settings-https-dot" aria-hidden="true" />
-                              <div>
-                                <strong>
-                                  {transport.secure
-                                    ? 'Authentication uses secure HTTPS'
-                                    : 'Connection is not HTTPS'}
-                                </strong>
-                                <p>
-                                  {transport.label}. Supabase Auth and API traffic are encrypted in
-                                  transit.
-                                </p>
-                              </div>
-                            </div>
-                          )
-                        })()}
-
-                        {securityNotice ? (
-                          <p className="settings-security-alert" role="alert">
-                            {securityNotice}
-                          </p>
-                        ) : null}
-
-                        <ul className="settings-security-features">
-                          {SECURITY_FEATURES.map((item) => (
-                            <li key={item.id}>
-                              <strong>{item.title}</strong>
-                              <span>{item.detail}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </article>
-                  )}
-
-                  <article className="settings-card settings-audit-card">
-                    <div className="settings-card-head">
-                      <span className="settings-eyebrow">Audit</span>
-                      <h4 className="settings-card-title">Login audit trail</h4>
-                      <p className="settings-card-copy">
-                        Sign-in history for both admin and employee accounts — username, role,
-                        login status, and date/time.
-                      </p>
-                    </div>
-
-                    <div className="settings-audit-toolbar">
-                      <button
-                        type="button"
-                        className="btn-ghost btn-sm"
-                        disabled={loginAuditBusy}
-                        onClick={() => {
-                          setLoginAuditBusy(true)
-                          fetchLoginAudit()
-                            .then(setLoginAudit)
-                            .finally(() => setLoginAuditBusy(false))
-                        }}
-                      >
-                        {loginAuditBusy ? 'Refreshing…' : 'Refresh'}
-                      </button>
-                    </div>
-
-                    {loginAudit.length === 0 ? (
-                      <p className="settings-data-message">No login events recorded yet.</p>
-                    ) : (
-                      <div className="settings-audit-table-wrap">
-                        <table className="settings-audit-table">
-                          <thead>
-                            <tr>
-                              <th scope="col">Username</th>
-                              <th scope="col">Role</th>
-                              <th scope="col">Login status</th>
-                              <th scope="col">Date and time</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {loginAudit.slice(0, 40).map((row) => (
-                              <tr key={row.id}>
-                                <td>{row.username}</td>
-                                <td>
-                                  <span className={`settings-audit-role is-${row.role || 'unknown'}`}>
-                                    {formatAuditRole(row.role)}
-                                  </span>
-                                </td>
-                                <td>
-                                  <span className={`settings-audit-status is-${row.status}`}>
-                                    {formatAuditStatus(row.status)}
-                                  </span>
-                                </td>
-                                <td>{new Date(row.createdAt).toLocaleString()}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </article>
-                </div>
-
-                <div className="settings-stack">
-                  <article className="settings-card settings-appearance-card">
-                    <div className="settings-card-head">
-                      <span className="settings-eyebrow">System</span>
-                      <h4 className="settings-card-title">Appearance</h4>
-                      <p className="settings-card-copy">
-                        Choose how the admin panel looks across the workspace.
-                      </p>
-                    </div>
-
-                    <div className="settings-theme-grid" role="radiogroup" aria-label="Appearance mode">
-                      {[
-                        { id: 'light', label: 'Light', hint: 'Soft desk view' },
-                        { id: 'dark', label: 'Dark', hint: 'Dark gray desk' },
-                      ].map((opt) => (
                         <button
-                          key={opt.id}
                           type="button"
-                          role="radio"
-                          aria-checked={systemSettings.theme === opt.id}
-                          className={`settings-theme-option is-${opt.id}${
-                            systemSettings.theme === opt.id ? ' is-selected' : ''
-                          }`}
-                          onClick={() => updateSystemSetting({ theme: opt.id })}
+                          className="settings-collapse-toggle"
+                          aria-expanded={securityControlsOpen}
+                          onClick={() => setSecurityControlsOpen((v) => !v)}
                         >
-                          <span className="settings-theme-swatch" aria-hidden="true" />
-                          <span className="settings-theme-copy">
-                            <strong>{opt.label}</strong>
-                            <span>{opt.hint}</span>
+                          <span className="settings-card-head">
+                            <h4 className="settings-card-title">Security controls</h4>
+                            <p className="settings-card-copy">
+                              Transport protection and desk hardening controls.
+                            </p>
+                          </span>
+                          <span
+                            className={`settings-collapse-chevron${securityControlsOpen ? ' is-open' : ''}`}
+                            aria-hidden="true"
+                          >
+                            ▾
                           </span>
                         </button>
-                      ))}
-                    </div>
-                  </article>
 
-                  <article className="settings-card settings-data-card">
-                    <div className="settings-card-head">
-                      <span className="settings-eyebrow">Storage</span>
-                      <h4 className="settings-card-title">Data &amp; cache</h4>
-                      <p className="settings-card-copy">
-                        {isAdminUser
-                          ? 'Back up or migrate fleet data, clear temporary cache, or permanently wipe all app data (admin login is kept).'
-                          : 'Clear temporary browser cache without deleting records.'}
-                      </p>
-                    </div>
+                        {securityControlsOpen && (
+                          <div className="settings-collapse-body">
+                            {(() => {
+                              const transport = getTransportLabel()
+                              return (
+                                <div
+                                  className={`settings-https-banner${transport.secure ? ' is-secure' : ' is-insecure'}`}
+                                  role="status"
+                                >
+                                  <span className="settings-https-dot" aria-hidden="true" />
+                                  <div>
+                                    <strong>
+                                      {transport.secure
+                                        ? 'Authentication uses secure HTTPS'
+                                        : 'Connection is not HTTPS'}
+                                    </strong>
+                                    <p>
+                                      {transport.label}. Supabase Auth and API traffic are
+                                      encrypted in transit.
+                                    </p>
+                                  </div>
+                                </div>
+                              )
+                            })()}
 
-                    <div className="settings-data-actions">
-                      {isAdminUser && (
-                        <>
+                            {securityNotice ? (
+                              <p className="settings-security-alert" role="alert">
+                                {securityNotice}
+                              </p>
+                            ) : null}
+
+                            <ul className="settings-security-features">
+                              {SECURITY_FEATURES.map((item) => (
+                                <li key={item.id}>
+                                  <strong>{item.title}</strong>
+                                  <span>{item.detail}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </article>
+                    )}
+
+                    <article
+                      className={`settings-card settings-audit-card${loginAuditOpen ? ' is-open' : ''}`}
+                    >
+                      <button
+                        type="button"
+                        className="settings-collapse-toggle"
+                        aria-expanded={loginAuditOpen}
+                        onClick={() => setLoginAuditOpen((v) => !v)}
+                      >
+                        <span className="settings-card-head">
+                          <h4 className="settings-card-title">Login audit trail</h4>
+                          <p className="settings-card-copy">
+                            Username, role, status, and date/time for each sign-in attempt
+                            {loginAudit.length ? ` · ${loginAudit.length} events` : ''}.
+                          </p>
+                        </span>
+                        <span
+                          className={`settings-collapse-chevron${loginAuditOpen ? ' is-open' : ''}`}
+                          aria-hidden="true"
+                        >
+                          ▾
+                        </span>
+                      </button>
+
+                      {loginAuditOpen && (
+                        <div className="settings-collapse-body">
+                          <div className="settings-audit-toolbar">
+                            <button
+                              type="button"
+                              className="btn-ghost btn-sm"
+                              disabled={loginAuditBusy}
+                              onClick={() => {
+                                setLoginAuditBusy(true)
+                                fetchLoginAudit()
+                                  .then(setLoginAudit)
+                                  .finally(() => setLoginAuditBusy(false))
+                              }}
+                            >
+                              {loginAuditBusy ? 'Refreshing…' : 'Refresh'}
+                            </button>
+                          </div>
+
+                          {loginAudit.length === 0 ? (
+                            <p className="settings-data-message">No login events recorded yet.</p>
+                          ) : (
+                            <div className="settings-audit-table-wrap">
+                              <table className="settings-audit-table">
+                                <thead>
+                                  <tr>
+                                    <th scope="col">Username</th>
+                                    <th scope="col">Role</th>
+                                    <th scope="col">Login status</th>
+                                    <th scope="col">Date and time</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {loginAudit.slice(0, 40).map((row) => (
+                                    <tr key={row.id}>
+                                      <td>{row.username}</td>
+                                      <td>
+                                        <span
+                                          className={`settings-audit-role is-${row.role || 'unknown'}`}
+                                        >
+                                          {formatAuditRole(row.role)}
+                                        </span>
+                                      </td>
+                                      <td>
+                                        <span className={`settings-audit-status is-${row.status}`}>
+                                          {formatAuditStatus(row.status)}
+                                        </span>
+                                      </td>
+                                      <td>{new Date(row.createdAt).toLocaleString()}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </article>
+                  </div>
+                </section>
+
+                {/* 4. Data */}
+                <section className="settings-section" aria-labelledby="settings-data-heading">
+                  <header className="settings-section-head">
+                    <h3 id="settings-data-heading" className="settings-section-title">
+                      Data
+                    </h3>
+                    <p className="settings-section-copy">
+                      {isAdminUser
+                        ? 'Backups, cache, and cloud sync for the fleet desk.'
+                        : 'Clear temporary browser cache without deleting records.'}
+                    </p>
+                  </header>
+
+                  <div className={`settings-section-grid${isAdminUser ? '' : ' is-single'}`}>
+                    <article className="settings-card settings-data-card">
+                      <div className="settings-card-head">
+                        <h4 className="settings-card-title">Data &amp; cache</h4>
+                        <p className="settings-card-copy">
+                          {isAdminUser
+                            ? 'Back up or migrate fleet data, clear temporary cache, or permanently wipe all app data (admin login is kept).'
+                            : 'Clear temporary browser cache without deleting records.'}
+                        </p>
+                      </div>
+
+                      <div className="settings-data-actions">
+                        {isAdminUser && (
+                          <>
+                            <button
+                              type="button"
+                              className="btn-primary"
+                              disabled={dataBusy}
+                              onClick={downloadAppData}
+                            >
+                              Download data
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-outline"
+                              disabled={dataBusy}
+                              onClick={requestImportData}
+                            >
+                              {dataBusy ? 'Working…' : 'Import / migrate'}
+                            </button>
+                          </>
+                        )}
+                        <button
+                          type="button"
+                          className="btn-outline settings-clear-cache-btn"
+                          disabled={dataBusy}
+                          onClick={requestClearCache}
+                        >
+                          Clear cache
+                        </button>
+                        {isAdminUser && (
+                          <button
+                            type="button"
+                            className="btn-outline settings-clear-data-btn"
+                            disabled={dataBusy}
+                            onClick={requestClearData}
+                          >
+                            {dataBusy ? 'Working…' : 'Clear data'}
+                          </button>
+                        )}
+                        {isAdminUser && (
+                          <input
+                            ref={importDataRef}
+                            type="file"
+                            accept="application/json,.json"
+                            className="sr-only"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0]
+                              e.target.value = ''
+                              void importAppData(file)
+                            }}
+                          />
+                        )}
+                      </div>
+                      {dataMessage && (
+                        <p className="settings-data-message" role="status">
+                          {dataMessage}
+                        </p>
+                      )}
+                    </article>
+
+                    {isAdminUser && (
+                      <article className="settings-card settings-cloud-card">
+                        <div className="settings-card-head">
+                          <h4 className="settings-card-title">Cloud connection</h4>
+                          <p className="settings-card-copy">
+                            {describeCloudConnection()} Push local changes to Render, then pull
+                            mobile submissions into this desk.
+                          </p>
+                        </div>
+
+                        <ul className="settings-cloud-status">
+                          <li>
+                            <strong>Local API</strong>
+                            <span>{loadError ? 'Unavailable' : 'Running (offline-capable)'}</span>
+                          </li>
+                          <li>
+                            <strong>Internet</strong>
+                            <span
+                              className={`conn-status compact${online ? ' is-online' : ' is-offline'}`}
+                            >
+                              <span className="conn-status-dot" aria-hidden="true" />
+                              <span className="conn-status-label">
+                                {online ? 'Online' : 'Offline'}
+                              </span>
+                            </span>
+                          </li>
+                          <li>
+                            <strong>Cloud URL configured</strong>
+                            <span>{isCloudConfigured() ? 'Yes' : 'Not yet'}</span>
+                          </li>
+                          <li>
+                            <strong>Cloud sync enabled</strong>
+                            <span>
+                              {CLOUD_SYNC_ENABLED
+                                ? 'Yes'
+                                : 'No — set VITE_CLOUD_SYNC_ENABLED=true'}
+                            </span>
+                          </li>
+                          <li>
+                            <strong>Pending sync queue</strong>
+                            <span>{systemStatus?.pendingSyncCount ?? '—'}</span>
+                          </li>
+                          <li>
+                            <strong>Waiting for approval</strong>
+                            <span>
+                              {systemStatus?.pendingApprovalCount ?? pendingApprovalCount}
+                            </span>
+                          </li>
+                        </ul>
+
+                        <div className="settings-cloud-actions">
                           <button
                             type="button"
                             className="btn-primary"
-                            disabled={dataBusy}
-                            onClick={downloadAppData}
+                            disabled={syncBusy || !online || !CLOUD_SYNC_ENABLED}
+                            onClick={() => void handleCloudSync()}
                           >
-                            Download data
+                            {syncBusy ? 'Syncing…' : 'Sync now'}
                           </button>
-                          <button
-                            type="button"
-                            className="btn-outline"
-                            disabled={dataBusy}
-                            onClick={requestImportData}
-                          >
-                            {dataBusy ? 'Working…' : 'Import / migrate'}
-                          </button>
-                        </>
-                      )}
-                      <button
-                        type="button"
-                        className="btn-outline settings-clear-cache-btn"
-                        disabled={dataBusy}
-                        onClick={requestClearCache}
-                      >
-                        Clear cache
-                      </button>
-                      {isAdminUser && (
-                        <button
-                          type="button"
-                          className="btn-outline settings-clear-data-btn"
-                          disabled={dataBusy}
-                          onClick={requestClearData}
-                        >
-                          {dataBusy ? 'Working…' : 'Clear data'}
-                        </button>
-                      )}
-                      {isAdminUser && (
-                        <input
-                          ref={importDataRef}
-                          type="file"
-                          accept="application/json,.json"
-                          className="sr-only"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0]
-                            e.target.value = ''
-                            void importAppData(file)
-                          }}
-                        />
-                      )}
-                    </div>
-                    {dataMessage && (
-                      <p className="settings-data-message" role="status">
-                        {dataMessage}
-                      </p>
+                          {syncMessage && (
+                            <p className="settings-data-message" role="status">
+                              {syncMessage}
+                            </p>
+                          )}
+                        </div>
+                      </article>
                     )}
-                  </article>
+                  </div>
+                </section>
 
-                  {isAdminUser && (
-                  <article className="settings-card settings-cloud-card">
-                    <div className="settings-card-head">
-                      <span className="settings-eyebrow">Sync</span>
-                      <h4 className="settings-card-title">Cloud connection (Render)</h4>
-                      <p className="settings-card-copy">
-                        {describeCloudConnection()} Push local changes to Render, then pull mobile
-                        submissions into this desk.
-                      </p>
-                    </div>
-
-                    <ul className="settings-cloud-status">
-                      <li>
-                        <strong>Local API</strong>
-                        <span>{loadError ? 'Unavailable' : 'Running (offline-capable)'}</span>
-                      </li>
-                      <li>
-                        <strong>Internet</strong>
-                        <span className={`conn-status compact${online ? ' is-online' : ' is-offline'}`}>
-                          <span className="conn-status-dot" aria-hidden="true" />
-                          <span className="conn-status-label">{online ? 'Online' : 'Offline'}</span>
-                        </span>
-                      </li>
-                      <li>
-                        <strong>Cloud URL configured</strong>
-                        <span>{isCloudConfigured() ? 'Yes' : 'Not yet'}</span>
-                      </li>
-                      <li>
-                        <strong>Cloud sync enabled</strong>
-                        <span>{CLOUD_SYNC_ENABLED ? 'Yes' : 'No — set VITE_CLOUD_SYNC_ENABLED=true'}</span>
-                      </li>
-                      <li>
-                        <strong>Pending sync queue</strong>
-                        <span>{systemStatus?.pendingSyncCount ?? '—'}</span>
-                      </li>
-                      <li>
-                        <strong>Waiting for approval</strong>
-                        <span>{systemStatus?.pendingApprovalCount ?? pendingApprovalCount}</span>
-                      </li>
-                    </ul>
-
-                    <div className="settings-cloud-actions">
-                      <button
-                        type="button"
-                        className="btn-primary"
-                        disabled={syncBusy || !online || !CLOUD_SYNC_ENABLED}
-                        onClick={() => void handleCloudSync()}
-                      >
-                        {syncBusy ? 'Syncing…' : 'Sync now'}
-                      </button>
-                      {syncMessage && (
-                        <p className="settings-data-message" role="status">
-                          {syncMessage}
-                        </p>
-                      )}
-                    </div>
-                  </article>
-                  )}
+                {/* 5. Session */}
+                <section className="settings-section settings-section-session" aria-labelledby="settings-session-heading">
+                  <header className="settings-section-head">
+                    <h3 id="settings-session-heading" className="settings-section-title">
+                      Session
+                    </h3>
+                    <p className="settings-section-copy">End this desk session securely.</p>
+                  </header>
 
                   <article className="settings-card settings-session-card">
                     <div className="settings-card-head">
-                      <span className="settings-eyebrow">Session</span>
                       <h4 className="settings-card-title">Sign out</h4>
                       <p className="settings-card-copy">
                         {isAdminUser
@@ -3686,11 +3782,15 @@ export default function AdminPanel() {
                           : 'End this employee session. You’ll need to sign in again to use the desk.'}
                       </p>
                     </div>
-                    <button type="button" className="btn-outline settings-logout-btn" onClick={requestLogout}>
+                    <button
+                      type="button"
+                      className="btn-outline settings-logout-btn"
+                      onClick={requestLogout}
+                    >
                       Log out
                     </button>
                   </article>
-                </div>
+                </section>
               </div>
             </section>
           )}
