@@ -852,6 +852,54 @@ export async function saveAdminProfileRemote(profile) {
   return next
 }
 
+export async function fetchVehicleReportsRemote() {
+  const sb = requireSupabase()
+  const { data, error } = await sb
+    .from('app_settings')
+    .select('value')
+    .eq('key', 'vehicle_reports')
+    .maybeSingle()
+  if (error) throwSb(error)
+  const value = data?.value && typeof data.value === 'object' ? data.value : {}
+  return {
+    entries: Array.isArray(value.entries) ? value.entries : [],
+    submissions: Array.isArray(value.submissions) ? value.submissions : [],
+  }
+}
+
+export async function saveVehicleReportsRemote(store) {
+  const sb = requireSupabase()
+  const next = {
+    entries: Array.isArray(store?.entries) ? store.entries : [],
+    submissions: Array.isArray(store?.submissions) ? store.submissions : [],
+  }
+  const { error } = await sb.from('app_settings').upsert({
+    key: 'vehicle_reports',
+    value: next,
+    updated_at: new Date().toISOString(),
+  })
+  if (error) throwSb(error)
+  return next
+}
+
+/** Update only report_entries for one vehicle — never touch owner/make/plate fields. */
+export async function patchVehicleReportEntries(vehicleId, entries) {
+  const sb = requireSupabase()
+  const key = String(vehicleId || '').trim()
+  if (!key) return null
+  const { data, error } = await sb
+    .from('vehicles')
+    .update({
+      report_entries: Array.isArray(entries) ? entries : [],
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', key)
+    .select('*')
+    .maybeSingle()
+  if (error) throwSb(error)
+  return data ? mapVehicle(data) : null
+}
+
 function isPreservedAdminEmployee(row, currentUserId) {
   const username = String(row?.username || '').trim().toLowerCase()
   const id = String(row?.id || '')

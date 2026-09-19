@@ -1,4 +1,4 @@
-import { safeSetItem } from './storage'
+import { compressImageDataUrl, safeSetItem } from './storage'
 import { pushVehicleReportsToCloud } from '../api/vehicleReportsApi'
 
 const REPORTS_KEY = 'alatas-vehicle-reports'
@@ -35,14 +35,27 @@ export function loadReportStore() {
 
 function saveReportStore(store) {
   safeSetItem(REPORTS_KEY, JSON.stringify(store))
-  void pushVehicleReportsToCloud(store).catch(() => {})
+  void pushVehicleReportsToCloud(store).catch((err) => {
+    console.warn('Vehicle reports sync failed', err)
+  })
   return store
 }
 
-export function addReportEntry(entry) {
+async function prepareAttachment(attachment) {
+  if (!attachment || typeof attachment !== 'string') return ''
+  if (attachment.startsWith('data:image')) {
+    return compressImageDataUrl(attachment, 960, 0.72)
+  }
+  // Keep PDFs / remote URLs as-is (may be large — prefer remote Storage later).
+  return attachment
+}
+
+export async function addReportEntry(entry) {
   const store = loadReportStore()
+  const attachment = await prepareAttachment(entry?.attachment)
   const next = {
     ...entry,
+    attachment,
     id: `vre_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
     createdAt: new Date().toISOString(),
   }
@@ -51,9 +64,13 @@ export function addReportEntry(entry) {
   return next
 }
 
-export function updateReportEntry(id, patch) {
+export async function updateReportEntry(id, patch) {
   const store = loadReportStore()
-  store.entries = store.entries.map((e) => (e.id === id ? { ...e, ...patch } : e))
+  const nextPatch = { ...patch }
+  if (Object.prototype.hasOwnProperty.call(patch, 'attachment')) {
+    nextPatch.attachment = await prepareAttachment(patch.attachment)
+  }
+  store.entries = store.entries.map((e) => (e.id === id ? { ...e, ...nextPatch } : e))
   saveReportStore(store)
   return store.entries.find((e) => e.id === id) || null
 }

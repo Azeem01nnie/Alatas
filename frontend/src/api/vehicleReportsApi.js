@@ -1,3 +1,9 @@
+import { isSupabaseConfigured } from './supabaseClient'
+import {
+  fetchVehicleReportsRemote,
+  patchVehicleReportEntries,
+  saveVehicleReportsRemote,
+} from './backend'
 import { getCloudApiUrl, isCloudConfigured, pushToCloud, CLOUD_SYNC_ENABLED } from './cloudSync'
 
 const LOCAL_API_URL = (
@@ -16,11 +22,18 @@ function groupEntriesByVehicle(entries) {
   return map
 }
 
+function normalizeStore(store) {
+  return {
+    entries: Array.isArray(store?.entries) ? store.entries : [],
+    submissions: Array.isArray(store?.submissions) ? store.submissions : [],
+  }
+}
+
 async function putReportStore(url, store) {
   const response = await fetch(`${url.replace(/\/$/, '')}/api/vehicle-reports`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(store),
+    body: JSON.stringify(normalizeStore(store)),
   })
   if (!response.ok) {
     throw new Error(`Could not sync vehicle reports (${response.status})`)
@@ -28,43 +41,54 @@ async function putReportStore(url, store) {
   return response.json()
 }
 
-async function pushReportEntriesViaVehicles(store) {
-  const { fetchVehicles, replaceVehicles } = await import('./backend')
-  const vehicles = await fetchVehicles()
-  if (!Array.isArray(vehicles) || !vehicles.length) return false
+/**
+ * Mirror entries onto each vehicle's report_entries column only.
+ * Never call replaceVehicles — that was wiping owner / vehicle fields.
+ */
+async function mirrorReportEntriesOntoVehicles(store) {
+  if (!isSupabaseConfigured) return false
+  const byVehicle = groupEntriesByVehicle(store?.entries)
+  if (!byVehicle.size) return true
 
-  const byVehicle = groupEntriesByVehicle(store.entries)
-  const updated = vehicles.map((vehicle) => ({
-    ...vehicle,
-    reportEntries: byVehicle.get(String(vehicle.id)) || [],
-  }))
-
-  if (LOCAL_API_URL) {
-    await replaceVehicles(updated)
-  }
-
-  if (isCloudConfigured() && CLOUD_SYNC_ENABLED) {
-    await pushToCloud({ vehicles: { updated } })
-  }
-
+  await Promise.all(
+    [...byVehicle.entries()].map(([vehicleId, entries]) =>
+      patchVehicleReportEntries(vehicleId, entries),
+    ),
+  )
   return true
 }
 
 export async function pushVehicleReportsToCloud(store) {
+  const payload = normalizeStore(store)
   let synced = false
+
+  // Primary: Supabase app_settings (source of truth for desk/PWA).
+  if (isSupabaseConfigured) {
+    try {
+      await saveVehicleReportsRemote(payload)
+      synced = true
+      try {
+        await mirrorReportEntriesOntoVehicles(payload)
+      } catch (err) {
+        console.warn('Could not mirror report entries onto vehicles', err)
+      }
+    } catch (err) {
+      console.warn('Supabase vehicle reports save failed', err)
+    }
+  }
 
   if (LOCAL_API_URL) {
     try {
-      await putReportStore(LOCAL_API_URL, store)
+      await putReportStore(LOCAL_API_URL, payload)
       synced = true
     } catch {
-      /* local backend offline */
+      /* local Express may be offline when using Supabase */
     }
   }
 
   if (isCloudConfigured()) {
     try {
-      await putReportStore(getCloudApiUrl(), store)
+      await putReportStore(getCloudApiUrl(), payload)
       synced = true
     } catch {
       /* dedicated cloud route may not be deployed yet */
@@ -72,7 +96,7 @@ export async function pushVehicleReportsToCloud(store) {
 
     if (CLOUD_SYNC_ENABLED) {
       try {
-        await pushToCloud({ vehicleReports: { updated: [store] } })
+        await pushToCloud({ vehicleReports: { updated: [payload] } })
         synced = true
       } catch {
         /* sync/push fallback may not be deployed yet */
@@ -80,21 +104,23 @@ export async function pushVehicleReportsToCloud(store) {
     }
   }
 
-  try {
-    const viaVehicles = await pushReportEntriesViaVehicles(store)
-    if (viaVehicles) synced = true
-  } catch {
-    /* vehicle embed fallback */
+  if (!synced && isSupabaseConfigured) {
+    throw new Error('Could not save vehicle reports to Supabase')
   }
 
-  if (!synced && (LOCAL_API_URL || isCloudConfigured())) {
-    throw new Error('Could not sync vehicle reports')
-  }
-
-  return store
+  return payload
 }
 
 export async function fetchVehicleReportsFromCloud() {
+  if (isSupabaseConfigured) {
+    try {
+      const remote = await fetchVehicleReportsRemote()
+      if (remote?.entries?.length || remote?.submissions?.length) return remote
+    } catch (err) {
+      console.warn('Supabase vehicle reports fetch failed', err)
+    }
+  }
+
   if (!isCloudConfigured()) return null
 
   const url = `${getCloudApiUrl()}/api/vehicle-reports`

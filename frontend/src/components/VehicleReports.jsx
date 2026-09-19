@@ -443,19 +443,25 @@ export default function VehicleReports({ vehicles = [], adminName = 'Admin', dat
   const ownersFromVehicles = useMemo(() => {
     const map = new Map()
     vehicles.forEach((v) => {
-      if (!v.ownerId) return
-      if (!map.has(v.ownerId)) {
-        const fromStore = owners.find((o) => o.id === v.ownerId)
-        map.set(v.ownerId, {
-          id: v.ownerId,
+      const ownerKey =
+        String(v.ownerId || '').trim() ||
+        (v.ownerName ? `name:${String(v.ownerName).trim().toLowerCase()}` : '')
+      if (!ownerKey) return
+      if (!map.has(ownerKey)) {
+        const fromStore = v.ownerId ? owners.find((o) => o.id === v.ownerId) : null
+        map.set(ownerKey, {
+          id: v.ownerId || ownerKey,
           name: fromStore?.name || v.ownerName || 'Unknown owner',
-          ownershipType: fromStore?.ownershipType || (v.ownershipType === 'thirdParty' ? 'thirdParty' : 'company'),
+          ownershipType:
+            fromStore?.ownershipType || (v.ownershipType === 'thirdParty' ? 'thirdParty' : 'company'),
           vehicleCount: 0,
         })
       }
-      map.get(v.ownerId).vehicleCount += 1
+      map.get(ownerKey).vehicleCount += 1
     })
-    return Array.from(map.values()).filter((o) => o.vehicleCount > 0).sort((a, b) => a.name.localeCompare(b.name))
+    return Array.from(map.values())
+      .filter((o) => o.vehicleCount > 0)
+      .sort((a, b) => a.name.localeCompare(b.name))
   }, [owners, vehicles])
 
   const filteredOwners = useMemo(() => {
@@ -464,7 +470,12 @@ export default function VehicleReports({ vehicles = [], adminName = 'Admin', dat
     return ownersFromVehicles.filter((o) => {
       if (o.name.toLowerCase().includes(q)) return true
       return vehicles.some((v) => {
-        if (v.ownerId !== o.id) return false
+        const matchesOwner =
+          (v.ownerId && v.ownerId === o.id) ||
+          (!v.ownerId &&
+            v.ownerName &&
+            String(v.ownerName).trim().toLowerCase() === String(o.name).trim().toLowerCase())
+        if (!matchesOwner) return false
         return `${v.make || ''} ${v.series || ''} ${v.plateNo || ''}`.toLowerCase().includes(q)
       })
     })
@@ -472,7 +483,18 @@ export default function VehicleReports({ vehicles = [], adminName = 'Admin', dat
 
   const ownerVehicles = useMemo(() => {
     if (!selectedOwnerId) return []
-    return vehicles.filter((v) => v.ownerId === selectedOwnerId)
+    return vehicles.filter((v) => {
+      if (v.ownerId && v.ownerId === selectedOwnerId) return true
+      if (
+        !v.ownerId &&
+        selectedOwnerId.startsWith('name:') &&
+        v.ownerName &&
+        `name:${String(v.ownerName).trim().toLowerCase()}` === selectedOwnerId
+      ) {
+        return true
+      }
+      return false
+    })
   }, [vehicles, selectedOwnerId])
 
   const selectedOwner = ownersFromVehicles.find((o) => o.id === selectedOwnerId)
@@ -513,35 +535,39 @@ export default function VehicleReports({ vehicles = [], adminName = 'Admin', dat
   }
 
   const handleAddSave = (form) => {
-    addReportEntry({
-      ownerId: selectedOwnerId,
-      vehicleId: selectedVehicleId,
-      plateNo: selectedVehicle?.plateNo || '',
-      date: form.date,
-      type: form.type,
-      category: form.category,
-      description: form.description.trim(),
-      amount: form.amount === '' ? null : Number(form.amount),
-      status: form.status,
-      attachment: form.attachment || '',
-      recordedBy: adminName,
-    })
-    setAddModal(false)
-    refresh()
+    void (async () => {
+      await addReportEntry({
+        ownerId: selectedOwnerId,
+        vehicleId: selectedVehicleId,
+        plateNo: selectedVehicle?.plateNo || '',
+        date: form.date,
+        type: form.type,
+        category: form.category,
+        description: form.description.trim(),
+        amount: form.amount === '' ? null : Number(form.amount),
+        status: form.status,
+        attachment: form.attachment || '',
+        recordedBy: adminName,
+      })
+      setAddModal(false)
+      refresh()
+    })()
   }
 
   const handleEditSave = (form) => {
-    updateReportEntry(editRow.id, {
-      date: form.date,
-      type: form.type,
-      category: form.category,
-      description: form.description.trim(),
-      amount: form.amount === '' ? null : Number(form.amount),
-      status: form.status,
-      attachment: form.attachment || editRow.attachment || '',
-    })
-    setEditRow(null)
-    refresh()
+    void (async () => {
+      await updateReportEntry(editRow.id, {
+        date: form.date,
+        type: form.type,
+        category: form.category,
+        description: form.description.trim(),
+        amount: form.amount === '' ? null : Number(form.amount),
+        status: form.status,
+        attachment: form.attachment || editRow.attachment || '',
+      })
+      setEditRow(null)
+      refresh()
+    })()
   }
 
   const handleDeleteConfirm = () => {

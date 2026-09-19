@@ -670,10 +670,11 @@ export default function AdminPanel() {
     }
   }, [manageLayout])
 
-  // Remove OCR junk owners that were never linked to a saved vehicle
-  // Wait until fleet data has loaded successfully — empty [] on API failure must not wipe owners.
+  // Remove OCR junk owners that were never linked to a saved vehicle.
+  // Never purge when the fleet is empty (load race / wipe) — that deleted real owners.
   useEffect(() => {
     if (!ready || loadError) return
+    if (!vehicles.length && !archivedVehicles.length) return
     const linkedIds = [
       ...vehicles.map((v) => v.ownerId),
       ...archivedVehicles.map((v) => v.ownerId),
