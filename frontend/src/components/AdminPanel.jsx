@@ -2307,9 +2307,9 @@ export default function AdminPanel() {
                           count: pendingApprovalCount,
                         },
                       ].map((opt) => (
-                        <button
+                    <button
                           key={opt.id}
-                          type="button"
+                      type="button"
                           className={`dash-attn-filter-btn${attentionFilter === opt.id ? ' is-active' : ''}`}
                           aria-pressed={attentionFilter === opt.id}
                           aria-label={
@@ -2324,9 +2324,9 @@ export default function AdminPanel() {
                           {opt.count > 0 ? (
                             <span className="dash-attn-filter-count">{opt.count}</span>
                           ) : null}
-                        </button>
-                      ))}
-                    </div>
+                    </button>
+                  ))}
+              </div>
 
                     <div className="dash-attn-body">
                       {attentionFilter === 'upcoming' && (
@@ -2343,7 +2343,7 @@ export default function AdminPanel() {
                                 : formatTimeRemaining(rental.rental?.periodFrom, Date.now(), {
                                     mode: 'untilStart',
                                   })
-                              return (
+                  return (
                               <article key={rental.id} className="dash-attn-row">
                                 <div className="dash-attn-thumb" aria-hidden="true">
                                   {vehicle?.image ? (
@@ -2356,12 +2356,12 @@ export default function AdminPanel() {
                                   )}
                                 </div>
                                 <div className="dash-attn-meta">
-                                  <strong>
+                      <strong>
                                     {vehicle?.make} — {vehicle?.series}
-                                  </strong>
-                                  <span>
+                      </strong>
+                      <span>
                                     {vehicle?.plateNo} · {customerName(rental)}
-                                  </span>
+                      </span>
                                   <span className="dash-attn-time">
                                     {startLabel}
                                     {isPastDue ? (
@@ -2411,9 +2411,9 @@ export default function AdminPanel() {
                                     <span>
                                       {(vehicle?.make || '?').slice(0, 1)}
                                       {(vehicle?.series || '').slice(0, 1)}
-                                    </span>
-                                  )}
-                                </div>
+                        </span>
+                      )}
+                    </div>
                                 <div className="dash-attn-meta">
                                   <strong>
                                     {vehicle?.make} — {vehicle?.series}
@@ -2426,7 +2426,7 @@ export default function AdminPanel() {
                                     {remaining ? (
                                       <>
                                         {' · '}
-                                        <span
+                    <span
                                           className={
                                             isOverdue
                                               ? 'dash-attn-remaining is-overdue'
@@ -2434,20 +2434,20 @@ export default function AdminPanel() {
                                           }
                                         >
                                           {remaining}
-                                        </span>
+                    </span>
                                       </>
                                     ) : null}
                                   </span>
                                 </div>
                                 {isAdminUser ? (
-                                  <button
-                                    type="button"
+                      <button
+                        type="button"
                                     className="btn-outline btn-sm"
                                     onClick={() => requestRentCompleted(vehicle, rental)}
-                                  >
+                      >
                                     Complete
-                                  </button>
-                                ) : null}
+                      </button>
+                    ) : null}
                               </article>
                               )
                             })}
@@ -2481,15 +2481,15 @@ export default function AdminPanel() {
                                   </span>
                                 </div>
                                 {isAdminUser ? (
-                                  <button
-                                    type="button"
+                      <button
+                        type="button"
                                     className="btn-ghost btn-sm"
                                     onClick={() => setTab('manage')}
-                                  >
+                      >
                                     Manage
-                                  </button>
-                                ) : null}
-                              </article>
+                      </button>
+                    ) : null}
+                  </article>
                             ))}
                           </div>
                         )
@@ -2509,8 +2509,8 @@ export default function AdminPanel() {
                           }}
                         />
                       )}
-                    </div>
-                  </section>
+              </div>
+            </section>
                 </div>
 
                 <div className="dashboard-side">
@@ -2666,8 +2666,8 @@ export default function AdminPanel() {
                         onClick={() => setTab('history')}
                       >
                         History
-                      </button>
-                    </div>
+                  </button>
+                </div>
                     {recentRentals.length === 0 && (
                       <p className="empty-state dash-empty">No rentals yet.</p>
                     )}
@@ -2728,14 +2728,14 @@ export default function AdminPanel() {
               {!(showAddForm && manageView === 'fleet') && (
               <div className="manage-toolbar">
                 <label className="field search-field manage-search">
-                  <span className="field-label">Search</span>
-                  <input
-                    type="search"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
+                <span className="field-label">Search</span>
+                <input
+                  type="search"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
                     placeholder="Brand, model, plate, type..."
-                  />
-                </label>
+                />
+              </label>
                 <div className="manage-toolbar-row">
                   {manageView === 'fleet' ? (
                     <div className="chip-group manage-status-filters" role="group" aria-label="Filter by status">
@@ -3377,6 +3377,105 @@ export default function AdminPanel() {
                       </div>
                     )}
                   </article>
+
+                  {isAdminUser && (
+                  <article className="settings-card settings-security-card">
+                    <div className="settings-card-head">
+                      <span className="settings-eyebrow">Security</span>
+                      <h4 className="settings-card-title">Security &amp; audit trail</h4>
+                      <p className="settings-card-copy">
+                        Login history, transport protection, and desk hardening controls.
+                      </p>
+                    </div>
+
+                    {(() => {
+                      const transport = getTransportLabel()
+                      return (
+                        <div
+                          className={`settings-https-banner${transport.secure ? ' is-secure' : ' is-insecure'}`}
+                          role="status"
+                        >
+                          <span className="settings-https-dot" aria-hidden="true" />
+                          <div>
+                            <strong>
+                              {transport.secure
+                                ? 'Authentication uses secure HTTPS'
+                                : 'Connection is not HTTPS'}
+                            </strong>
+                            <p>{transport.label}. Supabase Auth and API traffic are encrypted in transit.</p>
+                          </div>
+                        </div>
+                      )
+                    })()}
+
+                    {securityNotice ? (
+                      <p className="settings-security-alert" role="alert">
+                        {securityNotice}
+                      </p>
+                    ) : null}
+
+                    <ul className="settings-security-features">
+                      {SECURITY_FEATURES.map((item) => (
+                        <li key={item.id}>
+                          <strong>{item.title}</strong>
+                          <span>{item.detail}</span>
+                        </li>
+                      ))}
+                    </ul>
+
+                    <div className="settings-audit-block">
+                      <div className="settings-audit-head">
+                        <h5>Login audit log</h5>
+                        <button
+                          type="button"
+                          className="btn-ghost btn-sm"
+                          disabled={loginAuditBusy}
+                          onClick={() => {
+                            setLoginAuditBusy(true)
+                            fetchLoginAudit()
+                              .then(setLoginAudit)
+                              .finally(() => setLoginAuditBusy(false))
+                          }}
+                        >
+                          {loginAuditBusy ? 'Refreshing…' : 'Refresh'}
+                        </button>
+                      </div>
+                      <p className="settings-card-copy">
+                        Username, login status, and date/time for each sign-in attempt.
+                      </p>
+                      {loginAudit.length === 0 ? (
+                        <p className="settings-data-message">No login events recorded yet.</p>
+                      ) : (
+                        <div className="settings-audit-table-wrap">
+                          <table className="settings-audit-table">
+                            <thead>
+                              <tr>
+                                <th scope="col">Username</th>
+                                <th scope="col">Login status</th>
+                                <th scope="col">Date and time</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {loginAudit.slice(0, 40).map((row) => (
+                                <tr key={row.id}>
+                                  <td>{row.username}</td>
+                                  <td>
+                                    <span
+                                      className={`settings-audit-status is-${row.status}`}
+                                    >
+                                      {formatAuditStatus(row.status)}
+                                    </span>
+                                  </td>
+                                  <td>{new Date(row.createdAt).toLocaleString()}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </article>
+                  )}
                 </div>
 
                 <div className="settings-stack">
@@ -3539,105 +3638,6 @@ export default function AdminPanel() {
                         <p className="settings-data-message" role="status">
                           {syncMessage}
                         </p>
-                      )}
-                    </div>
-                  </article>
-                  )}
-
-                  {isAdminUser && (
-                  <article className="settings-card settings-security-card">
-                    <div className="settings-card-head">
-                      <span className="settings-eyebrow">Security</span>
-                      <h4 className="settings-card-title">Security &amp; audit trail</h4>
-                      <p className="settings-card-copy">
-                        Login history, transport protection, and desk hardening controls.
-                      </p>
-                    </div>
-
-                    {(() => {
-                      const transport = getTransportLabel()
-                      return (
-                        <div
-                          className={`settings-https-banner${transport.secure ? ' is-secure' : ' is-insecure'}`}
-                          role="status"
-                        >
-                          <span className="settings-https-dot" aria-hidden="true" />
-                          <div>
-                            <strong>
-                              {transport.secure
-                                ? 'Authentication uses secure HTTPS'
-                                : 'Connection is not HTTPS'}
-                            </strong>
-                            <p>{transport.label}. Supabase Auth and API traffic are encrypted in transit.</p>
-                          </div>
-                        </div>
-                      )
-                    })()}
-
-                    {securityNotice ? (
-                      <p className="settings-security-alert" role="alert">
-                        {securityNotice}
-                      </p>
-                    ) : null}
-
-                    <ul className="settings-security-features">
-                      {SECURITY_FEATURES.map((item) => (
-                        <li key={item.id}>
-                          <strong>{item.title}</strong>
-                          <span>{item.detail}</span>
-                        </li>
-                      ))}
-                    </ul>
-
-                    <div className="settings-audit-block">
-                      <div className="settings-audit-head">
-                        <h5>Login audit log</h5>
-                        <button
-                          type="button"
-                          className="btn-ghost btn-sm"
-                          disabled={loginAuditBusy}
-                          onClick={() => {
-                            setLoginAuditBusy(true)
-                            fetchLoginAudit()
-                              .then(setLoginAudit)
-                              .finally(() => setLoginAuditBusy(false))
-                          }}
-                        >
-                          {loginAuditBusy ? 'Refreshing…' : 'Refresh'}
-                        </button>
-                      </div>
-                      <p className="settings-card-copy">
-                        Username, login status, and date/time for each sign-in attempt.
-                      </p>
-                      {loginAudit.length === 0 ? (
-                        <p className="settings-data-message">No login events recorded yet.</p>
-                      ) : (
-                        <div className="settings-audit-table-wrap">
-                          <table className="settings-audit-table">
-                            <thead>
-                              <tr>
-                                <th scope="col">Username</th>
-                                <th scope="col">Login status</th>
-                                <th scope="col">Date and time</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {loginAudit.slice(0, 40).map((row) => (
-                                <tr key={row.id}>
-                                  <td>{row.username}</td>
-                                  <td>
-                                    <span
-                                      className={`settings-audit-status is-${row.status}`}
-                                    >
-                                      {formatAuditStatus(row.status)}
-                                    </span>
-                                  </td>
-                                  <td>{new Date(row.createdAt).toLocaleString()}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
                       )}
                     </div>
                   </article>
@@ -4244,7 +4244,7 @@ function VehicleFields({
               Remove photo
             </button>
           ) : null}
-        </div>
+          </div>
 
         <div className="edit-image-preview-wrap">
           <div className={`admin-image-preview edit-image-preview${hasCustomImage ? '' : ' edit-image-default'}`}>
