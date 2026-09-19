@@ -49,6 +49,16 @@ import { fetchSystemStatus, runCloudSync, saveAdminProfileRemote, clearAllAppDat
 import { CLOUD_SYNC_ENABLED, isCloudConfigured } from '../api/cloudSync'
 import { describeCloudConnection } from '../config/cloudConnection'
 import { useConnectivity } from '../hooks/useConnectivity'
+import { fetchLoginAudit, formatAuditStatus } from '../utils/loginAudit'
+import {
+  assertSameOriginRequest,
+  ensureCsrfToken,
+  getCsrfToken,
+  getTransportLabel,
+  requireCsrfToken,
+  sanitizeUserText,
+  SECURITY_FEATURES,
+} from '../utils/security'
 
 const PROFILE_KEY = 'alatas-admin-profile'
 const SYSTEM_SETTINGS_KEY = 'alatas-admin-system-settings'
@@ -634,6 +644,9 @@ export default function AdminPanel() {
     error: '',
   })
   const [clearDataBusy, setClearDataBusy] = useState(false)
+  const [loginAudit, setLoginAudit] = useState([])
+  const [loginAuditBusy, setLoginAuditBusy] = useState(false)
+  const [securityNotice, setSecurityNotice] = useState('')
   const [selectedTransaction, setSelectedTransaction] = useState(null)
   const [transactionReturnTab, setTransactionReturnTab] = useState('history')
   const [rentDirty, setRentDirty] = useState(false)
@@ -688,6 +701,11 @@ export default function AdminPanel() {
       setProfileMessage('')
     }
   }, [tab, profile])
+
+  useEffect(() => {
+    if (!authed) return
+    ensureCsrfToken()
+  }, [authed])
 
   useEffect(() => {
     applyTheme(systemSettings.theme)
@@ -1080,6 +1098,32 @@ export default function AdminPanel() {
   }
 
   const isAdminUser = sessionRole === 'admin' || sessionUser?.role === 'admin'
+
+  useEffect(() => {
+    if (!authed || tab !== 'settings' || !isAdminUser) return
+    let mounted = true
+    setLoginAuditBusy(true)
+    fetchLoginAudit()
+      .then((rows) => {
+        if (mounted) setLoginAudit(rows)
+      })
+      .finally(() => {
+        if (mounted) setLoginAuditBusy(false)
+      })
+    return () => {
+      mounted = false
+    }
+  }, [authed, tab, isAdminUser])
+
+  useEffect(() => {
+    const suspicious = loginAudit.find((row) => row.status === 'suspicious')
+    if (suspicious && isAdminUser) {
+      setSecurityNotice(
+        `Suspicious login recorded for ${suspicious.username} at ${new Date(suspicious.createdAt).toLocaleString()}.`,
+      )
+    }
+  }, [loginAudit, isAdminUser])
+
   const visibleNav = useMemo(
     () => NAV.filter((item) => isAdminUser || !item.adminOnly),
     [isAdminUser],
@@ -1952,6 +1996,8 @@ export default function AdminPanel() {
       setClearDataBusy(true)
       setClearDataCreds((prev) => ({ ...prev, error: '' }))
       try {
+        assertSameOriginRequest()
+        requireCsrfToken(getCsrfToken())
         await verifyAdminCredentials(clearDataCreds.username, clearDataCreds.password)
         await clearAllData()
       } catch (err) {
@@ -3218,7 +3264,7 @@ export default function AdminPanel() {
                               onChange={(e) =>
                                 setProfileDraft((prev) => ({
                                   ...prev,
-                                  displayName: e.target.value,
+                                  displayName: sanitizeUserText(e.target.value, { maxLength: 40 }),
                                 }))
                               }
                               maxLength={40}
@@ -3493,6 +3539,105 @@ export default function AdminPanel() {
                         <p className="settings-data-message" role="status">
                           {syncMessage}
                         </p>
+                      )}
+                    </div>
+                  </article>
+                  )}
+
+                  {isAdminUser && (
+                  <article className="settings-card settings-security-card">
+                    <div className="settings-card-head">
+                      <span className="settings-eyebrow">Security</span>
+                      <h4 className="settings-card-title">Security &amp; audit trail</h4>
+                      <p className="settings-card-copy">
+                        Login history, transport protection, and desk hardening controls.
+                      </p>
+                    </div>
+
+                    {(() => {
+                      const transport = getTransportLabel()
+                      return (
+                        <div
+                          className={`settings-https-banner${transport.secure ? ' is-secure' : ' is-insecure'}`}
+                          role="status"
+                        >
+                          <span className="settings-https-dot" aria-hidden="true" />
+                          <div>
+                            <strong>
+                              {transport.secure
+                                ? 'Authentication uses secure HTTPS'
+                                : 'Connection is not HTTPS'}
+                            </strong>
+                            <p>{transport.label}. Supabase Auth and API traffic are encrypted in transit.</p>
+                          </div>
+                        </div>
+                      )
+                    })()}
+
+                    {securityNotice ? (
+                      <p className="settings-security-alert" role="alert">
+                        {securityNotice}
+                      </p>
+                    ) : null}
+
+                    <ul className="settings-security-features">
+                      {SECURITY_FEATURES.map((item) => (
+                        <li key={item.id}>
+                          <strong>{item.title}</strong>
+                          <span>{item.detail}</span>
+                        </li>
+                      ))}
+                    </ul>
+
+                    <div className="settings-audit-block">
+                      <div className="settings-audit-head">
+                        <h5>Login audit log</h5>
+                        <button
+                          type="button"
+                          className="btn-ghost btn-sm"
+                          disabled={loginAuditBusy}
+                          onClick={() => {
+                            setLoginAuditBusy(true)
+                            fetchLoginAudit()
+                              .then(setLoginAudit)
+                              .finally(() => setLoginAuditBusy(false))
+                          }}
+                        >
+                          {loginAuditBusy ? 'Refreshing…' : 'Refresh'}
+                        </button>
+                      </div>
+                      <p className="settings-card-copy">
+                        Username, login status, and date/time for each sign-in attempt.
+                      </p>
+                      {loginAudit.length === 0 ? (
+                        <p className="settings-data-message">No login events recorded yet.</p>
+                      ) : (
+                        <div className="settings-audit-table-wrap">
+                          <table className="settings-audit-table">
+                            <thead>
+                              <tr>
+                                <th scope="col">Username</th>
+                                <th scope="col">Login status</th>
+                                <th scope="col">Date and time</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {loginAudit.slice(0, 40).map((row) => (
+                                <tr key={row.id}>
+                                  <td>{row.username}</td>
+                                  <td>
+                                    <span
+                                      className={`settings-audit-status is-${row.status}`}
+                                    >
+                                      {formatAuditStatus(row.status)}
+                                    </span>
+                                  </td>
+                                  <td>{new Date(row.createdAt).toLocaleString()}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       )}
                     </div>
                   </article>

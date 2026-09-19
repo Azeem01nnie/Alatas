@@ -1,5 +1,6 @@
 import { isSupabaseConfigured, requireSupabase } from './supabaseClient'
 import { collectPhotographerCredits, mergePhotographerCredits } from '../utils/photoCredits'
+import { assertSafeDbId } from '../utils/security'
 
 function mapVehicle(row) {
   if (!row) return null
@@ -1074,10 +1075,12 @@ export async function createEmployee(employee) {
     throw new Error('Password is required to create an employee login')
   }
 
+  const safeUsername = assertSafeDbId(String(employee.username || '').trim(), 'username')
+
   const { data, error } = await sb.rpc('create_employee_with_auth', {
     p_id: String(employee.id || `e-${Date.now()}`),
     p_name: employee.name ?? '',
-    p_username: employee.username ?? '',
+    p_username: safeUsername,
     p_phone: employee.phone ?? '',
     p_role: employee.role || 'Staff',
     p_password: password,

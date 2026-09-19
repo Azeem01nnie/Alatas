@@ -1,6 +1,16 @@
 import { useState } from 'react'
 import logoLight from '../assets/logo.jpg'
 import { requireSupabase } from '../api/supabaseClient'
+import { recordLoginAudit } from '../utils/loginAudit'
+import {
+  clearCsrfToken,
+  ensureCsrfToken,
+  getDeviceFingerprint,
+  getTransportLabel,
+  isSuspiciousLogin,
+  rememberFingerprint,
+  sanitizeUsername,
+} from '../utils/security'
 
 const AUTH_KEY = 'customer-encoder-admin-auth'
 const ROLE_KEY = 'alatas-session-role'
@@ -34,6 +44,7 @@ export function clearAdminSession() {
   sessionStorage.removeItem(AUTH_KEY)
   sessionStorage.removeItem(ROLE_KEY)
   sessionStorage.removeItem(USER_KEY)
+  clearCsrfToken()
   try {
     requireSupabase().auth.signOut()
   } catch {
@@ -49,7 +60,7 @@ function toAuthEmail(username) {
 
 /** Re-check admin username/password before destructive actions (e.g. Clear data). */
 export async function verifyAdminCredentials(username, password) {
-  const trimmedUser = String(username || '').trim()
+  const trimmedUser = sanitizeUsername(username)
   const trimmedPass = String(password || '')
   if (!trimmedUser || !trimmedPass) {
     throw new Error('Enter admin username and password.')
@@ -129,7 +140,7 @@ function IconEye({ crossed = false }) {
 }
 
 async function resolveSessionUser(sb, usernameInput) {
-  const trimmed = usernameInput.trim()
+  const trimmed = sanitizeUsername(usernameInput)
   const {
     data: { user },
   } = await sb.auth.getUser()
@@ -173,30 +184,63 @@ export default function AdminLogin({ onSuccess }) {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [loading, setLoading] = useState(false)
+  const transport = getTransportLabel()
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (loading) return
     setError('')
+    setNotice('')
     setLoading(true)
+    const safeUser = sanitizeUsername(username)
+    const fp = getDeviceFingerprint()
+    const suspicious = isSuspiciousLogin(fp)
+
     try {
       const sb = requireSupabase()
-      const email = toAuthEmail(username)
+      const email = toAuthEmail(safeUser)
       const { error: authError } = await sb.auth.signInWithPassword({
         email,
         password,
       })
       if (authError) {
+        await recordLoginAudit({
+          username: safeUser || 'unknown',
+          status: 'failed',
+          detail: 'Invalid username or password',
+        })
         setError(authError.message || 'Invalid username or password.')
         setLoading(false)
         return
       }
 
-      const sessionUser = await resolveSessionUser(sb, username)
+      const sessionUser = await resolveSessionUser(sb, safeUser)
+      ensureCsrfToken()
       sessionStorage.setItem(AUTH_KEY, '1')
       sessionStorage.setItem(ROLE_KEY, sessionUser.role)
       sessionStorage.setItem(USER_KEY, JSON.stringify(sessionUser))
+
+      if (suspicious) {
+        await recordLoginAudit({
+          username: sessionUser.username,
+          status: 'suspicious',
+          detail: 'Successful sign-in from an unrecognized device/browser',
+          suspicious: true,
+        })
+        setNotice(
+          'Suspicious login: this device was not recognized. If this was not you, change your password.',
+        )
+      } else {
+        await recordLoginAudit({
+          username: sessionUser.username,
+          status: 'success',
+          detail: 'Signed in successfully over HTTPS',
+        })
+      }
+      rememberFingerprint(fp)
+
       onSuccess(sessionUser)
     } catch (err) {
       try {
@@ -204,6 +248,11 @@ export default function AdminLogin({ onSuccess }) {
       } catch {
         // ignore
       }
+      await recordLoginAudit({
+        username: safeUser || 'unknown',
+        status: 'failed',
+        detail: err?.message || 'Sign-in error',
+      })
       setError(err?.message || 'Could not sign in. Check Supabase connection.')
       setLoading(false)
     }
@@ -225,6 +274,14 @@ export default function AdminLogin({ onSuccess }) {
       <div className="login-copy">
         <h1>Sign in</h1>
         <p>Admin and employee access to the fleet desk.</p>
+        <p
+          className={`login-https-badge${transport.secure ? ' is-secure' : ' is-insecure'}`}
+          role="status"
+        >
+          <span className="login-https-dot" aria-hidden="true" />
+          {transport.secure ? 'Secure HTTPS authentication' : 'Insecure connection'}
+          <span className="login-https-detail"> — {transport.label}</span>
+        </p>
       </div>
 
       {loading ? (
@@ -233,18 +290,20 @@ export default function AdminLogin({ onSuccess }) {
           <p>Signing you in…</p>
         </div>
       ) : (
-        <form className="login-form" onSubmit={handleSubmit}>
+        <form className="login-form" onSubmit={handleSubmit} autoComplete="on">
           <label className="field">
             <span className="field-label">Username</span>
             <input
               type="text"
               value={username}
               onChange={(e) => {
-                setUsername(e.target.value)
+                setUsername(sanitizeUsername(e.target.value))
                 setError('')
               }}
               autoComplete="username"
               disabled={loading}
+              maxLength={64}
+              spellCheck={false}
             />
           </label>
           <label className="field">
@@ -273,6 +332,11 @@ export default function AdminLogin({ onSuccess }) {
           </label>
 
           {error && <span className="error-msg">{error}</span>}
+          {notice && (
+            <span className="login-security-notice" role="status">
+              {notice}
+            </span>
+          )}
 
           <button type="submit" className="btn-primary login-submit" disabled={loading}>
             {loading ? 'Signing in…' : 'Sign In'}
