@@ -47,6 +47,40 @@ function toAuthEmail(username) {
   return `${u}@alatas.local`
 }
 
+/** Re-check admin username/password before destructive actions (e.g. Clear data). */
+export async function verifyAdminCredentials(username, password) {
+  const trimmedUser = String(username || '').trim()
+  const trimmedPass = String(password || '')
+  if (!trimmedUser || !trimmedPass) {
+    throw new Error('Enter admin username and password.')
+  }
+
+  const sb = requireSupabase()
+  const email = toAuthEmail(trimmedUser)
+  const { data, error } = await sb.auth.signInWithPassword({
+    email,
+    password: trimmedPass,
+  })
+  if (error) {
+    throw new Error('Invalid admin username or password.')
+  }
+
+  const user = data?.user
+  const metaRole = user?.app_metadata?.role || user?.user_metadata?.role || ''
+  const isAdmin =
+    metaRole === 'admin' ||
+    trimmedUser.toLowerCase() === 'alatas' ||
+    String(user?.email || '')
+      .toLowerCase()
+      .includes('alatas@alatas.local')
+
+  if (!isAdmin) {
+    throw new Error('Only the admin account can clear all data.')
+  }
+
+  return true
+}
+
 function SeatbeltRail() {
   return (
     <div className="login-seatbelt-rail" aria-hidden="true">

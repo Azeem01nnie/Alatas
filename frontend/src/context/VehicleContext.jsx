@@ -69,6 +69,7 @@ export function VehicleProvider({ children }) {
   const hasLoaded = useRef(false)
   const skipRentalAutosave = useRef(false)
   const skipVehicleAutosave = useRef(false)
+  const fleetWriteLocked = useRef(false)
   const suppressServerMergeUntil = useRef(0)
   const rentalsRef = useRef(rentals)
   const rentalSaveGen = useRef(0)
@@ -149,6 +150,7 @@ export function VehicleProvider({ children }) {
 
   useEffect(() => {
     if (!hasLoaded.current) return
+    if (fleetWriteLocked.current) return
     if (skipVehicleAutosave.current) {
       skipVehicleAutosave.current = false
       return
@@ -160,6 +162,7 @@ export function VehicleProvider({ children }) {
 
   useEffect(() => {
     if (!hasLoaded.current) return
+    if (fleetWriteLocked.current) return
     if (skipRentalAutosave.current) {
       skipRentalAutosave.current = false
       return
@@ -167,6 +170,7 @@ export function VehicleProvider({ children }) {
     const gen = ++rentalSaveGen.current
     const timer = window.setTimeout(() => {
       if (gen !== rentalSaveGen.current) return
+      if (fleetWriteLocked.current) return
       saveRentals(rentalsRef.current).catch((err) => {
         console.warn('Rental save failed', err)
       })
@@ -305,6 +309,7 @@ export function VehicleProvider({ children }) {
 
   /** Reset in-memory fleet after an admin Clear data wipe (no immediate re-upload). */
   const wipeLocalFleet = useCallback(() => {
+    fleetWriteLocked.current = true
     skipVehicleAutosave.current = true
     skipRentalAutosave.current = true
     rentalSaveGen.current += 1
@@ -312,6 +317,11 @@ export function VehicleProvider({ children }) {
     setVehicles([])
     setRentals([])
     hasLoaded.current = true
+  }, [])
+
+  const unlockFleetWrites = useCallback(() => {
+    fleetWriteLocked.current = false
+    suppressServerMergeUntil.current = 0
   }, [])
 
   const updateVehicleStatus = useCallback((id, status) => {
@@ -615,6 +625,7 @@ export function VehicleProvider({ children }) {
         reloadData,
         replaceAllData,
         wipeLocalFleet,
+        unlockFleetWrites,
       }}
     >
       {children}

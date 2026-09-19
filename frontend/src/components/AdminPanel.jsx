@@ -30,6 +30,7 @@ import AdminLogin, {
   getSessionRole,
   getSessionUser,
   isAdminLoggedIn,
+  verifyAdminCredentials,
 } from './AdminLogin'
 import ConfirmModal from './ConfirmModal'
 import AddOwnerModal from './AddOwnerModal'
@@ -582,6 +583,7 @@ export default function AdminPanel() {
     replaceAllData,
     reloadData,
     wipeLocalFleet,
+    unlockFleetWrites,
   } = useVehicles()
   const { online } = useConnectivity()
   const [authed, setAuthed] = useState(() => isAdminLoggedIn())
@@ -626,6 +628,12 @@ export default function AdminPanel() {
   const [previewVehicle, setPreviewVehicle] = useState(null)
   const [addOwnerModal, setAddOwnerModal] = useState(null) // null | { forEdit: boolean }
   const [confirm, setConfirm] = useState(null)
+  const [clearDataCreds, setClearDataCreds] = useState({
+    username: '',
+    password: '',
+    error: '',
+  })
+  const [clearDataBusy, setClearDataBusy] = useState(false)
   const [selectedTransaction, setSelectedTransaction] = useState(null)
   const [transactionReturnTab, setTransactionReturnTab] = useState('history')
   const [rentDirty, setRentDirty] = useState(false)
@@ -948,13 +956,20 @@ export default function AdminPanel() {
 
   const requestClearData = () => {
     if (!isAdminUser) return
+    setClearDataCreds({
+      username: sessionUser?.username || 'alatas',
+      password: '',
+      error: '',
+    })
+    setClearDataBusy(false)
     setConfirm({
       type: 'clear-data',
       title: 'Clear all app data?',
       message:
-        'This permanently deletes vehicles, rentals, employees (except admin), owners, archives, and reports. Your admin login credentials are kept. This cannot be undone.',
+        'This permanently deletes vehicles, rentals, employees (except admin), owners, archives, and reports. Your admin login credentials are kept. Re-enter admin credentials to confirm. This cannot be undone.',
       confirmLabel: 'Yes, clear all data',
       danger: true,
+      countdownSeconds: 5,
     })
   }
 
@@ -963,49 +978,57 @@ export default function AdminPanel() {
     setDataBusy(true)
     setDataMessage('')
     try {
-      await clearAllAppData()
-
+      // Stop autosave / offline re-upload BEFORE touching Supabase.
       wipeLocalFleet()
-      saveArchivedVehicles([])
-      setArchivedVehicles([])
-      localStorage.removeItem('alatas-owners')
-      setOwners([])
-      localStorage.removeItem('alatas-vehicle-reports')
       localStorage.removeItem('alatas-offline-queue')
+      localStorage.removeItem('alatas-owners')
+      localStorage.removeItem('alatas-vehicle-reports')
       localStorage.removeItem('alatas-vehicles-v6')
       localStorage.removeItem('alatas-manage-layout')
+      saveArchivedVehicles([])
+      setArchivedVehicles([])
+      setOwners([])
 
-      // Clear notification markers; keep admin session keys.
-      const authKey = 'customer-encoder-admin-auth'
-      const keepSession = new Set([authKey, 'alatas-session-role', 'alatas-session-user'])
       const sessionKeys = []
       for (let i = 0; i < sessionStorage.length; i += 1) {
         const key = sessionStorage.key(i)
         if (key) sessionKeys.push(key)
       }
       sessionKeys.forEach((key) => {
-        if (keepSession.has(key)) return
         if (key.startsWith('alatas-browser-notif:')) sessionStorage.removeItem(key)
       })
 
-      // Confirm server is empty and keep UI in sync (without re-uploading).
-      try {
-        await reloadData()
-      } catch (reloadErr) {
-        console.warn('Post-clear reload failed; local wipe kept', reloadErr)
+      await clearAllAppData()
+
+      const refreshed = await reloadData()
+      const vehiclesLeft = refreshed?.vehicles?.length || 0
+      const rentalsLeft = refreshed?.rentals?.length || 0
+      if (vehiclesLeft > 0 || rentalsLeft > 0) {
+        throw new Error(
+          `Supabase still has ${vehiclesLeft} vehicle(s) and ${rentalsLeft} rental(s). Clear did not finish — check your connection and try again.`,
+        )
       }
 
       setDismissedAlerts(new Set())
       setSelectedTransaction(null)
-      setTab('settings')
-      setDataMessage('All data cleared. Admin login credentials were kept.')
-      setMessage('All data cleared.')
-      window.setTimeout(() => {
-        setDataMessage('')
-        setMessage('')
-      }, 3200)
+      setClearDataCreds({ username: '', password: '', error: '' })
+      setConfirm(null)
+
+      // Sign out and return to login after wipe.
+      clearAdminSession()
+      setSessionRole('admin')
+      setSessionUser(null)
+      setTab('dashboard')
+      setAuthed(false)
     } catch (err) {
+      try {
+        unlockFleetWrites()
+        await reloadData()
+      } catch {
+        /* ignore recovery errors */
+      }
       setDataMessage(err?.message || 'Could not clear data.')
+      throw err
     } finally {
       setDataBusy(false)
     }
@@ -1924,8 +1947,21 @@ export default function AdminPanel() {
       return
     }
     if (confirm.type === 'clear-data') {
-      setConfirm(null)
-      void clearAllData()
+      if (clearDataBusy) return
+      setClearDataBusy(true)
+      setClearDataCreds((prev) => ({ ...prev, error: '' }))
+      try {
+        await verifyAdminCredentials(clearDataCreds.username, clearDataCreds.password)
+        await clearAllData()
+      } catch (err) {
+        setClearDataCreds((prev) => ({
+          ...prev,
+          error: err?.message || 'Could not verify admin credentials.',
+        }))
+        setClearDataBusy(false)
+        return
+      }
+      setClearDataBusy(false)
       return
     }
     setConfirm(null)
@@ -3579,16 +3615,80 @@ export default function AdminPanel() {
         <ConfirmModal
           title={confirm.title}
           message={confirm.message}
-          confirmLabel={confirm.confirmLabel}
+          confirmLabel={
+            confirm.type === 'clear-data' && clearDataBusy
+              ? 'Clearing…'
+              : confirm.confirmLabel
+          }
           cancelLabel={confirm.cancelLabel || 'Cancel'}
           danger={confirm.danger}
           hideCancel={Boolean(confirm.hideCancel)}
+          countdownSeconds={confirm.type === 'clear-data' ? confirm.countdownSeconds || 5 : 0}
+          confirmDisabled={
+            clearDataBusy ||
+            (confirm.type === 'clear-data' &&
+              (!String(clearDataCreds.username || '').trim() ||
+                !String(clearDataCreds.password || '')))
+          }
           onCancel={() => {
+            if (clearDataBusy) return
             setPendingTab(null)
+            setClearDataCreds({ username: '', password: '', error: '' })
             setConfirm(null)
           }}
           onConfirm={handleConfirm}
-        />
+        >
+          {confirm.type === 'clear-data' ? (
+            <div className="clear-data-auth">
+              <p className="clear-data-auth-note">
+                Wait for the countdown, then enter admin username and password to unlock Clear data.
+              </p>
+              <label className="clear-data-auth-field">
+                <span>Admin username</span>
+                <input
+                  type="text"
+                  autoComplete="username"
+                  value={clearDataCreds.username}
+                  disabled={clearDataBusy}
+                  onChange={(e) =>
+                    setClearDataCreds((prev) => ({
+                      ...prev,
+                      username: e.target.value,
+                      error: '',
+                    }))
+                  }
+                />
+              </label>
+              <label className="clear-data-auth-field">
+                <span>Admin password</span>
+                <input
+                  type="password"
+                  autoComplete="current-password"
+                  value={clearDataCreds.password}
+                  disabled={clearDataBusy}
+                  onChange={(e) =>
+                    setClearDataCreds((prev) => ({
+                      ...prev,
+                      password: e.target.value,
+                      error: '',
+                    }))
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      void handleConfirm()
+                    }
+                  }}
+                />
+              </label>
+              {clearDataCreds.error ? (
+                <p className="clear-data-auth-error" role="alert">
+                  {clearDataCreds.error}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </ConfirmModal>
       )}
     </div>
   )

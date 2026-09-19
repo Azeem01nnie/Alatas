@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react'
+
 export default function ConfirmModal({
   title,
   message,
@@ -6,10 +8,36 @@ export default function ConfirmModal({
   danger = false,
   hideCancel = false,
   confirmDisabled = false,
+  countdownSeconds = 0,
   children,
   onConfirm,
   onCancel,
 }) {
+  const [remaining, setRemaining] = useState(() =>
+    countdownSeconds > 0 ? Math.ceil(countdownSeconds) : 0,
+  )
+
+  useEffect(() => {
+    if (!(countdownSeconds > 0)) {
+      setRemaining(0)
+      return undefined
+    }
+    setRemaining(Math.ceil(countdownSeconds))
+    const id = window.setInterval(() => {
+      setRemaining((prev) => {
+        if (prev <= 1) {
+          window.clearInterval(id)
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+    return () => window.clearInterval(id)
+  }, [countdownSeconds, title])
+
+  const waiting = remaining > 0
+  const label = waiting ? `${confirmLabel} (${remaining})` : confirmLabel
+
   return (
     <div
       className="modal-overlay confirm-modal-overlay"
@@ -37,10 +65,10 @@ export default function ConfirmModal({
           <button
             type="button"
             className={danger ? 'btn-primary btn-danger-solid' : 'btn-primary'}
-            disabled={confirmDisabled}
+            disabled={confirmDisabled || waiting}
             onClick={onConfirm}
           >
-            {confirmLabel}
+            {label}
           </button>
         </div>
       </div>

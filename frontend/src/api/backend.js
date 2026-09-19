@@ -861,6 +861,29 @@ function isPreservedAdminEmployee(row, currentUserId) {
   return false
 }
 
+async function deleteAllRowsById(sb, table) {
+  const { data: rows, error: listErr } = await sb.from(table).select('id')
+  if (listErr) throwSb(listErr)
+  const ids = (rows || []).map((row) => String(row.id)).filter(Boolean)
+  if (!ids.length) return 0
+
+  const chunkSize = 200
+  let deleted = 0
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize)
+    const { error } = await sb.from(table).delete().in('id', chunk)
+    if (error) throwSb(error)
+    deleted += chunk.length
+  }
+  return deleted
+}
+
+async function countRows(sb, table) {
+  const { count, error } = await sb.from(table).select('id', { count: 'exact', head: true })
+  if (error) throwSb(error)
+  return Number(count || 0)
+}
+
 async function clearStorageBucket(sb, bucketId) {
   try {
     const { data: entries, error } = await sb.storage.from(bucketId).list('', {
@@ -873,7 +896,6 @@ async function clearStorageBucket(sb, bucketId) {
     for (const entry of entries) {
       const name = String(entry?.name || '').trim()
       if (!name) continue
-      // Folder placeholder — list one level deep
       if (!entry.id) {
         const { data: nested } = await sb.storage.from(bucketId).list(name, {
           limit: 1000,
@@ -903,11 +925,8 @@ async function clearAppDataClientFallback(sb) {
   } = await sb.auth.getUser()
   const currentUserId = user?.id || null
 
-  const { error: rentalsErr } = await sb.from('rentals').delete().neq('id', '')
-  if (rentalsErr) throwSb(rentalsErr)
-
-  const { error: vehiclesErr } = await sb.from('vehicles').delete().neq('id', '')
-  if (vehiclesErr) throwSb(vehiclesErr)
+  const rentalsDeleted = await deleteAllRowsById(sb, 'rentals')
+  const vehiclesDeleted = await deleteAllRowsById(sb, 'vehicles')
 
   const { data: employees, error: empListErr } = await sb
     .from('employees')
@@ -938,11 +957,19 @@ async function clearAppDataClientFallback(sb) {
     (await clearStorageBucket(sb, 'rentals')) +
     (await clearStorageBucket(sb, 'reports'))
 
+  const rentalsLeft = await countRows(sb, 'rentals')
+  const vehiclesLeft = await countRows(sb, 'vehicles')
+  if (rentalsLeft > 0 || vehiclesLeft > 0) {
+    throw new Error(
+      `Clear incomplete on Supabase (${vehiclesLeft} vehicles, ${rentalsLeft} rentals still remain). Check table permissions and re-run migration 005.`,
+    )
+  }
+
   return {
     ok: true,
     mode: 'client-fallback',
-    rentalsDeleted: true,
-    vehiclesDeleted: true,
+    rentalsDeleted,
+    vehiclesDeleted,
     employeesDeleted: toDelete.length,
     storageObjectsDeleted: storageDeleted,
   }
@@ -950,19 +977,34 @@ async function clearAppDataClientFallback(sb) {
 
 /**
  * Wipe fleet / rentals / staff data. Keeps admin Auth credentials + admin employee row.
- * Prefers RPC `clear_app_data` (migration 005); falls back to direct table deletes.
+ * Tries RPC first, then always runs a verified client wipe so Supabase tables are empty.
  */
 export async function clearAllAppData() {
   const sb = requireSupabase()
-  const { data, error } = await sb.rpc('clear_app_data')
-  if (!error) {
-    return data || { ok: true, mode: 'rpc' }
+
+  const {
+    data: { session },
+  } = await sb.auth.getSession()
+  if (!session?.access_token) {
+    throw new Error('Not signed in to Supabase. Sign in as admin and try Clear data again.')
   }
 
-  // Any RPC failure (missing function, auth/storage permission, admin check) —
-  // still wipe core tables from the client so Clear data remains usable.
-  console.warn('clear_app_data RPC failed; using client fallback', error?.message || error)
-  return clearAppDataClientFallback(sb)
+  let rpcResult = null
+  const { data, error } = await sb.rpc('clear_app_data')
+  if (!error) {
+    rpcResult = data || { ok: true, mode: 'rpc' }
+  } else {
+    console.warn('clear_app_data RPC failed; using client wipe', error?.message || error)
+  }
+
+  // Always wipe via client too (covers missing/outdated RPC and verifies emptiness).
+  const clientResult = await clearAppDataClientFallback(sb)
+  return {
+    ok: true,
+    mode: rpcResult ? 'rpc+client' : 'client-fallback',
+    rpc: rpcResult,
+    ...clientResult,
+  }
 }
 
 export function fetchEmployees() {
