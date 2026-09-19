@@ -28,12 +28,13 @@ That inserts into `auth.users` + `public.employees` for:
 
 You do **not** need Authentication → Add user.
 
-## 2b. Clear-data RPC (optional, for Settings → Clear data)
+## 2b. Clear-data RPC (required for Settings → Clear data)
 
 1. Open SQL Editor again
 2. Paste and **Run** [`supabase/migrations/005_clear_app_data.sql`](migrations/005_clear_app_data.sql)
 
 This lets admins wipe fleet/rental/staff data from Settings while keeping the admin login.
+If the RPC is missing or fails, the app still clears vehicles/rentals via a client fallback.
 
 ## 3. Run the desk app
 

@@ -855,9 +855,46 @@ export async function saveAdminProfileRemote(profile) {
 function isPreservedAdminEmployee(row, currentUserId) {
   const username = String(row?.username || '').trim().toLowerCase()
   const id = String(row?.id || '')
-  if (username === 'alatas' || id === 'emp-alatas-admin') return true
+  const role = String(row?.role || '').trim().toLowerCase()
+  if (username === 'alatas' || id === 'emp-alatas-admin' || role === 'admin') return true
   if (currentUserId && String(row?.auth_user_id || '') === String(currentUserId)) return true
   return false
+}
+
+async function clearStorageBucket(sb, bucketId) {
+  try {
+    const { data: entries, error } = await sb.storage.from(bucketId).list('', {
+      limit: 1000,
+      offset: 0,
+    })
+    if (error || !Array.isArray(entries) || !entries.length) return 0
+
+    const paths = []
+    for (const entry of entries) {
+      const name = String(entry?.name || '').trim()
+      if (!name) continue
+      // Folder placeholder — list one level deep
+      if (!entry.id) {
+        const { data: nested } = await sb.storage.from(bucketId).list(name, {
+          limit: 1000,
+          offset: 0,
+        })
+        for (const child of nested || []) {
+          const childName = String(child?.name || '').trim()
+          if (childName) paths.push(`${name}/${childName}`)
+        }
+        continue
+      }
+      paths.push(name)
+    }
+
+    if (!paths.length) return 0
+    const { error: removeErr } = await sb.storage.from(bucketId).remove(paths)
+    if (removeErr) return 0
+    return paths.length
+  } catch {
+    return 0
+  }
 }
 
 async function clearAppDataClientFallback(sb) {
@@ -872,7 +909,9 @@ async function clearAppDataClientFallback(sb) {
   const { error: vehiclesErr } = await sb.from('vehicles').delete().neq('id', '')
   if (vehiclesErr) throwSb(vehiclesErr)
 
-  const { data: employees, error: empListErr } = await sb.from('employees').select('id, username, auth_user_id')
+  const { data: employees, error: empListErr } = await sb
+    .from('employees')
+    .select('id, username, auth_user_id, role')
   if (empListErr) throwSb(empListErr)
 
   const toDelete = (employees || []).filter((row) => !isPreservedAdminEmployee(row, currentUserId))
@@ -894,12 +933,18 @@ async function clearAppDataClientFallback(sb) {
   })
   if (reportsErr) throwSb(reportsErr)
 
+  const storageDeleted =
+    (await clearStorageBucket(sb, 'vehicles')) +
+    (await clearStorageBucket(sb, 'rentals')) +
+    (await clearStorageBucket(sb, 'reports'))
+
   return {
     ok: true,
     mode: 'client-fallback',
     rentalsDeleted: true,
     vehiclesDeleted: true,
     employeesDeleted: toDelete.length,
+    storageObjectsDeleted: storageDeleted,
   }
 }
 
@@ -914,14 +959,9 @@ export async function clearAllAppData() {
     return data || { ok: true, mode: 'rpc' }
   }
 
-  const msg = String(error?.message || '')
-  const missingFn =
-    /could not find the function/i.test(msg) ||
-    /function .*clear_app_data/i.test(msg) ||
-    error?.code === 'PGRST202'
-
-  if (!missingFn) throwSb(error)
-
+  // Any RPC failure (missing function, auth/storage permission, admin check) —
+  // still wipe core tables from the client so Clear data remains usable.
+  console.warn('clear_app_data RPC failed; using client fallback', error?.message || error)
   return clearAppDataClientFallback(sb)
 }
 

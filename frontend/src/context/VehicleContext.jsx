@@ -69,6 +69,7 @@ export function VehicleProvider({ children }) {
   const hasLoaded = useRef(false)
   const skipRentalAutosave = useRef(false)
   const skipVehicleAutosave = useRef(false)
+  const suppressServerMergeUntil = useRef(0)
   const rentalsRef = useRef(rentals)
   const rentalSaveGen = useRef(0)
   rentalsRef.current = rentals
@@ -179,7 +180,9 @@ export function VehicleProvider({ children }) {
     const nextRentals = Array.isArray(rentalsData)
       ? rentalsData.map(normalizeRental)
       : []
+    skipVehicleAutosave.current = true
     skipRentalAutosave.current = true
+    rentalSaveGen.current += 1
     setVehicles(nextVehicles)
     setRentals(nextRentals)
     hasLoaded.current = true
@@ -202,19 +205,42 @@ export function VehicleProvider({ children }) {
         const nextRentals = Array.isArray(rentalsData)
           ? rentalsData.map(normalizeRental)
           : []
+
+        // After Clear data (or similar wipe), trust the server list completely.
+        if (Date.now() < suppressServerMergeUntil.current) {
+          setRentals((prev) => {
+            const same =
+              prev.length === nextRentals.length &&
+              prev.every((row, i) => String(row.id) === String(nextRentals[i]?.id))
+            if (same) return prev
+            skipRentalAutosave.current = true
+            rentalSaveGen.current += 1
+            return nextRentals
+          })
+          return
+        }
+
         setRentals((prev) => {
           const byId = new Map(nextRentals.map((row) => [String(row.id), row]))
           let changed = false
           const merged = []
           const seen = new Set()
+          const now = Date.now()
 
           for (const a of prev) {
             const key = String(a.id)
             seen.add(key)
             const b = byId.get(key)
             if (!b) {
-              // Dropped on server (or filtered) — keep local until explicit reload.
-              merged.push(a)
+              // Drop rows deleted on the server, unless they are brand-new local-only.
+              const stamp =
+                Date.parse(a.updatedAt || a.createdAt || a.encodedAt || '') || 0
+              const ageMs = stamp ? now - stamp : Number.POSITIVE_INFINITY
+              if (ageMs >= 0 && ageMs < 45_000) {
+                merged.push(a)
+                continue
+              }
+              changed = true
               continue
             }
             const aTs = Date.parse(a.updatedAt || '') || 0
@@ -282,6 +308,7 @@ export function VehicleProvider({ children }) {
     skipVehicleAutosave.current = true
     skipRentalAutosave.current = true
     rentalSaveGen.current += 1
+    suppressServerMergeUntil.current = Date.now() + 90_000
     setVehicles([])
     setRentals([])
     hasLoaded.current = true

@@ -6864,6 +6864,18 @@ html[data-theme='dark'] .conn-status.is-offline {
   border-color: var(--brand);
 }
 
+.settings-clear-data-btn {
+  border-color: rgba(185, 28, 28, 0.45);
+  color: #b91c1c;
+  background: rgba(185, 28, 28, 0.06);
+}
+
+.settings-clear-data-btn:hover:not(:disabled) {
+  background: rgba(185, 28, 28, 0.12);
+  border-color: #b91c1c;
+  color: #991b1b;
+}
+
 .settings-data-message {
   margin: 0.75rem 0 0;
   font-size: 0.82rem;

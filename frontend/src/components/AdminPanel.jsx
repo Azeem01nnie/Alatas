@@ -988,6 +988,13 @@ export default function AdminPanel() {
         if (key.startsWith('alatas-browser-notif:')) sessionStorage.removeItem(key)
       })
 
+      // Confirm server is empty and keep UI in sync (without re-uploading).
+      try {
+        await reloadData()
+      } catch (reloadErr) {
+        console.warn('Post-clear reload failed; local wipe kept', reloadErr)
+      }
+
       setDismissedAlerts(new Set())
       setSelectedTransaction(null)
       setTab('settings')
@@ -3367,7 +3374,7 @@ export default function AdminPanel() {
                       {isAdminUser && (
                         <button
                           type="button"
-                          className="btn-outline settings-clear-cache-btn"
+                          className="btn-outline settings-clear-data-btn"
                           disabled={dataBusy}
                           onClick={requestClearData}
                         >
