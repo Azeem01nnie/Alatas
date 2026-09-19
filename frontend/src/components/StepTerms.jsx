@@ -49,8 +49,11 @@ export default function StepTerms({
 
     const canvas = pad.getCanvas()
     const width = Math.max(1, Math.floor(frame.clientWidth))
-    const height = Math.max(1, Math.floor(frame.clientHeight || PAD_HEIGHT))
-    const ratio = Math.max(window.devicePixelRatio || 1, 1)
+    const height = Math.min(
+      PAD_HEIGHT,
+      Math.max(1, Math.floor(frame.clientHeight || PAD_HEIGHT)),
+    )
+    const ratio = Math.min(Math.max(window.devicePixelRatio || 1, 1), 2)
 
     const nextW = Math.floor(width * ratio)
     const nextH = Math.floor(height * ratio)
