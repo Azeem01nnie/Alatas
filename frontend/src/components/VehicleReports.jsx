@@ -35,6 +35,11 @@ function formatPeso(n) {
   const num = Number(n) || 0
   return `₱${num.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
 }
+
+function formatPesoPdf(n) {
+  const num = Number(n) || 0
+  return `PHP ${num.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
+}
 function formatDate(value) {
   if (!value) return '—'
   const d = new Date(value)
@@ -636,12 +641,12 @@ export default function VehicleReports({ vehicles = [], adminName = 'Admin', dat
       doc.text(String(row.category || '').slice(0, 12), margin + 130, y)
       const desc = doc.splitTextToSize(String(row.description || ''), 180)
       doc.text(desc, margin + 220, y)
-      doc.text(row.amount == null ? '₱0' : formatPeso(row.amount), margin + 420, y)
+      doc.text(row.amount == null ? 'PHP 0' : formatPesoPdf(row.amount), margin + 420, y)
       y += Math.max(14, desc.length * 12)
     })
     y += 10
     doc.setFont('helvetica', 'bold')
-    doc.text(`Total: ${formatPeso(total)}`, margin, y)
+    doc.text(`Total: ${formatPesoPdf(total)}`, margin, y)
     doc.save(`Vehicle_Report_${selectedVehicle.plateNo || selectedVehicle.id}_${monthKey}.pdf`)
   }
 

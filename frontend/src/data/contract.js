@@ -15,7 +15,7 @@ export const CONTRACT_TERMS = [
     title: 'Coverage Area',
     body: `The leased vehicle shall be used only within the territorial jurisdiction of: ${COVERAGE_AREA}.
 
-Any use of the vehicle outside the stated coverage without prior written notice and approval of the LESSOR shall subject the RENTER to a penalty of ₱10,000.00, without prejudice to investigation by proper authorities and further legal action.`,
+Any use of the vehicle outside the stated coverage without prior written notice and approval of the LESSOR shall subject the RENTER to a penalty of PHP 10,000.00, without prejudice to investigation by proper authorities and further legal action.`,
   },
   {
     title: 'Fuel and Incidental Expenses',
@@ -27,7 +27,7 @@ Any use of the vehicle outside the stated coverage without prior written notice 
   },
   {
     title: 'Prohibition Against Subleasing',
-    body: `Subleasing, lending, or allowing the use of the vehicle by any unauthorized person is strictly prohibited. Violation shall result in a penalty of ₱5,000.00, in addition to termination of the contract and other legal remedies.`,
+    body: `Subleasing, lending, or allowing the use of the vehicle by any unauthorized person is strictly prohibited. Violation shall result in a penalty of PHP 5,000.00, in addition to termination of the contract and other legal remedies.`,
   },
   {
     title: 'Care, Cleanliness, and Misuse',
@@ -69,7 +69,7 @@ Any use of the vehicle outside the stated coverage without prior written notice 
   },
   {
     title: 'Late Return Charges',
-    body: `Any delay beyond the agreed return date and time shall be charged an additional fee equivalent to one (1) full rental period OR ₱200.00 per hour, computed from the agreed return time, whichever is higher, without prejudice to further legal remedies.`,
+    body: `Any delay beyond the agreed return date and time shall be charged an additional fee equivalent to one (1) full rental period OR PHP 200.00 per hour, computed from the agreed return time, whichever is higher, without prejudice to further legal remedies.`,
   },
   {
     title: 'Non-Refundability of Payments',
@@ -91,7 +91,7 @@ Any use of the vehicle outside the stated coverage without prior written notice 
     title: 'Confiscation and Severe Violation Clause',
     body: `Should the RENTER use or permit the use of the vehicle for any illegal or unlawful purpose resulting in confiscation, seizure, or impoundment by authorities, the RENTER agrees to:
 
-• Pay liquidated damages in the amount of ₱100,000.00, and
+• Pay liquidated damages in the amount of PHP 100,000.00, and
 • Replace the rented vehicle with a brand-new unit of the same or equivalent model, without prejudice to further civil or criminal liabilities.`,
   },
   {

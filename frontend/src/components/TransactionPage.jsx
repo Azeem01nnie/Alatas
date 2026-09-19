@@ -124,12 +124,19 @@ async function downloadContractPdf(transaction) {
     }
   }
 
+  const toPdfText = (text) =>
+    String(text ?? '')
+      .replace(/\u20b1/g, 'PHP ') // ₱ — Helvetica has no peso glyph (shows as ±)
+      .replace(/₱/g, 'PHP ')
+      .replace(/±(?=\s*\d)/g, 'PHP ')
+      .replace(/[•●]/g, '-')
+
   const centerText = (text, opts = {}) => {
     const { size = 11, style = 'normal', gap = 14, color = [17, 17, 17] } = opts
     doc.setFont('helvetica', style)
     doc.setFontSize(size)
     doc.setTextColor(...color)
-    doc.text(String(text), pageWidth / 2, y, { align: 'center' })
+    doc.text(toPdfText(text), pageWidth / 2, y, { align: 'center' })
     y += gap
   }
 
@@ -138,7 +145,7 @@ async function downloadContractPdf(transaction) {
     doc.setFont('helvetica', style)
     doc.setFontSize(size)
     doc.setTextColor(...color)
-    const lines = doc.splitTextToSize(String(text), width)
+    const lines = doc.splitTextToSize(toPdfText(text), width)
     return { lines, lineHeight, height: lines.length * lineHeight }
   }
 
@@ -172,14 +179,14 @@ async function downloadContractPdf(transaction) {
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(10)
     doc.setTextColor(17, 17, 17)
-    doc.text(title, x, y)
+    doc.text(toPdfText(title), x, y)
 
     let localY = y + 14
     rows.forEach(([label, value]) => {
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(7.5)
       doc.setTextColor(100, 100, 100)
-      const labelLines = doc.splitTextToSize(label.toUpperCase(), colWidth)
+      const labelLines = doc.splitTextToSize(toPdfText(label.toUpperCase()), colWidth)
       labelLines.forEach((line) => {
         doc.text(line, x, localY)
         localY += 9
@@ -188,7 +195,7 @@ async function downloadContractPdf(transaction) {
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(9)
       doc.setTextColor(17, 17, 17)
-      const valueLines = doc.splitTextToSize(String(value || '—'), colWidth)
+      const valueLines = doc.splitTextToSize(toPdfText(String(value || '—')), colWidth)
       valueLines.forEach((line) => {
         doc.text(line, x, localY)
         localY += 11
