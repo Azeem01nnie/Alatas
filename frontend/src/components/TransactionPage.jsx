@@ -44,6 +44,61 @@ function fullName(personal = {}) {
     .join(' ')
 }
 
+function isUsableImageSrc(value) {
+  if (!value || typeof value !== 'string') return false
+  const src = value.trim()
+  return src.startsWith('data:image') || /^https?:\/\//i.test(src)
+}
+
+/** Normalize data-URL or remote Storage URL into a JPEG/PNG data-URL for jsPDF. */
+async function resolveImageForPdf(src) {
+  if (!isUsableImageSrc(src)) return null
+  const trimmed = String(src).trim()
+  if (trimmed.startsWith('data:image')) return trimmed
+
+  try {
+    const res = await fetch(trimmed, { mode: 'cors' })
+    if (!res.ok) return null
+    const blob = await res.blob()
+    const bitmap = await createImageBitmap(blob)
+    const maxEdge = 1400
+    let width = bitmap.width
+    let height = bitmap.height
+    if (width > maxEdge || height > maxEdge) {
+      const ratio = Math.min(maxEdge / width, maxEdge / height)
+      width = Math.max(1, Math.round(width * ratio))
+      height = Math.max(1, Math.round(height * ratio))
+    }
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+      bitmap.close?.()
+      return null
+    }
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, width, height)
+    ctx.drawImage(bitmap, 0, 0, width, height)
+    bitmap.close?.()
+    const mime = String(blob.type || '').toLowerCase()
+    if (mime.includes('png')) return canvas.toDataURL('image/png')
+    return canvas.toDataURL('image/jpeg', 0.86)
+  } catch {
+    return null
+  }
+}
+
+async function resolveImageItems(items) {
+  const resolved = await Promise.all(
+    items.map(async (item) => {
+      const src = await resolveImageForPdf(item.src)
+      return src ? { ...item, src } : null
+    }),
+  )
+  return resolved.filter(Boolean)
+}
+
 async function downloadContractPdf(transaction) {
   const {
     personal = {},
@@ -238,16 +293,17 @@ async function downloadContractPdf(transaction) {
   doc.text('TRANSACTION REFERENCE', margin + half + 10, y)
   y += 14
 
-  if (signature && typeof signature === 'string' && signature.startsWith('data:image')) {
+  const signatureSrc = await resolveImageForPdf(signature)
+  if (signatureSrc) {
     try {
-      const props = doc.getImageProperties(signature)
+      const props = doc.getImageProperties(signatureSrc)
       const maxW = half - 28
       const maxH = 48
       const ratio = Math.min(maxW / props.width, maxH / props.height, 1)
       const imgW = props.width * ratio
       const imgH = props.height * ratio
-      const colorFormat = /image\/png/i.test(signature) ? 'PNG' : 'JPEG'
-      doc.addImage(signature, colorFormat, margin, y, imgW, imgH)
+      const colorFormat = /image\/png/i.test(signatureSrc) ? 'PNG' : 'JPEG'
+      doc.addImage(signatureSrc, colorFormat, margin, y, imgW, imgH)
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(10)
       doc.setTextColor(17, 17, 17)
@@ -343,40 +399,38 @@ async function downloadContractPdf(transaction) {
     }
   }
 
-  const customerImages = []
-  if (photo && typeof photo === 'string' && photo.startsWith('data:image')) {
-    customerImages.push({ src: photo, label: 'Holding license' })
+  const customerImageCandidates = []
+  if (isUsableImageSrc(photo)) {
+    customerImageCandidates.push({ src: photo, label: 'Holding license' })
   }
-  if (licensePhoto && typeof licensePhoto === 'string' && licensePhoto.startsWith('data:image')) {
-    customerImages.push({ src: licensePhoto, label: 'Customer photo' })
+  if (isUsableImageSrc(licensePhoto)) {
+    customerImageCandidates.push({ src: licensePhoto, label: 'Customer photo' })
   }
-  const optionalPhoto =
-    personal?.optionalPhoto && String(personal.optionalPhoto).startsWith('data:image')
-      ? personal.optionalPhoto
-      : ''
-  if (optionalPhoto) {
-    customerImages.push({ src: optionalPhoto, label: 'Optional photo' })
+  if (isUsableImageSrc(personal?.optionalPhoto)) {
+    customerImageCandidates.push({ src: personal.optionalPhoto, label: 'Optional photo' })
   }
+  const customerImages = await resolveImageItems(customerImageCandidates)
   drawImageRow('CUSTOMER PHOTOS', customerImages)
 
-  const carImageItems = [
+  const carImageCandidates = [
     ...[
       ['front', 'Front'],
       ['rear', 'Rear'],
       ['left', 'Left side'],
       ['right', 'Right side'],
     ]
-      .filter(([key]) => carPhotos?.[key] && String(carPhotos[key]).startsWith('data:image'))
+      .filter(([key]) => isUsableImageSrc(carPhotos?.[key]))
       .map(([key, label]) => ({ src: carPhotos[key], label })),
     ...(Array.isArray(carPhotos?.extras)
       ? carPhotos.extras
-          .filter((item) => item?.uri && String(item.uri).startsWith('data:image'))
+          .filter((item) => isUsableImageSrc(item?.uri))
           .map((item, index) => ({
             src: item.uri,
             label: item.label || `Extra ${index + 1}`,
           }))
       : []),
   ]
+  const carImageItems = await resolveImageItems(carImageCandidates)
   drawImageRow('PRE-RENTAL CAR PHOTOS', carImageItems)
 
   const safeName = name.replace(/[^\w\-]+/g, '_').slice(0, 40) || 'contract'
@@ -923,7 +977,7 @@ export default function TransactionPage({
             type="button"
             className="btn-outline btn-sm"
             onClick={() => {
-              void downloadContractPdf(transaction)
+              void downloadContractPdf({ ...transaction, carPhotos })
             }}
           >
             Download PDF
