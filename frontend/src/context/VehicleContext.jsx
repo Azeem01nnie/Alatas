@@ -295,10 +295,11 @@ export function VehicleProvider({ children }) {
     )
   }, [])
 
-  const completeRentalForVehicle = useCallback(async (vehicleId, plateNo = '') => {
-    if (!vehicleId && !plateNo) return
+  const completeRentalForVehicle = useCallback(async (vehicleId, plateNo = '', rentalId = '') => {
+    if (!vehicleId && !plateNo && !rentalId) return
     const key = String(vehicleId || '')
     const plate = String(plateNo || '').trim().toUpperCase()
+    const rentalKey = String(rentalId || '').trim()
     const now = new Date().toISOString()
 
     // Optimistic UI update
@@ -312,11 +313,13 @@ export function VehicleProvider({ children }) {
     }
     setRentals((prev) =>
       prev.map((r) => {
-        if (r.rentalLifecycle !== 'active') return r
         const rid = String(r.vehicleId || r.vehicle?.id || '')
         const rPlate = String(r.vehicle?.plateNo || '').trim().toUpperCase()
-        const match = (key && rid === key) || (plate && rPlate === plate)
-        if (!match) return r
+        const matchByRental = rentalKey && String(r.id) === rentalKey
+        const matchByVehicle =
+          r.rentalLifecycle === 'active' &&
+          ((key && rid === key) || (plate && rPlate === plate))
+        if (!matchByRental && !matchByVehicle) return r
         return {
           ...r,
           rentalLifecycle: 'completed',
@@ -327,9 +330,10 @@ export function VehicleProvider({ children }) {
     )
 
     try {
-      await completeVehicleRentalApi(key, plate)
+      await completeVehicleRentalApi(key, plate, rentalKey)
     } catch (err) {
       console.warn('Complete rental API failed; local state updated', err)
+      throw err
     }
   }, [])
 

@@ -216,14 +216,29 @@ export async function deleteVehicle(id) {
 }
 
 /** Mark active rental(s) for a vehicle completed and set fleet status Available. */
-export async function completeVehicleRental(vehicleId, plateNo = '') {
+export async function completeVehicleRental(vehicleId, plateNo = '', rentalId = '') {
   const sb = requireSupabase()
   const key = String(vehicleId || '').trim()
   const plate = String(plateNo || '').trim().toUpperCase()
-  if (!key && !plate) throw new Error('Vehicle id is required')
+  const rentalKey = String(rentalId || '').trim()
+  if (!key && !plate && !rentalKey) throw new Error('Vehicle id is required')
   const now = new Date().toISOString()
 
   let completedRentals = []
+
+  if (rentalKey) {
+    const { data: byId, error: byIdErr } = await sb
+      .from('rentals')
+      .update({
+        rental_lifecycle: 'completed',
+        completed_at: now,
+        updated_at: now,
+      })
+      .eq('id', rentalKey)
+      .select('*')
+    if (byIdErr) throwSb(byIdErr)
+    completedRentals = byId || []
+  }
 
   if (key) {
     const { data: updatedRentals, error: rentalErr } = await sb
@@ -237,7 +252,10 @@ export async function completeVehicleRental(vehicleId, plateNo = '') {
       .eq('vehicle_id', key)
       .select('*')
     if (rentalErr) throwSb(rentalErr)
-    completedRentals = updatedRentals || []
+    const seen = new Set(completedRentals.map((r) => String(r.id)))
+    for (const row of updatedRentals || []) {
+      if (!seen.has(String(row.id))) completedRentals.push(row)
+    }
   }
 
   // Complete any other active rows for this vehicle id (JSON) or same plate.
@@ -251,6 +269,7 @@ export async function completeVehicleRental(vehicleId, plateNo = '') {
   const extraIds = (activeRows || [])
     .filter((row) => {
       if (doneIds.has(String(row.id))) return false
+      if (rentalKey && String(row.id) === rentalKey) return true
       if (key && String(row.vehicle_id || row.vehicle?.id || '') === key) return true
       if (plate) {
         const rowPlate = String(row.vehicle?.plateNo || row.vehicle?.plate_no || '')
@@ -276,11 +295,18 @@ export async function completeVehicleRental(vehicleId, plateNo = '') {
     completedRentals = [...completedRentals, ...(extraUpdated || [])]
   }
 
-  if (key) {
+  const vehicleIdsToFree = new Set()
+  if (key) vehicleIdsToFree.add(key)
+  for (const row of completedRentals) {
+    const vid = String(row.vehicle_id || row.vehicle?.id || '').trim()
+    if (vid) vehicleIdsToFree.add(vid)
+  }
+
+  for (const vid of vehicleIdsToFree) {
     const { error: vehicleErr } = await sb
       .from('vehicles')
       .update({ status: 'Available', updated_at: now })
-      .eq('id', key)
+      .eq('id', vid)
     if (vehicleErr) throwSb(vehicleErr)
   }
 

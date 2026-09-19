@@ -573,6 +573,11 @@ export default function TransactionPage({
     applyDraftPhotos({ ...carPhotos, extras })
   }
 
+  const removeSlot = (slotKey) => {
+    if (!canEditCarPhotos || !slotKey) return
+    applyDraftPhotos({ ...carPhotos, [slotKey]: '' })
+  }
+
   return (
     <section className="transaction-page">
       <div className="transaction-toolbar">
@@ -749,6 +754,16 @@ export default function TransactionPage({
                     <div className="transaction-photo-empty">No {slot.label.toLowerCase()} photo</div>
                   )}
                   <figcaption>{slot.label}</figcaption>
+                  {canEditCarPhotos && preview ? (
+                    <button
+                      type="button"
+                      className="btn-ghost btn-sm transaction-photo-remove"
+                      disabled={Boolean(photoBusy)}
+                      onClick={() => removeSlot(slot.key)}
+                    >
+                      Remove
+                    </button>
+                  ) : null}
                   {canEditCarPhotos && empty ? (
                     <input
                       ref={(el) => {

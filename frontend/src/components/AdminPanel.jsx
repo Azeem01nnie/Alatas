@@ -1664,15 +1664,16 @@ export default function AdminPanel() {
     })
   }
 
-  const requestRentCompleted = (vehicle) => {
+  const requestRentCompleted = (vehicle, rental = null) => {
     if (!isAdminUser) return
     setConfirm({
       type: 'complete-rental',
       title: 'Mark rent as completed?',
       message: `Confirm that the rental for ${vehicle.make} — ${vehicle.series} (${vehicle.plateNo}) is completed? The vehicle will be set back to Available.`,
       confirmLabel: 'Rent Completed',
-      vehicleId: vehicle.id,
-      plateNo: vehicle.plateNo || '',
+      vehicleId: vehicle?.id || rental?.vehicleId || rental?.vehicle?.id || '',
+      plateNo: vehicle?.plateNo || rental?.vehicle?.plateNo || '',
+      rentalId: rental?.id || '',
     })
   }
 
@@ -1832,7 +1833,14 @@ export default function AdminPanel() {
       updateVehicleStatus(confirm.vehicleId, confirm.status)
     }
     if (confirm.type === 'complete-rental') {
-      void completeRentalForVehicle(confirm.vehicleId, confirm.plateNo)
+      try {
+        await completeRentalForVehicle(confirm.vehicleId, confirm.plateNo, confirm.rentalId)
+        setMessage('Rental marked completed.')
+        setTimeout(() => setMessage(''), 2500)
+      } catch (err) {
+        setMessage(err?.message || 'Could not complete rental. Try again.')
+        setTimeout(() => setMessage(''), 4000)
+      }
     }
     if (confirm.type === 'cancel-rental') {
       cancelScheduledRental(confirm.rentalId)
@@ -2345,7 +2353,7 @@ export default function AdminPanel() {
                                   <button
                                     type="button"
                                     className="btn-outline btn-sm"
-                                    onClick={() => requestRentCompleted(vehicle)}
+                                    onClick={() => requestRentCompleted(vehicle, rental)}
                                   >
                                     Complete
                                   </button>
