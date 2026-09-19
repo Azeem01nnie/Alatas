@@ -524,7 +524,10 @@ export default function TransactionPage({
   }, [])
 
   const optionalPhoto = personal?.optionalPhoto || ''
-  const sessionPhotographer = String(addedByName || '').trim()
+  const sessionPhotographer =
+    String(addedByName || '').trim() ||
+    String(transaction.encodedBy || '').trim() ||
+    'Staff'
   const photographer = collectPhotographerCredits(
     carPhotos,
     transaction.carPhotosAddedBy || sessionPhotographer,
@@ -552,7 +555,7 @@ export default function TransactionPage({
     )
     const stamped = {
       ...nextPhotos,
-      ...(mergedCredit ? { _addedBy: mergedCredit } : {}),
+      _addedBy: mergedCredit || sessionPhotographer,
     }
     setCarPhotos(stamped)
     setPhotoDirty(true)
@@ -562,6 +565,7 @@ export default function TransactionPage({
 
   const persistCarPhotos = async () => {
     if (!canEditCarPhotos || typeof onSaveCarPhotos !== 'function') return
+    // Saver gets credit — always include the signed-in user who pressed Save.
     const mergedCredit = mergePhotographerCredits(
       transaction.carPhotosAddedBy,
       carPhotos?._addedBy,
@@ -570,7 +574,7 @@ export default function TransactionPage({
     )
     const stamped = {
       ...carPhotos,
-      ...(mergedCredit ? { _addedBy: mergedCredit } : {}),
+      _addedBy: mergedCredit || sessionPhotographer,
     }
     setPhotoBusy('save')
     setPhotoError('')
@@ -578,10 +582,15 @@ export default function TransactionPage({
     try {
       const saved = await onSaveCarPhotos(transaction.id, stamped, sessionPhotographer)
       const next = normalizeCarPhotos(saved?.carPhotos || stamped)
+      if (!next._addedBy && (saved?.carPhotosAddedBy || sessionPhotographer)) {
+        next._addedBy = saved?.carPhotosAddedBy || sessionPhotographer
+      }
       setCarPhotos(next)
       setPhotoDirty(false)
       setSaveConfirmOpen(false)
-      setPhotoSuccess('Photos saved. They will stay after refresh.')
+      setPhotoSuccess(
+        `Photos saved${sessionPhotographer ? ` · Taken by: ${sessionPhotographer}` : ''}. They will stay after refresh.`,
+      )
     } catch (err) {
       setPhotoError(err?.message || 'Could not save car photos.')
       setSaveConfirmOpen(false)
@@ -1073,7 +1082,7 @@ export default function TransactionPage({
       {saveConfirmOpen ? (
         <ConfirmModal
           title="Save vehicle photos?"
-          message={`This photo is taken by ${sessionPhotographer || photographer || 'the current user'}. Do you want to save it?`}
+          message={`This photo is taken by ${sessionPhotographer}. Do you want to save it?`}
           confirmLabel={photoBusy === 'save' ? 'Saving…' : 'Yes, save'}
           cancelLabel="Cancel"
           confirmDisabled={photoBusy === 'save'}

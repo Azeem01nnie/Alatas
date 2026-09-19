@@ -391,10 +391,22 @@ function countCarPhotoEntries(carPhotos) {
   return n
 }
 
-async function dataUrlToBlob(dataUrl) {
-  const res = await fetch(dataUrl)
-  if (!res.ok) throw new Error('Could not read image data')
-  return res.blob()
+function dataUrlToBlob(dataUrl) {
+  const raw = String(dataUrl || '')
+  const match = raw.match(/^data:([^;,]+)?((?:;[^;,]*)*);base64,(.*)$/i)
+  if (!match) {
+    // Non-base64 data URLs (rare) — decode without fetch (CSP blocks fetch(data:)).
+    const plain = raw.match(/^data:([^;,]+)?,(.*)$/i)
+    if (!plain) throw new Error('Could not read image data')
+    const mime = plain[1] || 'image/jpeg'
+    return new Blob([decodeURIComponent(plain[2] || '')], { type: mime })
+  }
+  const mime = match[1] || 'image/jpeg'
+  const base64 = match[3] || ''
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+  return new Blob([bytes], { type: mime })
 }
 
 /** Upload a data-URL image into the public `rentals` bucket; return a stable public URL. */
@@ -403,7 +415,7 @@ async function uploadRentalImage(rentalId, fileKey, dataUrl) {
   if (!dataUrl.startsWith('data:')) return dataUrl
 
   const sb = requireSupabase()
-  const blob = await dataUrlToBlob(dataUrl)
+  const blob = dataUrlToBlob(dataUrl)
   const ext = (blob.type || '').includes('png') ? 'png' : 'jpg'
   const safeKey = String(fileKey || 'photo').replace(/[^\w\-]+/g, '_').slice(0, 40)
   const path = `${String(rentalId)}/${safeKey}-${Date.now()}.${ext}`
@@ -424,9 +436,19 @@ async function materializeCarPhotos(rentalId, carPhotos) {
     carPhotos && typeof carPhotos === 'object' && !Array.isArray(carPhotos) ? carPhotos : {}
   const out = { ...source }
 
+  const safeUpload = async (fileKey, dataUrl) => {
+    if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) return dataUrl || ''
+    try {
+      return await uploadRentalImage(rentalId, fileKey, dataUrl)
+    } catch (err) {
+      console.warn(`Car photo upload failed for ${fileKey}; keeping local image`, err)
+      return dataUrl
+    }
+  }
+
   for (const key of ['front', 'rear', 'left', 'right']) {
     if (typeof out[key] === 'string' && out[key].startsWith('data:')) {
-      out[key] = await uploadRentalImage(rentalId, key, out[key])
+      out[key] = await safeUpload(key, out[key])
     }
   }
 
@@ -435,7 +457,7 @@ async function materializeCarPhotos(rentalId, carPhotos) {
       out.extras.map(async (item, index) => {
         if (!item || typeof item !== 'object') return item
         if (typeof item.uri !== 'string' || !item.uri.startsWith('data:')) return item
-        const uri = await uploadRentalImage(rentalId, `extra-${item.id || index}`, item.uri)
+        const uri = await safeUpload(`extra-${item.id || index}`, item.uri)
         return { ...item, uri }
       }),
     )

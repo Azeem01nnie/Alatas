@@ -1160,8 +1160,10 @@ export default function AdminPanel() {
   )
   const sessionDisplayName =
     sessionUser?.displayName ||
-    (isAdminUser ? profile.displayName : sessionUser?.username) ||
-    profile.displayName
+    sessionUser?.username ||
+    (isAdminUser ? profile.displayName : '') ||
+    profile.displayName ||
+    (isAdminUser ? 'Admin' : 'Employee')
 
   useEffect(() => {
     if (!authed) return
@@ -2273,7 +2275,12 @@ export default function AdminPanel() {
               }
               onBack={closeTransaction}
               canEditCarPhotos
-              addedByName={sessionDisplayName}
+              addedByName={
+                String(
+                  sessionDisplayName ||
+                    (isAdminUser ? profile.displayName || 'Admin' : sessionUser?.username || 'Employee'),
+                ).trim()
+              }
               onSaveCarPhotos={handleSaveTransactionCarPhotos}
             />
           ) : (
