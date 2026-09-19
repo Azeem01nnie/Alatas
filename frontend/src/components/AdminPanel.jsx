@@ -649,6 +649,7 @@ export default function AdminPanel() {
   const [securityNotice, setSecurityNotice] = useState('')
   const [securityControlsOpen, setSecurityControlsOpen] = useState(false)
   const [loginAuditOpen, setLoginAuditOpen] = useState(true)
+  const [cloudConnectionOpen, setCloudConnectionOpen] = useState(false)
   const [loginAuditPage, setLoginAuditPage] = useState(1)
   const [selectedTransaction, setSelectedTransaction] = useState(null)
   const [transactionReturnTab, setTransactionReturnTab] = useState('history')
@@ -3759,70 +3760,91 @@ export default function AdminPanel() {
                       )}
                     </article>
 
-                    <article className="settings-card settings-cloud-card">
-                      <div className="settings-card-head">
-                        <h4 className="settings-card-title">Cloud connection</h4>
-                        <p className="settings-card-copy">
-                          {describeCloudConnection()} Push local changes to Render, then pull
-                          mobile submissions into this desk.
-                        </p>
-                      </div>
-
-                      <ul className="settings-cloud-status">
-                        <li>
-                          <strong>Local API</strong>
-                          <span>{loadError ? 'Unavailable' : 'Running (offline-capable)'}</span>
-                        </li>
-                        <li>
-                          <strong>Internet</strong>
-                          <span
-                            className={`conn-status compact${online ? ' is-online' : ' is-offline'}`}
-                          >
-                            <span className="conn-status-dot" aria-hidden="true" />
-                            <span className="conn-status-label">
-                              {online ? 'Online' : 'Offline'}
-                            </span>
-                          </span>
-                        </li>
-                        <li>
-                          <strong>Cloud URL configured</strong>
-                          <span>{isCloudConfigured() ? 'Yes' : 'Not yet'}</span>
-                        </li>
-                        <li>
-                          <strong>Cloud sync enabled</strong>
-                          <span>
-                            {CLOUD_SYNC_ENABLED
-                              ? 'Yes'
-                              : 'No — set VITE_CLOUD_SYNC_ENABLED=true'}
-                          </span>
-                        </li>
-                        <li>
-                          <strong>Pending sync queue</strong>
-                          <span>{systemStatus?.pendingSyncCount ?? '—'}</span>
-                        </li>
-                        <li>
-                          <strong>Waiting for approval</strong>
-                          <span>
-                            {systemStatus?.pendingApprovalCount ?? pendingApprovalCount}
-                          </span>
-                        </li>
-                      </ul>
-
-                      <div className="settings-cloud-actions">
-                        <button
-                          type="button"
-                          className="btn-primary"
-                          disabled={syncBusy || !online || !CLOUD_SYNC_ENABLED}
-                          onClick={() => void handleCloudSync()}
-                        >
-                          {syncBusy ? 'Syncing…' : 'Sync now'}
-                        </button>
-                        {syncMessage && (
-                          <p className="settings-data-message" role="status">
-                            {syncMessage}
+                    <article
+                      className={`settings-card settings-cloud-card${cloudConnectionOpen ? ' is-open' : ''}`}
+                    >
+                      <button
+                        type="button"
+                        className="settings-collapse-toggle"
+                        aria-expanded={cloudConnectionOpen}
+                        onClick={() => setCloudConnectionOpen((v) => !v)}
+                      >
+                        <span className="settings-card-head">
+                          <h4 className="settings-card-title">Cloud connection</h4>
+                          <p className="settings-card-copy">
+                            {describeCloudConnection()} Push local changes to Render, then pull
+                            mobile submissions into this desk.
                           </p>
-                        )}
-                      </div>
+                        </span>
+                        <span
+                          className={`settings-collapse-chevron${cloudConnectionOpen ? ' is-open' : ''}`}
+                          aria-hidden="true"
+                        >
+                          ▾
+                        </span>
+                      </button>
+
+                      {cloudConnectionOpen && (
+                        <div className="settings-collapse-body">
+                          <ul className="settings-cloud-status">
+                            <li>
+                              <strong>Local API</strong>
+                              <span>
+                                {loadError ? 'Unavailable' : 'Running (offline-capable)'}
+                              </span>
+                            </li>
+                            <li>
+                              <strong>Internet</strong>
+                              <span
+                                className={`conn-status compact${online ? ' is-online' : ' is-offline'}`}
+                              >
+                                <span className="conn-status-dot" aria-hidden="true" />
+                                <span className="conn-status-label">
+                                  {online ? 'Online' : 'Offline'}
+                                </span>
+                              </span>
+                            </li>
+                            <li>
+                              <strong>Cloud URL configured</strong>
+                              <span>{isCloudConfigured() ? 'Yes' : 'Not yet'}</span>
+                            </li>
+                            <li>
+                              <strong>Cloud sync enabled</strong>
+                              <span>
+                                {CLOUD_SYNC_ENABLED
+                                  ? 'Yes'
+                                  : 'No — set VITE_CLOUD_SYNC_ENABLED=true'}
+                              </span>
+                            </li>
+                            <li>
+                              <strong>Pending sync queue</strong>
+                              <span>{systemStatus?.pendingSyncCount ?? '—'}</span>
+                            </li>
+                            <li>
+                              <strong>Waiting for approval</strong>
+                              <span>
+                                {systemStatus?.pendingApprovalCount ?? pendingApprovalCount}
+                              </span>
+                            </li>
+                          </ul>
+
+                          <div className="settings-cloud-actions">
+                            <button
+                              type="button"
+                              className="btn-primary"
+                              disabled={syncBusy || !online || !CLOUD_SYNC_ENABLED}
+                              onClick={() => void handleCloudSync()}
+                            >
+                              {syncBusy ? 'Syncing…' : 'Sync now'}
+                            </button>
+                            {syncMessage && (
+                              <p className="settings-data-message" role="status">
+                                {syncMessage}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </article>
                   </div>
                 </section>
