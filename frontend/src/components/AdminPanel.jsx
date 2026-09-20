@@ -1655,12 +1655,11 @@ export default function AdminPanel() {
 
   const validateFields = (data) => {
     const next = {}
-    ;['make', 'series', 'bodyType', 'engineNo', 'chassisNo'].forEach((key) => {
+    ;['make', 'series', 'bodyType'].forEach((key) => {
         if (!String(data[key] || '').trim()) next[key] = 'Required'
     })
     const plate = sanitizePlateNo(data.plateNo)
-    if (!plate) next.plateNo = 'Required'
-    else if (plate.length > PLATE_MAX) next.plateNo = `Max ${PLATE_MAX} characters`
+    if (plate.length > PLATE_MAX) next.plateNo = `Max ${PLATE_MAX} characters`
     if (!String(data.seats || '').trim() || Number(data.seats) <= 0) {
       next.seats = 'Required'
     }
@@ -4342,7 +4341,7 @@ function VehicleFields({
         )}
       </label>
       <label className="field">
-        <span className="field-label">Plate No. *</span>
+        <span className="field-label">Plate No.</span>
         <input
           type="text"
           value={data.plateNo}
@@ -4356,7 +4355,7 @@ function VehicleFields({
         {errors.plateNo && <span className="error-msg">{errors.plateNo}</span>}
       </label>
       <label className="field">
-        <span className="field-label">Engine No. *</span>
+        <span className="field-label">Engine No.</span>
         <input
           type="text"
           value={data.engineNo}
@@ -4368,7 +4367,7 @@ function VehicleFields({
         {errors.engineNo && <span className="error-msg">{errors.engineNo}</span>}
       </label>
       <label className="field">
-        <span className="field-label">Chassis No. *</span>
+        <span className="field-label">Chassis No.</span>
         <input
           type="text"
           value={data.chassisNo}
