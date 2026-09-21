@@ -1668,13 +1668,18 @@ export default function AdminPanel() {
     if (!String(data.ownerId || '').trim() && !String(data.ownerName || '').trim()) {
       next.ownerId = 'Owner is required'
     }
-    ;['hrs5', 'hrs12', 'hrs24', 'exceedHour'].forEach((key) => {
+    ;['hrs5', 'hrs12', 'hrs24'].forEach((key) => {
       const raw = String(data[key] ?? '').replace(/[^\d.]/g, '')
       const n = Number(raw)
       if (raw === '' || Number.isNaN(n) || n < 0) {
         next[key] = 'Required'
       }
     })
+    const exceedRaw = String(data.exceedHour ?? '').replace(/[^\d.]/g, '')
+    if (exceedRaw !== '') {
+      const n = Number(exceedRaw)
+      if (Number.isNaN(n) || n < 0) next.exceedHour = 'Invalid amount'
+    }
     return next
   }
 
@@ -4414,7 +4419,7 @@ function VehicleFields({
         {errors.hrs24 && <span className="error-msg">{errors.hrs24}</span>}
       </label>
       <label className="field">
-        <span className="field-label">Exceeding / hour *</span>
+        <span className="field-label">Exceeding / hour</span>
         <RatePesoInput
           value={data.exceedHour}
           onChange={(v) => onChange('exceedHour', v)}
