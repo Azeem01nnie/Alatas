@@ -17,6 +17,7 @@ import {
   completeVehicleRental as completeVehicleRentalApi,
   reconcileDuplicateOpenRentals as reconcileDuplicateOpenRentalsApi,
 } from '../api/backend'
+import { isSupabaseConfigured, requireSupabase } from '../api/supabaseClient'
 
 const VehicleContext = createContext(null)
 
@@ -88,8 +89,11 @@ export function VehicleProvider({ children }) {
 
   useEffect(() => {
     let mounted = true
+    let loadGen = 0
+    let authSub = null
 
     async function loadInitialData() {
+      const gen = ++loadGen
       try {
         await flushOfflineQueue({
           vehicles: (payload) => apiReplaceVehicles(payload, { prune: false }),
@@ -102,26 +106,26 @@ export function VehicleProvider({ children }) {
           loadVehicles(),
           loadRentals(),
         ])
+        if (!mounted || gen !== loadGen) return
 
         try {
           const healed = await reconcileDuplicateOpenRentalsApi()
           if (healed?.closed > 0) {
             const refreshed = await loadRentals()
-            if (mounted) {
-              setVehicles(Array.isArray(vehiclesData) ? vehiclesData : [])
-              setRentals(
-                Array.isArray(refreshed) ? refreshed.map(normalizeRental) : [],
-              )
-              hasLoaded.current = true
-              setLoadError(null)
-              return
-            }
+            if (!mounted || gen !== loadGen) return
+            setVehicles(Array.isArray(vehiclesData) ? vehiclesData : [])
+            setRentals(
+              Array.isArray(refreshed) ? refreshed.map(normalizeRental) : [],
+            )
+            hasLoaded.current = true
+            setLoadError(null)
+            return
           }
         } catch (healErr) {
           console.warn('Duplicate rental reconcile skipped', healErr)
         }
 
-        if (!mounted) return
+        if (!mounted || gen !== loadGen) return
         setVehicles(Array.isArray(vehiclesData) ? vehiclesData : [])
         setRentals(
           Array.isArray(rentalsData)
@@ -132,19 +136,59 @@ export function VehicleProvider({ children }) {
         setLoadError(null)
       } catch (err) {
         console.warn('Initial data load failed', err)
-        if (mounted) {
+        if (mounted && gen === loadGen) {
           setLoadError(err?.message || 'Could not load fleet data from the server.')
           // Do not mark hasLoaded — empty state must not autosave and wipe SQLite
         }
       } finally {
-        if (mounted) setReady(true)
+        if (mounted && gen === loadGen) setReady(true)
       }
     }
 
-    loadInitialData()
+    async function start() {
+      if (!isSupabaseConfigured) {
+        await loadInitialData()
+        return
+      }
+
+      const sb = requireSupabase()
+      const {
+        data: { session },
+      } = await sb.auth.getSession()
+      if (!mounted) return
+
+      if (session) {
+        await loadInitialData()
+      } else {
+        // RLS requires auth — stay empty until SIGNED_IN, don't treat as loaded.
+        setReady(true)
+        setLoadError(null)
+      }
+
+      const { data } = sb.auth.onAuthStateChange((event, nextSession) => {
+        if (!mounted) return
+        if (event === 'SIGNED_IN' && nextSession) {
+          void loadInitialData()
+        }
+        if (event === 'SIGNED_OUT') {
+          loadGen += 1
+          hasLoaded.current = false
+          skipVehicleAutosave.current = true
+          skipRentalAutosave.current = true
+          setVehicles([])
+          setRentals([])
+          setLoadError(null)
+          setReady(true)
+        }
+      })
+      authSub = data?.subscription
+    }
+
+    void start()
 
     return () => {
       mounted = false
+      authSub?.unsubscribe?.()
     }
   }, [])
 

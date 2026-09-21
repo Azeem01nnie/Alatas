@@ -2069,6 +2069,9 @@ export default function AdminPanel() {
             setTab('dashboard')
             setSelectedTransaction(null)
             setAuthed(true)
+            void reloadData().catch((err) => {
+              console.warn('Post-login fleet reload failed', err)
+            })
           }}
         />
       </div>
@@ -2145,7 +2148,7 @@ export default function AdminPanel() {
           {message && <span className="admin-success">{message}</span>}
             {loadError && (
               <span className="admin-load-error" role="alert">
-                Server unavailable — fleet data not loaded. Start the API and refresh.
+                Could not load fleet from Supabase — {loadError}
               </span>
             )}
             <span
