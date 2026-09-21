@@ -16,13 +16,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Eye, EyeOff } from 'lucide-react-native';
 import { useAuth } from '../src/context/AuthContext';
-import { authenticateEmployee } from '../src/api/employees';
-
-const ADMIN_USER = 'alatas';
-const ADMIN_PASS = 'Alatas@2026';
 
 export default function AdminLogin() {
-  const { login } = useAuth();
+  const { loginWithPassword } = useAuth();
   const scrollRef = useRef(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -59,43 +55,12 @@ export default function AdminLogin() {
     setLoading(true);
     Keyboard.dismiss();
 
-    const trimmed = username.trim();
-
     try {
-      try {
-        const employee = await authenticateEmployee(trimmed, password);
-        if (employee?.id) {
-          await login('employee', trimmed, {
-            displayName: employee.name || 'Employee',
-            employeeId: employee.id,
-            employeeRole: employee.role,
-          });
-          setLoading(false);
-          return;
-        }
-      } catch (authErr) {
-        if (authErr?.status && authErr.status !== 401) {
-          console.warn('Employee auth unavailable:', authErr?.message || authErr);
-        }
-      }
-
-      if (trimmed === ADMIN_USER && password === ADMIN_PASS) {
-        await login('admin', trimmed);
-        setLoading(false);
-        return;
-      }
-
-      if (trimmed === 'employee' && password === 'employee') {
-        await login('employee', trimmed, { displayName: 'Employee' });
-        setLoading(false);
-        return;
-      }
-
-      setError('Invalid username or password.');
+      await loginWithPassword(username, password);
       setLoading(false);
     } catch (err) {
       console.warn('Login failed:', err);
-      setError('Could not sign in. Check your connection and try again.');
+      setError(err?.message || 'Could not sign in. Check Supabase and try again.');
       setLoading(false);
     }
   };

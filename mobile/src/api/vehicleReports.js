@@ -1,36 +1,24 @@
-import { apiRequest, ApiError } from './client';
+import {
+  fetchVehicleReportsRemote,
+  saveVehicleReportsRemote,
+  patchVehicleReportEntries,
+} from './supabaseBackend'
 
-const EMPTY_STORE = { entries: [], submissions: [] };
-
-async function fetchVehicleReportsFromSyncPull() {
-  const pull = await apiRequest('/api/sync/pull?last_pulled_at=0');
-  const store = pull?.changes?.vehicleReports;
-  if (store && Array.isArray(store.entries)) {
-    return store;
-  }
-  return null;
-}
+const EMPTY_STORE = { entries: [], submissions: [] }
 
 export async function fetchVehicleReports() {
   try {
-    return await apiRequest('/api/vehicle-reports');
+    return await fetchVehicleReportsRemote()
   } catch (err) {
-    if (err instanceof ApiError && err.status === 404) {
-      try {
-        const fromSync = await fetchVehicleReportsFromSyncPull();
-        if (fromSync) return fromSync;
-      } catch {
-        /* older cloud deploy without sync fallback */
-      }
-      return { ...EMPTY_STORE, unavailable: true };
-    }
-    throw err;
+    console.warn('Vehicle reports load failed', err?.message || err)
+    return { ...EMPTY_STORE, unavailable: true }
   }
 }
 
 export function saveVehicleReports(store) {
-  return apiRequest('/api/vehicle-reports', {
-    method: 'PUT',
-    body: JSON.stringify(store),
-  });
+  return saveVehicleReportsRemote(store)
+}
+
+export function patchVehicleReports(vehicleId, entries) {
+  return patchVehicleReportEntries(vehicleId, entries)
 }

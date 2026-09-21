@@ -1,12 +1,17 @@
-import { apiRequest } from './client';
+import {
+  fetchVehicles as sbFetchVehicles,
+  replaceVehicles as sbReplaceVehicles,
+  deleteVehicle as sbDeleteVehicle,
+} from './supabaseBackend'
 
 export function fetchVehicles() {
-  return apiRequest('/api/vehicles');
+  return sbFetchVehicles()
 }
 
-export function replaceVehicles(vehicles) {
-  return apiRequest('/api/vehicles', {
-    method: 'PUT',
-    body: JSON.stringify(vehicles),
-  });
+export function replaceVehicles(vehicles, options = {}) {
+  return sbReplaceVehicles(vehicles, options)
+}
+
+export function deleteVehicle(id) {
+  return sbDeleteVehicle(id)
 }

@@ -1,99 +1,47 @@
-import { apiRequest } from './client';
+import {
+  fetchRentals as sbFetchRentals,
+  fetchPendingRentals as sbFetchPending,
+  submitPendingRental as sbSubmitPending,
+  acceptPendingRental as sbAccept,
+  rejectPendingRental as sbReject,
+  patchRentalCarPhotos,
+  addRental as sbAddRental,
+  completeVehicleRental as sbComplete,
+  replaceRentals as sbReplaceRentals,
+} from './supabaseBackend'
 
 export function fetchRentals() {
-  return apiRequest('/api/rentals');
+  return sbFetchRentals()
 }
 
 export function fetchPendingRentals() {
-  return apiRequest('/api/pending-rentals');
+  return sbFetchPending()
 }
 
 export function submitPendingRental(rental) {
-  return apiRequest('/api/rentals/pending', {
-    method: 'POST',
-    body: JSON.stringify(rental),
-  });
+  return sbSubmitPending(rental)
 }
 
 export function acceptPendingRental(id) {
-  return apiRequest(`/api/pending-rentals/${encodeURIComponent(id)}/accept`, {
-    method: 'POST',
-  });
+  return sbAccept(id)
 }
 
 export function rejectPendingRental(id, reason = '') {
-  return apiRequest(`/api/pending-rentals/${encodeURIComponent(id)}/reject`, {
-    method: 'POST',
-    body: JSON.stringify({ reason }),
-  });
+  return sbReject(id, reason)
 }
 
-export async function updateRentalCarPhotos(id, carPhotos, addedBy) {
-  try {
-    return await apiRequest(`/api/rentals/${encodeURIComponent(id)}/car-photos`, {
-      method: 'PATCH',
-      body: JSON.stringify({ carPhotos, addedBy }),
-    });
-  } catch (err) {
-    if (err?.status !== 404) throw err;
-  }
+export function updateRentalCarPhotos(id, carPhotos, addedBy) {
+  return patchRentalCarPhotos(id, carPhotos, addedBy)
+}
 
-  // Fallback for cloud/local servers that have not deployed the PATCH route yet.
-  const rentals = await fetchRentals();
-  const list = Array.isArray(rentals) ? [...rentals] : [];
-  const index = list.findIndex((r) => String(r.id) === String(id));
-  if (index === -1) {
-    throw new Error('Rental not found');
-  }
+export function addRental(rental) {
+  return sbAddRental(rental)
+}
 
-  const current = list[index];
-  const existingPhotos =
-    current.carPhotos && typeof current.carPhotos === 'object' ? current.carPhotos : {};
-  const mergedPhotos = { ...existingPhotos, ...carPhotos };
-  if (Array.isArray(carPhotos?.extras)) {
-    mergedPhotos.extras = carPhotos.extras;
-  }
-  const allComplete = ['front', 'rear', 'left', 'right'].every((key) => Boolean(mergedPhotos[key]));
-  const locked = ['front', 'rear', 'left', 'right'].every((key) => Boolean(existingPhotos[key]));
+export function completeVehicleRental(vehicleId, plateNo = '', rentalId = '') {
+  return sbComplete(vehicleId, plateNo, rentalId)
+}
 
-  if (locked) {
-    for (const key of ['front', 'rear', 'left', 'right']) {
-      if (
-        carPhotos &&
-        Object.prototype.hasOwnProperty.call(carPhotos, key) &&
-        carPhotos[key] &&
-        carPhotos[key] !== existingPhotos[key]
-      ) {
-        throw new Error('Required car photos are locked and cannot be changed');
-      }
-    }
-    // Keep required sides; only allow extras update when locked.
-    mergedPhotos.front = existingPhotos.front;
-    mergedPhotos.rear = existingPhotos.rear;
-    mergedPhotos.left = existingPhotos.left;
-    mergedPhotos.right = existingPhotos.right;
-    if (existingPhotos._addedBy) mergedPhotos._addedBy = existingPhotos._addedBy;
-  }
-
-  list[index] = {
-    ...current,
-    carPhotos: allComplete && addedBy ? { ...mergedPhotos, _addedBy: String(addedBy).trim() } : mergedPhotos,
-    carPhotosAddedBy: allComplete && addedBy ? String(addedBy).trim() : current.carPhotosAddedBy || mergedPhotos._addedBy || null,
-    updatedAt: new Date().toISOString(),
-  };
-
-  const saved = await apiRequest('/api/rentals', {
-    method: 'PUT',
-    body: JSON.stringify(list),
-  });
-
-  const updated = Array.isArray(saved)
-    ? saved.find((r) => String(r.id) === String(id))
-    : null;
-
-  if (!updated) {
-    throw new Error('Could not save car photos');
-  }
-
-  return updated;
+export function replaceRentals(rentals, options = {}) {
+  return sbReplaceRentals(rentals, options)
 }

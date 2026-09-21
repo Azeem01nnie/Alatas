@@ -11,7 +11,8 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://alatas-q5ks.onrender.com"
+        "EXPO_PUBLIC_USE_SUPABASE": "true",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://mgfhomzbykdcuidllysv.supabase.co"
       }
     },
     "preview": {
@@ -20,7 +21,8 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://alatas-q5ks.onrender.com"
+        "EXPO_PUBLIC_USE_SUPABASE": "true",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://mgfhomzbykdcuidllysv.supabase.co"
       }
     },
     "production": {
@@ -29,7 +31,8 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://alatas-q5ks.onrender.com"
+        "EXPO_PUBLIC_USE_SUPABASE": "true",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://mgfhomzbykdcuidllysv.supabase.co"
       }
     }
   },

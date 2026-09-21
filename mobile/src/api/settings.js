@@ -1,12 +1,22 @@
-import { apiRequest } from './client';
+import {
+  fetchAdminProfile as sbFetch,
+  saveAdminProfileRemote as sbSave,
+  clearAllAppData,
+  fetchSystemStatus,
+} from './supabaseBackend'
 
 export function fetchAdminProfile() {
-  return apiRequest('/api/settings/admin-profile');
+  return sbFetch()
 }
 
 export function saveAdminProfile(profile) {
-  return apiRequest('/api/settings/admin-profile', {
-    method: 'PUT',
-    body: JSON.stringify(profile),
-  });
+  return sbSave(profile)
+}
+
+export function clearAppData() {
+  return clearAllAppData()
+}
+
+export function getSystemStatus() {
+  return fetchSystemStatus()
 }

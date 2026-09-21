@@ -128,9 +128,9 @@ export default function AdminDashboardScreen() {
                 key={log.id}
                 style={[styles.recentCard, styles.waitingCard, { backgroundColor: theme.card, borderColor: '#d97706' }]}
                 onPress={() =>
-                  navigation.navigate('Logs', {
-                    openRentalId: log.rental?.id || log.id,
-                    filter: 'Waiting for approval',
+                  navigation.navigate('RentalDetail', {
+                    rentalId: log.rental?.id || log.id,
+                    rental: log.rental,
                   })
                 }
               >

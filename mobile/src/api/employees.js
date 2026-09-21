@@ -1,32 +1,27 @@
-import { apiRequest } from './client';
+import {
+  fetchEmployees as sbFetch,
+  createEmployee as sbCreate,
+  updateEmployee as sbUpdate,
+  deleteEmployee as sbDelete,
+  authenticateEmployee as sbAuth,
+} from './supabaseBackend'
 
 export function fetchEmployees() {
-  return apiRequest('/api/employees');
+  return sbFetch()
 }
 
 export function createEmployee(employee) {
-  return apiRequest('/api/employees', {
-    method: 'POST',
-    body: JSON.stringify(employee),
-  });
+  return sbCreate(employee)
 }
 
 export function updateEmployee(id, patch) {
-  return apiRequest(`/api/employees/${encodeURIComponent(id)}`, {
-    method: 'PATCH',
-    body: JSON.stringify(patch),
-  });
+  return sbUpdate(id, patch)
 }
 
 export function deleteEmployee(id) {
-  return apiRequest(`/api/employees/${encodeURIComponent(id)}`, {
-    method: 'DELETE',
-  });
+  return sbDelete(id)
 }
 
 export function authenticateEmployee(username, password) {
-  return apiRequest('/api/employees/auth', {
-    method: 'POST',
-    body: JSON.stringify({ username, password }),
-  });
+  return sbAuth(username, password)
 }

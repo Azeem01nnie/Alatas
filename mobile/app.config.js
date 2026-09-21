@@ -1,10 +1,14 @@
 export default ({ config }) => {
+  const supabaseUrl = (process.env.EXPO_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '')
+  const useSupabase = process.env.EXPO_PUBLIC_USE_SUPABASE === 'true'
+
   const cloudUrl = (
     process.env.EXPO_PUBLIC_API_URL || 'https://alatas-q5ks.onrender.com'
   ).replace(/\/$/, '')
 
-  const apiUrl =
-    process.env.EXPO_PUBLIC_USE_CLOUD === 'true'
+  const apiUrl = useSupabase
+    ? supabaseUrl || 'supabase'
+    : process.env.EXPO_PUBLIC_USE_CLOUD === 'true'
       ? cloudUrl
       : (
           process.env.EXPO_PUBLIC_DEV_API_URL ||
@@ -19,9 +23,10 @@ export default ({ config }) => {
     extra: {
       ...config.extra,
       apiUrl,
+      useSupabase,
+      supabaseUrl,
       eas: {
         ...(config.extra?.eas || {}),
-        // Filled by `eas init` / `eas build` when linked to an Expo project
         projectId: config.extra?.eas?.projectId || process.env.EAS_PROJECT_ID || '',
       },
     },
