@@ -45,6 +45,30 @@ export function loadLocalLoginAudit() {
   }
 }
 
+/** Wipe local + remote login audit history (keeps recording new attempts). */
+export async function clearLoginAudit() {
+  saveLocalLoginAudit([])
+  if (!isSupabaseConfigured) return []
+
+  try {
+    const sb = requireSupabase()
+    await sb.from('app_settings').upsert({
+      key: REMOTE_KEY,
+      value: { entries: [] },
+      updated_at: new Date().toISOString(),
+    })
+    try {
+      await sb.from('audit_logs').delete().eq('event_type', 'login')
+    } catch {
+      /* table may not exist / RLS may block */
+    }
+  } catch (err) {
+    console.warn('Could not clear remote login audit', err?.message || err)
+  }
+
+  return []
+}
+
 function saveLocalLoginAudit(entries) {
   const next = (Array.isArray(entries) ? entries : []).slice(0, MAX_LOCAL)
   safeSetItem(LOCAL_AUDIT_KEY, JSON.stringify(next))

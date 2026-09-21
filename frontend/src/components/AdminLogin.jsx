@@ -6,7 +6,6 @@ import {
   clearCsrfToken,
   ensureCsrfToken,
   getDeviceFingerprint,
-  getTransportLabel,
   isSuspiciousLogin,
   rememberFingerprint,
   sanitizeUsername,
@@ -186,7 +185,6 @@ export default function AdminLogin({ onSuccess }) {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [loading, setLoading] = useState(false)
-  const transport = getTransportLabel()
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -278,14 +276,6 @@ export default function AdminLogin({ onSuccess }) {
       <div className="login-copy">
         <h1>Sign in</h1>
         <p>Admin and employee access to the fleet desk.</p>
-        <p
-          className={`login-https-badge${transport.secure ? ' is-secure' : ' is-insecure'}`}
-          role="status"
-        >
-          <span className="login-https-dot" aria-hidden="true" />
-          {transport.secure ? 'Secure HTTPS authentication' : 'Insecure connection'}
-          <span className="login-https-detail"> — {transport.label}</span>
-        </p>
       </div>
 
       {loading ? (

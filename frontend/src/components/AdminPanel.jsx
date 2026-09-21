@@ -49,7 +49,7 @@ import { fetchSystemStatus, runCloudSync, saveAdminProfileRemote, clearAllAppDat
 import { CLOUD_SYNC_ENABLED, isCloudConfigured } from '../api/cloudSync'
 import { describeCloudConnection } from '../config/cloudConnection'
 import { useConnectivity } from '../hooks/useConnectivity'
-import { fetchLoginAudit, formatAuditRole, formatAuditStatus } from '../utils/loginAudit'
+import { clearLoginAudit, fetchLoginAudit, formatAuditRole, formatAuditStatus } from '../utils/loginAudit'
 import {
   assertSameOriginRequest,
   ensureCsrfToken,
@@ -648,7 +648,7 @@ export default function AdminPanel() {
   const [loginAuditBusy, setLoginAuditBusy] = useState(false)
   const [securityNotice, setSecurityNotice] = useState('')
   const [securityControlsOpen, setSecurityControlsOpen] = useState(false)
-  const [loginAuditOpen, setLoginAuditOpen] = useState(true)
+  const [loginAuditOpen, setLoginAuditOpen] = useState(false)
   const [cloudConnectionOpen, setCloudConnectionOpen] = useState(false)
   const [loginAuditPage, setLoginAuditPage] = useState(1)
   const [selectedTransaction, setSelectedTransaction] = useState(null)
@@ -1130,13 +1130,21 @@ export default function AdminPanel() {
     if (!authed || tab !== 'settings') return
     let mounted = true
     setLoginAuditBusy(true)
-    fetchLoginAudit()
-      .then((rows) => {
+    ;(async () => {
+      try {
+        const wipeKey = 'alatas-login-audit-wiped-v1'
+        if (typeof localStorage !== 'undefined' && !localStorage.getItem(wipeKey)) {
+          await clearLoginAudit()
+          localStorage.setItem(wipeKey, '1')
+          if (mounted) setLoginAudit([])
+          return
+        }
+        const rows = await fetchLoginAudit()
         if (mounted) setLoginAudit(rows)
-      })
-      .finally(() => {
+      } finally {
         if (mounted) setLoginAuditBusy(false)
-      })
+      }
+    })()
     return () => {
       mounted = false
     }
