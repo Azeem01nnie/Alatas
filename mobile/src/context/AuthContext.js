@@ -11,7 +11,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { isSupabaseConfigured, requireSupabase } from '../api/supabaseClient'
 import { fetchAdminProfile, saveAdminProfile } from '../api/settings'
 import { sanitizeUsername } from '../utils/security'
-import { loadBiometricEnrollment, promptBiometrics, saveBiometricEnrollment } from '../utils/biometrics'
+import {
+  clearBiometricSessionVault,
+  loadBiometricEnrollment,
+  loadBiometricSessionVault,
+  promptBiometrics,
+  saveBiometricEnrollment,
+  saveBiometricSessionVault,
+} from '../utils/biometrics'
 
 const AuthContext = createContext(null)
 const PROFILE_KEY = 'alatas-mobile-display-name'
@@ -74,6 +81,20 @@ async function resolveSessionUser(sb, usernameInput) {
   }
 }
 
+async function persistSessionUser(sessionUser) {
+  await AsyncStorage.setItem(profileKeyFor(sessionUser.role), sessionUser.displayName)
+  await AsyncStorage.setItem(SESSION_USER_KEY, JSON.stringify(sessionUser))
+}
+
+async function vaultCurrentSession(sb) {
+  const enrollment = await loadBiometricEnrollment()
+  if (!enrollment?.enabled) return
+  const {
+    data: { session },
+  } = await sb.auth.getSession()
+  if (session) await saveBiometricSessionVault(session)
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [bootstrapping, setBootstrapping] = useState(true)
@@ -94,13 +115,15 @@ export function AuthProvider({ children }) {
           data: { session },
         } = await sb.auth.getSession()
         if (!mounted) return
+
+        const bio = await loadBiometricEnrollment()
+        // Biometrics enrolled → always require fingerprint/Face ID (many sessions).
+        if (bio?.enabled) {
+          if (mounted) setBootstrapping(false)
+          return
+        }
+
         if (session?.user) {
-          const bio = await loadBiometricEnrollment()
-          // If biometrics are enrolled, stay on login until fingerprint/Face ID unlock.
-          if (bio?.enabled) {
-            if (mounted) setBootstrapping(false)
-            return
-          }
           const cached = await AsyncStorage.getItem(SESSION_USER_KEY)
           let sessionUser = cached ? JSON.parse(cached) : null
           try {
@@ -108,7 +131,7 @@ export function AuthProvider({ children }) {
               .split('@')[0]
               .trim()
             sessionUser = await resolveSessionUser(sb, sessionUser?.username || emailLocal)
-            await AsyncStorage.setItem(SESSION_USER_KEY, JSON.stringify(sessionUser))
+            await persistSessionUser(sessionUser)
           } catch {
             /* keep cached */
           }
@@ -125,10 +148,15 @@ export function AuthProvider({ children }) {
 
     if (!isSupabaseConfigured) return undefined
     const sb = requireSupabase()
-    const { data } = sb.auth.onAuthStateChange((event) => {
+    const { data } = sb.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
         setUser(null)
-        AsyncStorage.removeItem(SESSION_USER_KEY).catch(() => {})
+      }
+      if (
+        session &&
+        (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION')
+      ) {
+        void saveBiometricSessionVault(session).catch(() => {})
       }
     })
     return () => {
@@ -144,7 +172,7 @@ export function AuthProvider({ children }) {
     const safeUser = sanitizeUsername(username)
     const sb = requireSupabase()
     const email = toAuthEmail(safeUser)
-    const { error } = await sb.auth.signInWithPassword({
+    const { data, error } = await sb.auth.signInWithPassword({
       email,
       password: String(password || ''),
     })
@@ -160,8 +188,9 @@ export function AuthProvider({ children }) {
           sessionUser.displayName = remote.displayName.trim()
         }
       }
-      await AsyncStorage.setItem(profileKeyFor(sessionUser.role), sessionUser.displayName)
-      await AsyncStorage.setItem(SESSION_USER_KEY, JSON.stringify(sessionUser))
+      await persistSessionUser(sessionUser)
+      if (data?.session) await saveBiometricSessionVault(data.session)
+      else await vaultCurrentSession(sb)
     } catch {
       /* ignore profile cache */
     }
@@ -174,7 +203,12 @@ export function AuthProvider({ children }) {
     const profile = sessionUser || userRef.current
     if (!profile?.username) throw new Error('Sign in first, then enable biometrics.')
     await promptBiometrics('Confirm to enable biometrics for Alatas')
-    return saveBiometricEnrollment(profile)
+    const enrollment = await saveBiometricEnrollment(profile)
+    if (isSupabaseConfigured) {
+      const sb = requireSupabase()
+      await vaultCurrentSession(sb)
+    }
+    return enrollment
   }, [])
 
   const unlockWithBiometrics = useCallback(async () => {
@@ -189,11 +223,28 @@ export function AuthProvider({ children }) {
     await promptBiometrics()
 
     const sb = requireSupabase()
-    const {
+    let {
       data: { session },
     } = await sb.auth.getSession()
+
+    // Restore from secure vault so fingerprint works across many locks / restarts.
     if (!session) {
-      throw new Error('Session expired. Enter your password once, then use biometrics again.')
+      const vault = await loadBiometricSessionVault()
+      if (!vault) {
+        throw new Error('Session expired. Enter your password once, then fingerprint will work again.')
+      }
+      const { data, error } = await sb.auth.setSession({
+        access_token: vault.access_token,
+        refresh_token: vault.refresh_token,
+      })
+      if (error || !data?.session) {
+        await clearBiometricSessionVault()
+        throw new Error('Saved session expired. Enter your password once, then fingerprint will work again.')
+      }
+      session = data.session
+      await saveBiometricSessionVault(session)
+    } else {
+      await saveBiometricSessionVault(session)
     }
 
     let sessionUser = null
@@ -207,33 +258,52 @@ export function AuthProvider({ children }) {
       throw new Error('Could not restore your account. Sign in with password.')
     }
 
-    await AsyncStorage.setItem(SESSION_USER_KEY, JSON.stringify(sessionUser))
+    await persistSessionUser(sessionUser)
     setUser(sessionUser)
     return sessionUser
   }, [])
 
   /** @deprecated Prefer loginWithPassword — kept for any leftover callers */
-  const login = useCallback(
-    async (role, username, extras = {}) => {
-      setUser({
-        role,
-        username: String(username || '').trim(),
-        displayName:
-          extras.displayName || (role === 'admin' ? 'Alatas Admin' : 'Employee'),
-        employeeId: extras.employeeId || null,
-        employeeRole: extras.employeeRole || null,
-      })
-    },
-    [],
-  )
+  const login = useCallback(async (role, username, extras = {}) => {
+    setUser({
+      role,
+      username: String(username || '').trim(),
+      displayName: extras.displayName || (role === 'admin' ? 'Alatas Admin' : 'Employee'),
+      employeeId: extras.employeeId || null,
+      employeeRole: extras.employeeRole || null,
+    })
+  }, [])
 
-  const logout = useCallback(async () => {
+  /**
+   * Lock the desk UI across many sessions.
+   * - Default with biometrics: keep Supabase + secure vault (fingerprint unlock again).
+   * - full: true — revoke session and clear vault (password required once).
+   */
+  const logout = useCallback(async (options = {}) => {
+    const full = Boolean(options?.full)
+    const enrollment = await loadBiometricEnrollment()
+    const softLock = !full && Boolean(enrollment?.enabled)
+
     setUser(null)
+
+    if (softLock) {
+      // Keep vault + refresh token so fingerprint works next time.
+      if (isSupabaseConfigured) {
+        try {
+          await vaultCurrentSession(requireSupabase())
+        } catch {
+          /* ignore */
+        }
+      }
+      return
+    }
+
     try {
       await AsyncStorage.removeItem(SESSION_USER_KEY)
     } catch {
       /* ignore */
     }
+    await clearBiometricSessionVault()
     if (isSupabaseConfigured) {
       try {
         await requireSupabase().auth.signOut()

@@ -56,7 +56,9 @@ import {
   enrollBiometrics,
   isPlatformAuthenticatorAvailable,
   loadBiometricEnrollment,
+  vaultCurrentSupabaseSession,
 } from '../utils/webauthnBiometrics'
+import { requireSupabase } from '../api/supabaseClient'
 import {
   assertSameOriginRequest,
   ensureCsrfToken,
@@ -743,8 +745,13 @@ export default function AdminPanel() {
           role: sessionRole,
         },
       })
+      try {
+        await vaultCurrentSupabaseSession(requireSupabase())
+      } catch {
+        /* ignore */
+      }
       setBioEnrollment(loadBiometricEnrollment())
-      setProfileMessage(`${biometricLabel()} enabled on this device.`)
+      setProfileMessage(`${biometricLabel()} enabled — unlock after locking, across many sessions.`)
     } catch (err) {
       setConfirm({
         type: 'orcr-error',
@@ -1083,7 +1090,7 @@ export default function AdminPanel() {
       setConfirm(null)
 
       // Sign out and return to login after wipe.
-      clearAdminSession()
+      clearAdminSession({ full: true })
       setSessionRole('admin')
       setSessionUser(null)
       setTab('dashboard')
@@ -1999,11 +2006,14 @@ export default function AdminPanel() {
   }
 
   const requestLogout = () => {
+    const bio = loadBiometricEnrollment()
     setConfirm({
       type: 'logout',
-      title: 'Log out?',
-      message: 'You will need to sign in again to access the admin panel.',
-      confirmLabel: 'Log out',
+      title: bio ? 'Lock desk?' : 'Log out?',
+      message: bio
+        ? `This locks the desk. Unlock again with ${biometricLabel()} anytime on this device (many sessions).`
+        : 'You will need to sign in again to access the admin panel.',
+      confirmLabel: bio ? 'Lock' : 'Log out',
       danger: true,
     })
   }
@@ -2012,6 +2022,14 @@ export default function AdminPanel() {
     if (!confirm) return
     if (confirm.type === 'logout') {
       clearAdminSession()
+      setSessionRole('admin')
+      setSessionUser(null)
+      setTab('dashboard')
+      setSelectedTransaction(null)
+      setAuthed(false)
+    }
+    if (confirm.type === 'logout-full') {
+      clearAdminSession({ full: true })
       setSessionRole('admin')
       setSessionUser(null)
       setTab('dashboard')
@@ -3481,8 +3499,9 @@ export default function AdminPanel() {
                       <div className="settings-card-head">
                         <h4 className="settings-card-title">{biometricLabel()}</h4>
                         <p className="settings-card-copy">
-                          Unlock this PWA on this device with Face ID, Touch ID, or fingerprint.
-                          Requires HTTPS and a prior password sign-in.
+                          Unlock this PWA on this device with Face ID, Touch ID, or fingerprint
+                          after you lock the desk — works across many sessions until you fully
+                          sign out. Requires HTTPS.
                         </p>
                       </div>
                       <p className="settings-card-copy">
@@ -3986,11 +4005,15 @@ export default function AdminPanel() {
 
                   <article className="settings-card settings-session-card">
                     <div className="settings-card-head">
-                      <h4 className="settings-card-title">Sign out</h4>
+                      <h4 className="settings-card-title">
+                        {bioEnrollment ? 'Lock desk' : 'Sign out'}
+                      </h4>
                       <p className="settings-card-copy">
-                        {isAdminUser
-                          ? 'End this admin session. You’ll need to sign in again to manage the fleet.'
-                          : 'End this employee session. You’ll need to sign in again to use the desk.'}
+                        {bioEnrollment
+                          ? `Locks the desk. Unlock again with ${biometricLabel()} — works across many sessions on this device.`
+                          : isAdminUser
+                            ? 'End this admin session. You’ll need to sign in again to manage the fleet.'
+                            : 'End this employee session. You’ll need to sign in again to use the desk.'}
                       </p>
                     </div>
                     <button
@@ -3998,8 +4021,27 @@ export default function AdminPanel() {
                       className="btn-outline settings-logout-btn"
                       onClick={requestLogout}
                     >
-                      Log out
+                      {bioEnrollment ? 'Lock' : 'Log out'}
                     </button>
+                    {bioEnrollment ? (
+                      <button
+                        type="button"
+                        className="btn-outline settings-logout-btn"
+                        style={{ marginTop: 8 }}
+                        onClick={() => {
+                          setConfirm({
+                            type: 'logout-full',
+                            title: 'Sign out of account?',
+                            message:
+                              'Clears your saved login. You’ll need your password once before fingerprint unlock works again.',
+                            confirmLabel: 'Sign out',
+                            danger: true,
+                          })
+                        }}
+                      >
+                        Sign out of account
+                      </button>
+                    ) : null}
                   </article>
                 </section>
               </div>

@@ -14,9 +14,13 @@ import {
   assertBiometrics,
   biometricLabel,
   clearBiometricEnrollment,
+  clearBiometricSessionVault,
   enrollBiometrics,
   isPlatformAuthenticatorAvailable,
   loadBiometricEnrollment,
+  loadBiometricSessionVault,
+  saveBiometricSessionVault,
+  vaultCurrentSupabaseSession,
 } from '../utils/webauthnBiometrics'
 
 const AUTH_KEY = 'customer-encoder-admin-auth'
@@ -47,11 +51,30 @@ export function getSessionUser() {
   }
 }
 
-export function clearAdminSession() {
+export function clearAdminSession({ full = false } = {}) {
   sessionStorage.removeItem(AUTH_KEY)
   sessionStorage.removeItem(ROLE_KEY)
   sessionStorage.removeItem(USER_KEY)
   clearCsrfToken()
+
+  // Soft lock when biometrics are enrolled — keep Supabase + vault for fingerprint unlock.
+  if (!full) {
+    try {
+      const enrolled = loadBiometricEnrollment()
+      if (enrolled?.credentialId) {
+        try {
+          void vaultCurrentSupabaseSession(requireSupabase())
+        } catch {
+          /* ignore */
+        }
+        return
+      }
+    } catch {
+      /* fall through to full sign-out */
+    }
+  }
+
+  clearBiometricSessionVault()
   try {
     requireSupabase().auth.signOut()
   } catch {
@@ -242,8 +265,13 @@ export default function AdminLogin({ onSuccess }) {
         role: enrollPrompt.role,
         sessionUser: enrollPrompt,
       })
+      try {
+        await vaultCurrentSupabaseSession(requireSupabase())
+      } catch {
+        /* ignore */
+      }
       setBioEnrollment(loadBiometricEnrollment())
-      setNotice(`${bioName} enabled on this device.`)
+      setNotice(`${bioName} enabled — you can unlock with it after locking the desk.`)
       setEnrollPrompt(null)
       onSuccess(enrollPrompt)
     } catch (err) {
@@ -266,18 +294,38 @@ export default function AdminLogin({ onSuccess }) {
     try {
       const enrollment = await assertBiometrics()
       const sb = requireSupabase()
-      const {
+      let {
         data: { session },
       } = await sb.auth.getSession()
 
+      // Restore from vault so fingerprint works across many locks / restarts.
       if (!session) {
-        setUsername(enrollment.username || '')
-        setError(
-          `${bioName} OK, but your session expired. Enter your password to continue.`,
-        )
-        setLoading(false)
-        return
+        const vault = loadBiometricSessionVault()
+        if (!vault) {
+          setUsername(enrollment.username || '')
+          setError(
+            `${bioName} OK, but your session expired. Enter your password once — then fingerprint works again.`,
+          )
+          setLoading(false)
+          return
+        }
+        const { data, error } = await sb.auth.setSession({
+          access_token: vault.access_token,
+          refresh_token: vault.refresh_token,
+        })
+        if (error || !data?.session) {
+          clearBiometricSessionVault()
+          setUsername(enrollment.username || '')
+          setError(
+            `${bioName} OK, but your saved session expired. Enter your password once — then fingerprint works again.`,
+          )
+          setLoading(false)
+          return
+        }
+        session = data.session
       }
+
+      saveBiometricSessionVault(session)
 
       let sessionUser = enrollment.sessionUser
       try {
@@ -353,6 +401,15 @@ export default function AdminLogin({ onSuccess }) {
       }
       rememberFingerprint(fp)
 
+      try {
+        const {
+          data: { session },
+        } = await sb.auth.getSession()
+        saveBiometricSessionVault(session)
+      } catch {
+        /* ignore */
+      }
+
       const pendingEnroll = await finishLogin(sessionUser, { offerEnroll: true })
       if (!pendingEnroll) setLoading(false)
     } catch (err) {
@@ -396,8 +453,8 @@ export default function AdminLogin({ onSuccess }) {
             Enable {bioName}?
           </h2>
           <p className="login-bio-enroll-copy">
-            Next time on this phone or laptop, you can unlock the desk with {bioName} instead of
-            typing your password (while your session is still valid).
+            Unlock the desk with {bioName} after you lock it — works across many sessions on this
+            device until you fully sign out or the login expires.
           </p>
           {error && <span className="error-msg">{error}</span>}
           <button

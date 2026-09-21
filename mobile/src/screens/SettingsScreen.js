@@ -288,8 +288,31 @@ export default function SettingsScreen() {
           style={[styles.btnOutline, { borderColor: theme.border, marginTop: 8 }]}
           onPress={() => logout()}
         >
-          <Text style={{ color: '#dc2626', fontWeight: '700' }}>Sign out</Text>
+          <Text style={{ color: '#dc2626', fontWeight: '700' }}>
+            {bioEnrollment?.enabled ? `Lock with ${bioLabel}` : 'Sign out'}
+          </Text>
         </TouchableOpacity>
+        {bioEnrollment?.enabled ? (
+          <TouchableOpacity
+            style={[styles.btnOutline, { borderColor: theme.border, marginTop: 8 }]}
+            onPress={() =>
+              Alert.alert(
+                'Sign out of account?',
+                'You will need your password again before fingerprint unlock works.',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Sign out',
+                    style: 'destructive',
+                    onPress: () => logout({ full: true }),
+                  },
+                ],
+              )
+            }
+          >
+            <Text style={{ color: theme.textSub, fontWeight: '600' }}>Sign out of account</Text>
+          </TouchableOpacity>
+        ) : null}
       </ScrollView>
     </ScreenLayout>
   )

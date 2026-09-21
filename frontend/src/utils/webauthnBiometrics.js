@@ -1,9 +1,11 @@
 /**
  * WebAuthn platform biometrics for the Alatas PWA (Face ID / fingerprint / Windows Hello).
- * Client-side enrollment unlocks a restored desk session when Supabase still has a valid session.
+ * Soft-lock + session vault so fingerprint unlock works across many locks / restarts
+ * (while the refresh token is still valid).
  */
 
 const STORAGE_KEY = 'alatas-webauthn-biometrics'
+const SESSION_VAULT_KEY = 'alatas-webauthn-session-vault'
 
 function bufferToBase64Url(buffer) {
   const bytes = buffer instanceof ArrayBuffer ? new Uint8Array(buffer) : new Uint8Array(buffer.buffer || buffer)
@@ -68,6 +70,55 @@ export function clearBiometricEnrollment() {
   } catch {
     /* ignore */
   }
+  clearBiometricSessionVault()
+}
+
+/** Persist Supabase tokens so fingerprint works across many desk locks / browser restarts. */
+export function saveBiometricSessionVault(session) {
+  if (!session?.access_token || !session?.refresh_token) return false
+  if (!loadBiometricEnrollment()?.credentialId) return false
+  try {
+    localStorage.setItem(
+      SESSION_VAULT_KEY,
+      JSON.stringify({
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+        expires_at: session.expires_at || null,
+        savedAt: new Date().toISOString(),
+      }),
+    )
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function loadBiometricSessionVault() {
+  try {
+    const raw = localStorage.getItem(SESSION_VAULT_KEY)
+    const parsed = raw ? JSON.parse(raw) : null
+    if (!parsed?.access_token || !parsed?.refresh_token) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+export function clearBiometricSessionVault() {
+  try {
+    localStorage.removeItem(SESSION_VAULT_KEY)
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Snapshot the current Supabase session into the biometric vault (no-op if not enrolled). */
+export async function vaultCurrentSupabaseSession(sb) {
+  if (!sb?.auth?.getSession) return false
+  const {
+    data: { session },
+  } = await sb.auth.getSession()
+  return saveBiometricSessionVault(session)
 }
 
 function saveEnrollment(payload) {

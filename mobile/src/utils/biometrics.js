@@ -1,8 +1,10 @@
 import * as LocalAuthentication from 'expo-local-authentication'
+import * as SecureStore from 'expo-secure-store'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Platform } from 'react-native'
 
 const ENROLL_KEY = 'alatas-mobile-biometrics'
+const SESSION_VAULT_KEY = 'alatas-mobile-bio-session'
 
 export async function getBiometricLabel() {
   try {
@@ -54,6 +56,50 @@ export async function saveBiometricEnrollment(profile) {
 
 export async function clearBiometricEnrollment() {
   await AsyncStorage.removeItem(ENROLL_KEY)
+  await clearBiometricSessionVault()
+}
+
+/** Persist Supabase tokens so fingerprint works across many app locks / restarts. */
+export async function saveBiometricSessionVault(session) {
+  if (!session?.access_token || !session?.refresh_token) return false
+  const enrollment = await loadBiometricEnrollment()
+  if (!enrollment?.enabled) return false
+  const payload = JSON.stringify({
+    access_token: session.access_token,
+    refresh_token: session.refresh_token,
+    expires_at: session.expires_at || null,
+    savedAt: new Date().toISOString(),
+  })
+  try {
+    await SecureStore.setItemAsync(SESSION_VAULT_KEY, payload, {
+      keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+    })
+    return true
+  } catch {
+    // Fallback without iOS-only options (e.g. some Android builds)
+    await SecureStore.setItemAsync(SESSION_VAULT_KEY, payload)
+    return true
+  }
+}
+
+export async function loadBiometricSessionVault() {
+  try {
+    const raw = await SecureStore.getItemAsync(SESSION_VAULT_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!parsed?.access_token || !parsed?.refresh_token) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+export async function clearBiometricSessionVault() {
+  try {
+    await SecureStore.deleteItemAsync(SESSION_VAULT_KEY)
+  } catch {
+    /* ignore */
+  }
 }
 
 export async function promptBiometrics(promptMessage) {
