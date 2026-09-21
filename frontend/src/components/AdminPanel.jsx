@@ -51,6 +51,13 @@ import { describeCloudConnection } from '../config/cloudConnection'
 import { useConnectivity } from '../hooks/useConnectivity'
 import { clearLoginAudit, fetchLoginAudit, formatAuditRole, formatAuditStatus } from '../utils/loginAudit'
 import {
+  biometricLabel,
+  clearBiometricEnrollment,
+  enrollBiometrics,
+  isPlatformAuthenticatorAvailable,
+  loadBiometricEnrollment,
+} from '../utils/webauthnBiometrics'
+import {
   assertSameOriginRequest,
   ensureCsrfToken,
   getCsrfToken,
@@ -651,6 +658,8 @@ export default function AdminPanel() {
   const [loginAuditOpen, setLoginAuditOpen] = useState(false)
   const [cloudConnectionOpen, setCloudConnectionOpen] = useState(false)
   const [loginAuditPage, setLoginAuditPage] = useState(1)
+  const [bioAvailable, setBioAvailable] = useState(false)
+  const [bioEnrollment, setBioEnrollment] = useState(() => loadBiometricEnrollment())
   const [selectedTransaction, setSelectedTransaction] = useState(null)
   const [transactionReturnTab, setTransactionReturnTab] = useState('history')
   const [rentDirty, setRentDirty] = useState(false)
@@ -710,6 +719,42 @@ export default function AdminPanel() {
     if (!authed) return
     ensureCsrfToken()
   }, [authed])
+
+  useEffect(() => {
+    let mounted = true
+    isPlatformAuthenticatorAvailable().then((ok) => {
+      if (mounted) setBioAvailable(ok)
+    })
+    setBioEnrollment(loadBiometricEnrollment())
+    return () => {
+      mounted = false
+    }
+  }, [authed])
+
+  const handleEnableBiometricsSettings = async () => {
+    try {
+      await enrollBiometrics({
+        username: sessionUser?.username || sessionDisplayName,
+        displayName: sessionDisplayName,
+        role: sessionRole,
+        sessionUser: sessionUser || {
+          username: sessionUser?.username || 'alatas',
+          displayName: sessionDisplayName,
+          role: sessionRole,
+        },
+      })
+      setBioEnrollment(loadBiometricEnrollment())
+      setProfileMessage(`${biometricLabel()} enabled on this device.`)
+    } catch (err) {
+      setConfirm({
+        type: 'orcr-error',
+        title: 'Biometrics',
+        message: err?.message || `Could not enable ${biometricLabel()}.`,
+        confirmLabel: 'OK',
+        hideCancel: true,
+      })
+    }
+  }
 
   useEffect(() => {
     applyTheme(systemSettings.theme)
@@ -1524,11 +1569,16 @@ export default function AdminPanel() {
   const handleOrcrFile = async (e, forEdit = false, docHint = 'auto') => {
     const file = e.target.files?.[0]
     if (!file) return
-    if (!file.type.startsWith('image/')) {
+    const type = String(file.type || '').toLowerCase()
+    const pdf =
+      type === 'application/pdf' ||
+      type === 'application/x-pdf' ||
+      /\.pdf$/i.test(String(file.name || ''))
+    if (!pdf && !file.type.startsWith('image/')) {
       setConfirm({
         type: 'orcr-error',
         title: 'Invalid file',
-        message: 'Please upload a PNG or JPEG image of the LTO OR or CR.',
+        message: 'Please upload a PNG, JPEG, WebP, or PDF of the LTO OR or CR.',
         confirmLabel: 'OK',
         hideCancel: true,
       })
@@ -1541,12 +1591,31 @@ export default function AdminPanel() {
     setOrcrTarget(forEdit ? 'edit' : 'add')
     setOrcrDocHint(docHint === 'or' ? 'or' : 'cr')
     try {
-      const raw = await new Promise((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve(String(reader.result || ''))
-        reader.onerror = () => reject(new Error('Could not read file'))
-        reader.readAsDataURL(file)
-      })
+      let raw
+      if (pdf) {
+        try {
+          const { pdfFirstPageToDataUrl } = await import('../utils/pdfToImage')
+          raw = await pdfFirstPageToDataUrl(file)
+        } catch (pdfErr) {
+          console.error(pdfErr)
+          setConfirm({
+            type: 'orcr-error',
+            title: 'PDF could not be read',
+            message:
+              'Could not open this PDF. Try exporting the first page as a PNG/JPEG, or use a clearer scan.',
+            confirmLabel: 'OK',
+            hideCancel: true,
+          })
+          return
+        }
+      } else {
+        raw = await new Promise((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result || ''))
+          reader.onerror = () => reject(new Error('Could not read file'))
+          reader.readAsDataURL(file)
+        })
+      }
       const compressed = (await compressImageDataUrl(raw, 1600, 0.88)) || raw
       const { fields } = await scanOrcrImage(compressed, setOrcrProgress, docHint)
 
@@ -3403,12 +3472,53 @@ export default function AdminPanel() {
                               <strong>{opt.label}</strong>
                               <span>{opt.hint}</span>
                             </span>
-                  </button>
-                ))}
+                          </button>
+                        ))}
                       </div>
                     </article>
-              </div>
-            </section>
+
+                    <article className="settings-card">
+                      <div className="settings-card-head">
+                        <h4 className="settings-card-title">{biometricLabel()}</h4>
+                        <p className="settings-card-copy">
+                          Unlock this PWA on this device with Face ID, Touch ID, or fingerprint.
+                          Requires HTTPS and a prior password sign-in.
+                        </p>
+                      </div>
+                      <p className="settings-card-copy">
+                        {bioEnrollment
+                          ? `Enabled for @${bioEnrollment.username}`
+                          : bioAvailable
+                            ? 'Not enabled on this device yet.'
+                            : 'Not available in this browser or context.'}
+                      </p>
+                      <div className="settings-bio-actions">
+                        {bioAvailable && !bioEnrollment ? (
+                          <button
+                            type="button"
+                            className="btn-primary"
+                            onClick={() => void handleEnableBiometricsSettings()}
+                          >
+                            Enable {biometricLabel()}
+                          </button>
+                        ) : null}
+                        {bioEnrollment ? (
+                          <button
+                            type="button"
+                            className="btn-outline"
+                            onClick={() => {
+                              clearBiometricEnrollment()
+                              setBioEnrollment(null)
+                              setProfileMessage(`${biometricLabel()} removed from this device.`)
+                            }}
+                          >
+                            Remove from this device
+                          </button>
+                        ) : null}
+                      </div>
+                    </article>
+                  </div>
+                </section>
 
                 {/* 2. Preferences */}
                 <section className="settings-section" aria-labelledby="settings-prefs-heading">
@@ -4153,23 +4263,24 @@ function VehicleFields({
         <div>
           <span className="field-label">LTO OR &amp; CR scan</span>
           <p className="edit-section-copy">
-            Upload the Certificate of Registration (CR) and Official Receipt (OR). Fields are filled
-            from both documents (owner, plate, make/series, engine, chassis, body type, seats).
-            After a successful scan, fields become read-only — use Edit only to correct mistakes.
+            Upload the Certificate of Registration (CR) and Official Receipt (OR) as an image or PDF.
+            Fields are filled from both documents (owner, plate, make/series, engine, chassis, body
+            type, seats). PDF uses the first page. After a successful scan, fields become read-only —
+            use Edit only to correct mistakes.
           </p>
         </div>
         <div className="vehicle-form-toolbar-actions">
           <input
             ref={crFileRef}
             type="file"
-            accept="image/png,image/jpeg,image/jpg,image/webp"
+            accept="image/png,image/jpeg,image/jpg,image/webp,application/pdf,.pdf"
             className="sr-only"
             onChange={onCrFile}
           />
           <input
             ref={orFileRef}
             type="file"
-            accept="image/png,image/jpeg,image/jpg,image/webp"
+            accept="image/png,image/jpeg,image/jpg,image/webp,application/pdf,.pdf"
             className="sr-only"
             onChange={onOrFile}
           />

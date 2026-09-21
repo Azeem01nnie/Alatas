@@ -11,6 +11,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { isSupabaseConfigured, requireSupabase } from '../api/supabaseClient'
 import { fetchAdminProfile, saveAdminProfile } from '../api/settings'
 import { sanitizeUsername } from '../utils/security'
+import { loadBiometricEnrollment, promptBiometrics, saveBiometricEnrollment } from '../utils/biometrics'
 
 const AuthContext = createContext(null)
 const PROFILE_KEY = 'alatas-mobile-display-name'
@@ -94,6 +95,12 @@ export function AuthProvider({ children }) {
         } = await sb.auth.getSession()
         if (!mounted) return
         if (session?.user) {
+          const bio = await loadBiometricEnrollment()
+          // If biometrics are enrolled, stay on login until fingerprint/Face ID unlock.
+          if (bio?.enabled) {
+            if (mounted) setBootstrapping(false)
+            return
+          }
           const cached = await AsyncStorage.getItem(SESSION_USER_KEY)
           let sessionUser = cached ? JSON.parse(cached) : null
           try {
@@ -163,6 +170,48 @@ export function AuthProvider({ children }) {
     return sessionUser
   }, [])
 
+  const enableBiometrics = useCallback(async (sessionUser) => {
+    const profile = sessionUser || userRef.current
+    if (!profile?.username) throw new Error('Sign in first, then enable biometrics.')
+    await promptBiometrics('Confirm to enable biometrics for Alatas')
+    return saveBiometricEnrollment(profile)
+  }, [])
+
+  const unlockWithBiometrics = useCallback(async () => {
+    if (!isSupabaseConfigured) {
+      throw new Error('Supabase is not configured on this build.')
+    }
+    const enrollment = await loadBiometricEnrollment()
+    if (!enrollment?.enabled) {
+      throw new Error('Biometrics are not enabled yet. Sign in with password first.')
+    }
+
+    await promptBiometrics()
+
+    const sb = requireSupabase()
+    const {
+      data: { session },
+    } = await sb.auth.getSession()
+    if (!session) {
+      throw new Error('Session expired. Enter your password once, then use biometrics again.')
+    }
+
+    let sessionUser = null
+    try {
+      sessionUser = await resolveSessionUser(sb, enrollment.username)
+    } catch {
+      const cached = await AsyncStorage.getItem(SESSION_USER_KEY)
+      sessionUser = cached ? JSON.parse(cached) : null
+    }
+    if (!sessionUser) {
+      throw new Error('Could not restore your account. Sign in with password.')
+    }
+
+    await AsyncStorage.setItem(SESSION_USER_KEY, JSON.stringify(sessionUser))
+    setUser(sessionUser)
+    return sessionUser
+  }, [])
+
   /** @deprecated Prefer loginWithPassword — kept for any leftover callers */
   const login = useCallback(
     async (role, username, extras = {}) => {
@@ -225,12 +274,23 @@ export function AuthProvider({ children }) {
       bootstrapping,
       login,
       loginWithPassword,
+      unlockWithBiometrics,
+      enableBiometrics,
       logout,
       updateDisplayName,
       isLoggedIn: Boolean(user),
       isSupabaseConfigured,
     }),
-    [user, bootstrapping, login, loginWithPassword, logout, updateDisplayName],
+    [
+      user,
+      bootstrapping,
+      login,
+      loginWithPassword,
+      unlockWithBiometrics,
+      enableBiometrics,
+      logout,
+      updateDisplayName,
+    ],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

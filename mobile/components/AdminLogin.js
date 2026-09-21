@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react'
 import {
   View,
   Text,
@@ -12,58 +12,128 @@ import {
   ScrollView,
   Keyboard,
   TouchableWithoutFeedback,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Eye, EyeOff } from 'lucide-react-native';
-import { useAuth } from '../src/context/AuthContext';
+  Alert,
+} from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
+import { Eye, EyeOff } from 'lucide-react-native'
+import { useAuth } from '../src/context/AuthContext'
+import {
+  clearBiometricEnrollment,
+  getBiometricLabel,
+  isBiometricsAvailable,
+  loadBiometricEnrollment,
+} from '../src/utils/biometrics'
 
 export default function AdminLogin() {
-  const { loginWithPassword } = useAuth();
-  const scrollRef = useRef(null);
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [keyboardPad, setKeyboardPad] = useState(0);
+  const { loginWithPassword, unlockWithBiometrics, enableBiometrics } = useAuth()
+  const scrollRef = useRef(null)
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [keyboardPad, setKeyboardPad] = useState(0)
+  const [bioAvailable, setBioAvailable] = useState(false)
+  const [bioEnrollment, setBioEnrollment] = useState(null)
+  const [bioLabel, setBioLabel] = useState('Biometrics')
 
   useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const onShow = (e) => {
-      const height = e?.endCoordinates?.height || 0;
-      setKeyboardPad(Math.max(0, height - 24));
-    };
-    const onHide = () => setKeyboardPad(0);
-    const showSub = Keyboard.addListener(showEvent, onShow);
-    const hideSub = Keyboard.addListener(hideEvent, onHide);
+    let mounted = true
+    ;(async () => {
+      const [available, enrollment, label] = await Promise.all([
+        isBiometricsAvailable(),
+        loadBiometricEnrollment(),
+        getBiometricLabel(),
+      ])
+      if (!mounted) return
+      setBioAvailable(available)
+      setBioEnrollment(enrollment)
+      setBioLabel(label)
+      if (enrollment?.username) setUsername(enrollment.username)
+    })()
     return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, []);
+      mounted = false
+    }
+  }, [])
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow'
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide'
+    const onShow = (e) => {
+      const height = e?.endCoordinates?.height || 0
+      setKeyboardPad(Math.max(0, height - 24))
+    }
+    const onHide = () => setKeyboardPad(0)
+    const showSub = Keyboard.addListener(showEvent, onShow)
+    const hideSub = Keyboard.addListener(hideEvent, onHide)
+    return () => {
+      showSub.remove()
+      hideSub.remove()
+    }
+  }, [])
 
   const scrollFieldIntoView = () => {
     requestAnimationFrame(() => {
-      scrollRef.current?.scrollToEnd?.({ animated: true });
-    });
-  };
+      scrollRef.current?.scrollToEnd?.({ animated: true })
+    })
+  }
+
+  const offerEnableBiometrics = (sessionUser) => {
+    if (!bioAvailable) return
+    Alert.alert(
+      `Enable ${bioLabel}?`,
+      `Next time you can unlock Alatas with ${bioLabel} on this phone.`,
+      [
+        { text: 'Not now', style: 'cancel' },
+        {
+          text: `Enable ${bioLabel}`,
+          onPress: async () => {
+            try {
+              await enableBiometrics(sessionUser)
+              setBioEnrollment(await loadBiometricEnrollment())
+              Alert.alert('Enabled', `${bioLabel} is ready on this device.`)
+            } catch (err) {
+              Alert.alert('Could not enable', err?.message || String(err))
+            }
+          },
+        },
+      ],
+    )
+  }
+
+  const handleBiometricSignIn = async () => {
+    if (loading) return
+    setError('')
+    setLoading(true)
+    Keyboard.dismiss()
+    try {
+      await unlockWithBiometrics()
+      setLoading(false)
+    } catch (err) {
+      setError(err?.message || `${bioLabel} sign-in failed.`)
+      setLoading(false)
+    }
+  }
 
   const handleSubmit = async () => {
-    if (loading) return;
-    setError('');
-    setLoading(true);
-    Keyboard.dismiss();
+    if (loading) return
+    setError('')
+    setLoading(true)
+    Keyboard.dismiss()
 
     try {
-      await loginWithPassword(username, password);
-      setLoading(false);
+      const sessionUser = await loginWithPassword(username, password)
+      setLoading(false)
+      const enrollment = await loadBiometricEnrollment()
+      if (!enrollment?.enabled) {
+        offerEnableBiometrics(sessionUser)
+      }
     } catch (err) {
-      console.warn('Login failed:', err);
-      setError(err?.message || 'Could not sign in. Check Supabase and try again.');
-      setLoading(false);
+      console.warn('Login failed:', err)
+      setError(err?.message || 'Could not sign in. Check Supabase and try again.')
+      setLoading(false)
     }
-  };
+  }
 
   return (
     <SafeAreaView style={styles.safeRoot} edges={['top', 'left', 'right', 'bottom']}>
@@ -75,10 +145,7 @@ export default function AdminLogin() {
         <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
           <ScrollView
             ref={scrollRef}
-            contentContainerStyle={[
-              styles.container,
-              { paddingBottom: 24 + keyboardPad },
-            ]}
+            contentContainerStyle={[styles.container, { paddingBottom: 24 + keyboardPad }]}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
             showsVerticalScrollIndicator={false}
@@ -110,14 +177,37 @@ export default function AdminLogin() {
                 </View>
               ) : (
                 <View style={styles.form}>
+                  {bioAvailable && bioEnrollment?.enabled ? (
+                    <View style={styles.bioBlock}>
+                      <TouchableOpacity style={styles.bioButton} onPress={handleBiometricSignIn}>
+                        <Text style={styles.bioButtonText}>Sign in with {bioLabel}</Text>
+                      </TouchableOpacity>
+                      <Text style={styles.bioHint}>
+                        Enrolled for @{bioEnrollment.username}. Or use password below.
+                      </Text>
+                      <TouchableOpacity
+                        onPress={async () => {
+                          await clearBiometricEnrollment()
+                          setBioEnrollment(null)
+                        }}
+                      >
+                        <Text style={styles.bioRemove}>Remove {bioLabel} on this device</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : bioAvailable ? (
+                    <Text style={styles.bioHintTop}>
+                      After your first password sign-in, you can enable {bioLabel}.
+                    </Text>
+                  ) : null}
+
                   <View style={styles.field}>
                     <Text style={styles.fieldLabel}>Username</Text>
                     <TextInput
                       style={styles.input}
                       value={username}
                       onChangeText={(text) => {
-                        setUsername(text);
-                        setError('');
+                        setUsername(text)
+                        setError('')
                       }}
                       onFocus={scrollFieldIntoView}
                       autoCapitalize="none"
@@ -134,8 +224,8 @@ export default function AdminLogin() {
                         style={[styles.input, styles.passwordInput]}
                         value={password}
                         onChangeText={(text) => {
-                          setPassword(text);
-                          setError('');
+                          setPassword(text)
+                          setError('')
                         }}
                         onFocus={scrollFieldIntoView}
                         secureTextEntry={!showPassword}
@@ -173,7 +263,7 @@ export default function AdminLogin() {
         </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
     </SafeAreaView>
-  );
+  )
 }
 
 const styles = StyleSheet.create({
@@ -275,6 +365,42 @@ const styles = StyleSheet.create({
   form: {
     width: '100%',
   },
+  bioBlock: {
+    marginBottom: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+    gap: 8,
+  },
+  bioButton: {
+    height: 48,
+    backgroundColor: '#b32025',
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bioButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  bioHint: {
+    fontSize: 13,
+    color: '#666',
+    textAlign: 'center',
+  },
+  bioHintTop: {
+    fontSize: 13,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  bioRemove: {
+    fontSize: 13,
+    color: '#b32025',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   field: {
     marginBottom: 20,
   },
@@ -331,4 +457,4 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-});
+})

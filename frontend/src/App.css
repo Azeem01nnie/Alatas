@@ -4008,6 +4008,76 @@ html[data-theme='dark'] .login-logo-plate {
   font-weight: 400;
 }
 
+.login-bio-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-bottom: 1.15rem;
+  padding-bottom: 1.1rem;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.login-bio-btn {
+  width: 100%;
+}
+
+.login-bio-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #666;
+  text-align: center;
+  line-height: 1.35;
+}
+
+html[data-theme='dark'] .login-bio-hint {
+  color: #a3a3a3;
+}
+
+.login-bio-remove {
+  align-self: center;
+  border: 0;
+  background: transparent;
+  color: #b32025;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+}
+
+.login-bio-enroll {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.login-bio-enroll-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.login-bio-enroll-copy {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  color: #555;
+}
+
+html[data-theme='dark'] .login-bio-enroll-copy {
+  color: #b3b3b3;
+}
+
+.login-bio-skip {
+  width: 100%;
+}
+
+.settings-bio-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+}
+
 .login-https-badge {
   display: inline-flex;
   align-items: center;

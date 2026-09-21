@@ -19,10 +19,16 @@ import { clearAppData, getSystemStatus } from '../api/settings'
 import { fetchLoginAudit } from '../utils/loginAudit'
 import { isSupabaseConfigured } from '../api/supabaseClient'
 import { formatApiError } from '../api/client'
+import {
+  clearBiometricEnrollment,
+  getBiometricLabel,
+  isBiometricsAvailable,
+  loadBiometricEnrollment,
+} from '../utils/biometrics'
 
 export default function SettingsScreen() {
   const { theme, isDark, toggleTheme } = useTheme()
-  const { user, updateDisplayName, logout, loginWithPassword } = useAuth()
+  const { user, updateDisplayName, logout, loginWithPassword, enableBiometrics } = useAuth()
   const { syncNow, queueLength, apiOk, loadAll } = useFleet()
   const pad = useTabBarContentPadding()
   const isAdmin = user?.role === 'admin'
@@ -34,6 +40,9 @@ export default function SettingsScreen() {
   const [auditRows, setAuditRows] = useState([])
   const [clearUser, setClearUser] = useState('')
   const [clearPass, setClearPass] = useState('')
+  const [bioAvailable, setBioAvailable] = useState(false)
+  const [bioEnrollment, setBioEnrollment] = useState(null)
+  const [bioLabel, setBioLabel] = useState('Biometrics')
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -46,6 +55,24 @@ export default function SettingsScreen() {
   useEffect(() => {
     refreshStatus()
   }, [refreshStatus])
+
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      const [available, enrollment, label] = await Promise.all([
+        isBiometricsAvailable(),
+        loadBiometricEnrollment(),
+        getBiometricLabel(),
+      ])
+      if (!mounted) return
+      setBioAvailable(available)
+      setBioEnrollment(enrollment)
+      setBioLabel(label)
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   const saveProfile = async () => {
     setBusy(true)
@@ -134,6 +161,45 @@ export default function SettingsScreen() {
             <Text style={{ color: theme.textMain, fontWeight: '600' }}>Dark mode</Text>
             <Switch value={isDark} onValueChange={toggleTheme} />
           </View>
+        </Section>
+
+        <Section title={bioLabel} theme={theme}>
+          <Text style={{ color: theme.textSub }}>
+            {bioEnrollment?.enabled
+              ? `Enabled for @${bioEnrollment.username}`
+              : bioAvailable
+                ? 'Not enabled on this phone yet.'
+                : 'Not available on this device.'}
+          </Text>
+          {bioAvailable && !bioEnrollment?.enabled ? (
+            <TouchableOpacity
+              style={[styles.btn, { backgroundColor: ACCENT }]}
+              onPress={async () => {
+                try {
+                  await enableBiometrics(user)
+                  setBioEnrollment(await loadBiometricEnrollment())
+                  Alert.alert('Enabled', `${bioLabel} is ready.`)
+                } catch (err) {
+                  Alert.alert('Could not enable', err?.message || String(err))
+                }
+              }}
+            >
+              <Text style={styles.btnText}>Enable {bioLabel}</Text>
+            </TouchableOpacity>
+          ) : null}
+          {bioEnrollment?.enabled ? (
+            <TouchableOpacity
+              style={[styles.btnOutline, { borderColor: theme.border }]}
+              onPress={async () => {
+                await clearBiometricEnrollment()
+                setBioEnrollment(null)
+              }}
+            >
+              <Text style={{ color: theme.textMain, fontWeight: '600' }}>
+                Remove from this device
+              </Text>
+            </TouchableOpacity>
+          ) : null}
         </Section>
 
         <Section title="Connection" theme={theme}>
