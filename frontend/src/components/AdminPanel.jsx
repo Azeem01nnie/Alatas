@@ -1089,8 +1089,8 @@ export default function AdminPanel() {
       setClearDataCreds({ username: '', password: '', error: '' })
       setConfirm(null)
 
-      // Sign out and return to login after wipe.
-      clearAdminSession({ full: true })
+      // Sign out and return to login after wipe (also revoke biometric session vault).
+      await clearAdminSession({ full: true, wipe: true })
       setSessionRole('admin')
       setSessionUser(null)
       setTab('dashboard')
@@ -2021,7 +2021,7 @@ export default function AdminPanel() {
   const handleConfirm = async () => {
     if (!confirm) return
     if (confirm.type === 'logout') {
-      clearAdminSession()
+      await clearAdminSession()
       setSessionRole('admin')
       setSessionUser(null)
       setTab('dashboard')
@@ -2029,7 +2029,7 @@ export default function AdminPanel() {
       setAuthed(false)
     }
     if (confirm.type === 'logout-full') {
-      clearAdminSession({ full: true })
+      await clearAdminSession({ full: true })
       setSessionRole('admin')
       setSessionUser(null)
       setTab('dashboard')
@@ -3499,9 +3499,8 @@ export default function AdminPanel() {
                       <div className="settings-card-head">
                         <h4 className="settings-card-title">{biometricLabel()}</h4>
                         <p className="settings-card-copy">
-                          Unlock this PWA on this device with Face ID, Touch ID, or fingerprint
-                          after you lock the desk — works across many sessions until you fully
-                          sign out. Requires HTTPS.
+                          Unlock this PWA with Face ID, Touch ID, or fingerprint after Lock or
+                          Sign out — until you remove biometrics or clear all data. Requires HTTPS.
                         </p>
                       </div>
                       <p className="settings-card-copy">
@@ -4032,8 +4031,7 @@ export default function AdminPanel() {
                           setConfirm({
                             type: 'logout-full',
                             title: 'Sign out of account?',
-                            message:
-                              'Clears your saved login. You’ll need your password once before fingerprint unlock works again.',
+                            message: `Ends the active session. You can still open the desk with ${biometricLabel()} on this device.`,
                             confirmLabel: 'Sign out',
                             danger: true,
                           })

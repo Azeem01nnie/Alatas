@@ -51,32 +51,43 @@ export function getSessionUser() {
   }
 }
 
-export function clearAdminSession({ full = false } = {}) {
+/**
+ * Clear the desk UI session.
+ * When biometrics are enrolled, the session vault is kept so fingerprint can open
+ * the desk again after Lock or Sign out (unless wipe: true).
+ */
+export async function clearAdminSession({ full = false, wipe = false } = {}) {
+  const enrolled = loadBiometricEnrollment()
+  const keepFingerprintUnlock = Boolean(enrolled?.credentialId) && !wipe
+
+  if (keepFingerprintUnlock) {
+    try {
+      await vaultCurrentSupabaseSession(requireSupabase())
+    } catch {
+      /* ignore — vault may already have tokens */
+    }
+  }
+
   sessionStorage.removeItem(AUTH_KEY)
   sessionStorage.removeItem(ROLE_KEY)
   sessionStorage.removeItem(USER_KEY)
   clearCsrfToken()
 
-  // Soft lock when biometrics are enrolled — keep Supabase + vault for fingerprint unlock.
-  if (!full) {
-    try {
-      const enrolled = loadBiometricEnrollment()
-      if (enrolled?.credentialId) {
-        try {
-          void vaultCurrentSupabaseSession(requireSupabase())
-        } catch {
-          /* ignore */
-        }
-        return
+  if (keepFingerprintUnlock) {
+    // Drop the active Supabase client session only; vault stays for fingerprint restore.
+    if (full) {
+      try {
+        await requireSupabase().auth.signOut({ scope: 'local' })
+      } catch {
+        /* ignore */
       }
-    } catch {
-      /* fall through to full sign-out */
     }
+    return
   }
 
   clearBiometricSessionVault()
   try {
-    requireSupabase().auth.signOut()
+    await requireSupabase().auth.signOut()
   } catch {
     // ignore if supabase not ready
   }
@@ -453,8 +464,8 @@ export default function AdminLogin({ onSuccess }) {
             Enable {bioName}?
           </h2>
           <p className="login-bio-enroll-copy">
-            Unlock the desk with {bioName} after you lock it — works across many sessions on this
-            device until you fully sign out or the login expires.
+            After Lock or Sign out, open the desk again with {bioName} on this device — no
+            password needed until you remove biometrics or the login expires.
           </p>
           {error && <span className="error-msg">{error}</span>}
           <button
