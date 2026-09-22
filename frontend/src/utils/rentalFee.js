@@ -58,6 +58,46 @@ export function formatRentalFee(amount) {
   return formatPeso(amount)
 }
 
+/** Parse peso strings like "₱1,200" into a number. */
+export function parseRentalFeeAmount(value) {
+  if (value == null || value === '') return 0
+  const n = Number(String(value).replace(/[^\d.]/g, ''))
+  return Number.isFinite(n) ? n : 0
+}
+
+/**
+ * Sale amount for reports / X-Z:
+ * 1) use saved rentalFee when > 0
+ * 2) else recompute from rate card + duration (fleet vehicle preferred)
+ */
+export function resolveRentalSaleAmount(rental, fleetVehicle = null) {
+  const saved = parseRentalFeeAmount(rental?.rental?.rentalFee)
+  if (saved > 0) return saved
+
+  const rates =
+    fleetVehicle?.rates ||
+    rental?.vehicle?.rates ||
+    null
+  if (!rates) return 0
+
+  const duration = rental?.rental?.duration || ''
+  const durationOther = rental?.rental?.durationOther || ''
+  // Stored duration may already be "5hrs" or "2 days"
+  let hours = parseDurationHours(duration, durationOther)
+  if (hours == null && PRESET_HOURS[duration]) hours = PRESET_HOURS[duration]
+  if (hours == null) {
+    const days = parseDurationDays(duration)
+    if (days) hours = days * 24
+  }
+  if (hours == null && rental?.rental?.feeHours != null) {
+    hours = Number(rental.rental.feeHours) || null
+  }
+  if (hours == null) return 0
+
+  const amount = calculateRentalFee(rates, hours)
+  return amount == null ? 0 : Number(amount) || 0
+}
+
 export function feeBreakdownLabel(rates, hours) {
   if (!rates || hours == null || hours <= 0) return ''
   if (hours <= 5) return `5-hour package`

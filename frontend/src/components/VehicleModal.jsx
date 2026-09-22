@@ -1,4 +1,6 @@
+import { useEffect, useMemo, useState } from 'react'
 import { formatPeso } from '../data/vehicles'
+import { getInsuranceImages, getVehicleGallery } from '../utils/vehicleImages'
 
 function Detail({ label, value }) {
   return (
@@ -19,6 +21,26 @@ export default function VehicleModal({
   large = false,
 }) {
   const rates = vehicle.rates || {}
+  const gallery = useMemo(() => getVehicleGallery(vehicle), [vehicle])
+  const insurance = useMemo(() => getInsuranceImages(vehicle), [vehicle])
+  const [photoIndex, setPhotoIndex] = useState(0)
+  const [insuranceIndex, setInsuranceIndex] = useState(0)
+
+  useEffect(() => {
+    setPhotoIndex(0)
+    setInsuranceIndex(0)
+  }, [vehicle?.id])
+
+  useEffect(() => {
+    if (photoIndex >= gallery.length) setPhotoIndex(0)
+  }, [gallery.length, photoIndex])
+
+  useEffect(() => {
+    if (insuranceIndex >= insurance.length) setInsuranceIndex(0)
+  }, [insurance.length, insuranceIndex])
+
+  const currentPhoto = gallery[photoIndex] || vehicle.image || ''
+  const currentInsurance = insurance[insuranceIndex] || ''
 
   return (
     <div className="modal-overlay vehicle-modal-overlay" role="presentation" onClick={onClose}>
@@ -47,8 +69,37 @@ export default function VehicleModal({
         </header>
 
         <div className="vehicle-modal-scroll">
-          <div className="modal-image-wrap">
-            <img src={vehicle.image} alt={`${vehicle.make} ${vehicle.series}`} />
+          <div className="modal-image-wrap vehicle-gallery-wrap">
+            {currentPhoto ? (
+              <img src={currentPhoto} alt={`${vehicle.make} ${vehicle.series}`} />
+            ) : (
+              <div className="vehicle-gallery-empty">No photo</div>
+            )}
+            {gallery.length > 1 ? (
+              <>
+                <button
+                  type="button"
+                  className="vehicle-gallery-nav vehicle-gallery-prev"
+                  aria-label="Previous photo"
+                  onClick={() =>
+                    setPhotoIndex((i) => (i - 1 + gallery.length) % gallery.length)
+                  }
+                >
+                  ‹
+                </button>
+                <button
+                  type="button"
+                  className="vehicle-gallery-nav vehicle-gallery-next"
+                  aria-label="Next photo"
+                  onClick={() => setPhotoIndex((i) => (i + 1) % gallery.length)}
+                >
+                  ›
+                </button>
+                <span className="vehicle-gallery-count">
+                  {photoIndex + 1} / {gallery.length}
+                </span>
+              </>
+            ) : null}
           </div>
 
           <div className="vehicle-modal-body">
@@ -70,6 +121,45 @@ export default function VehicleModal({
                 <Detail label="Exceeding / hr" value={formatPeso(rates.exceedHour)} />
               </dl>
             </div>
+
+            {insurance.length ? (
+              <div className="vehicle-insurance-block">
+                <p className="vehicle-rate-heading">Insurance</p>
+                <div className="vehicle-insurance-wrap">
+                  <img
+                    src={currentInsurance}
+                    alt={`Insurance document ${insuranceIndex + 1}`}
+                  />
+                  {insurance.length > 1 ? (
+                    <div className="vehicle-insurance-nav">
+                      <button
+                        type="button"
+                        className="btn-outline btn-sm"
+                        onClick={() =>
+                          setInsuranceIndex(
+                            (i) => (i - 1 + insurance.length) % insurance.length,
+                          )
+                        }
+                      >
+                        ‹
+                      </button>
+                      <span>
+                        {insuranceIndex + 1} / {insurance.length}
+                      </span>
+                      <button
+                        type="button"
+                        className="btn-outline btn-sm"
+                        onClick={() =>
+                          setInsuranceIndex((i) => (i + 1) % insurance.length)
+                        }
+                      >
+                        ›
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
 

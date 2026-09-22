@@ -20,6 +20,7 @@ import {
   toPeriodDate,
 } from '../utils/rentalPeriod'
 import { parseDurationDays, formatDurationDaysLabel, buildRentalAutoPatch } from '../utils/rentalFee'
+import { upsertCustomerFromPersonal } from '../utils/customers'
 
 const TOTAL_STEPS = 7
 
@@ -385,6 +386,7 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
           engineNo: selectedVehicle.engineNo,
           chassisNo: selectedVehicle.chassisNo,
           image: vehicleImage,
+          rates: selectedVehicle.rates || null,
         },
         rental: {
           duration:
@@ -418,6 +420,11 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
       }
 
       await addRental(record)
+      try {
+        upsertCustomerFromPersonal(record.personal)
+      } catch (custErr) {
+        console.warn('Could not save customer profile', custErr)
+      }
       setPhase('loading')
     } catch (err) {
       console.error('Submit failed:', err)

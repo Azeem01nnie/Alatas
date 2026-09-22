@@ -4,6 +4,13 @@ import { assertSafeDbId } from '../utils/security'
 
 function mapVehicle(row) {
   if (!row) return null
+  const images = Array.isArray(row.images)
+    ? row.images.map((u) => String(u || '').trim()).filter(Boolean)
+    : []
+  const insuranceImages = Array.isArray(row.insurance_images)
+    ? row.insurance_images.map((u) => String(u || '').trim()).filter(Boolean)
+    : []
+  const image = images[0] || row.image || ''
   return {
     id: row.id,
     make: row.make,
@@ -15,7 +22,10 @@ function mapVehicle(row) {
     engineNo: row.engine_no,
     chassisNo: row.chassis_no,
     status: row.status,
-    image: row.image,
+    image,
+    images: images.length ? images : image ? [image] : [],
+    insuranceImages,
+    insuranceImage: insuranceImages[0] || '',
     ownerId: row.owner_id || '',
     ownerName: row.owner_name || '',
     ownershipType: row.ownership_type || 'company',
@@ -34,6 +44,13 @@ function mapVehicle(row) {
 }
 
 function toVehicleRow(vehicle) {
+  const images = Array.isArray(vehicle?.images)
+    ? vehicle.images.map((u) => String(u || '').trim()).filter(Boolean)
+    : []
+  const primary = images[0] || vehicle?.image || null
+  const insuranceImages = Array.isArray(vehicle?.insuranceImages)
+    ? vehicle.insuranceImages.map((u) => String(u || '').trim()).filter(Boolean)
+    : []
   return {
     id: String(vehicle?.id || '').trim(),
     make: vehicle.make ?? null,
@@ -45,7 +62,9 @@ function toVehicleRow(vehicle) {
     engine_no: vehicle.engineNo ?? null,
     chassis_no: vehicle.chassisNo ?? null,
     status: vehicle.status ?? null,
-    image: vehicle.image ?? null,
+    image: primary,
+    images: images.length ? images : primary ? [primary] : [],
+    insurance_images: insuranceImages,
     owner_id: vehicle.ownerId ?? null,
     owner_name: vehicle.ownerName ?? null,
     ownership_type: vehicle.ownershipType ?? 'company',

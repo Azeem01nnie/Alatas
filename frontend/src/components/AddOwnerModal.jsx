@@ -47,8 +47,8 @@ export default function AddOwnerModal({
           Add New Owner
         </h3>
         <p className="confirm-message">
-          This owner will be linked to the vehicle when you save. They will appear in Vehicle
-          Reports after the vehicle is added.
+          This owner will be linked to the vehicle when you save. They also appear in Vehicle
+          Reports (with 0 vehicles until you save).
         </p>
 
         <form className="add-owner-form" onSubmit={handleSubmit}>

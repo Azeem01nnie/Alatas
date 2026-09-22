@@ -7,10 +7,10 @@ import {
   REPORT_STATUSES,
   REPORT_TYPES,
   addReportEntry,
+  buildVehicleReportRows,
   deleteReportEntry,
-  filterEntries,
   loadReportStore,
-  sumAmounts,
+  summarizeReportAmounts,
   updateReportEntry,
 } from '../utils/vehicleReports'
 import { fetchVehicleReportsFromCloud, pushVehicleReportsToCloud } from '../api/vehicleReportsApi'
@@ -275,25 +275,62 @@ function OwnerEditModal({ owner, onSave, onClose }) {
 }
 
 // ── Table row with collapsible attachment ─────────────────────────
-function ReportTableRow({ row, onEdit, onDelete, formatPeso }) {
+function ReportTableRow({ row, onEdit, onDelete, onOpenRental, formatPeso }) {
   const [open, setOpen] = useState(false)
   const attachment = row.attachment
   const isImage = typeof attachment === 'string' && attachment.startsWith('data:image')
+  const readOnly = Boolean(row.readOnly || row.source === 'rental')
+  const isIncome = row.source === 'rental' || row.type === 'Rental'
+  const isCost = row.type === 'Expense' || row.type === 'Repair'
+  const clickable = isIncome && typeof onOpenRental === 'function'
+
+  const handleRowActivate = () => {
+    if (!clickable) return
+    onOpenRental(row)
+  }
 
   return (
     <>
-      <tr>
+      <tr
+        className={[
+          isIncome ? 'reports-row-income' : '',
+          isCost ? 'reports-row-cost' : '',
+          clickable ? 'reports-row-clickable' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        tabIndex={clickable ? 0 : undefined}
+        role={clickable ? 'button' : undefined}
+        aria-label={clickable ? `Open rental details: ${row.description}` : undefined}
+        onClick={clickable ? handleRowActivate : undefined}
+        onKeyDown={
+          clickable
+            ? (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  handleRowActivate()
+                }
+              }
+            : undefined
+        }
+      >
         <td className="col-date">{row.date}</td>
         <td className="col-type">{row.type}</td>
         <td className="col-category">{row.category}</td>
         <td className="col-description">
           <div className="reports-desc-cell">
             <span>{row.description}</span>
+            {clickable ? (
+              <span className="reports-row-hint">View rental</span>
+            ) : null}
             {attachment ? (
               <button
                 type="button"
                 className="reports-view-image-btn"
-                onClick={() => setOpen((value) => !value)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setOpen((value) => !value)
+                }}
                 aria-expanded={open}
               >
                 {open ? 'Hide image' : 'View image'}
@@ -302,34 +339,51 @@ function ReportTableRow({ row, onEdit, onDelete, formatPeso }) {
             ) : null}
           </div>
         </td>
-        <td className="col-amount">{row.amount == null || row.amount === '' ? '₱0' : formatPeso(row.amount)}</td>
+        <td className={`col-amount${isIncome ? ' is-income' : ''}${isCost ? ' is-cost' : ''}`}>
+          {row.amount == null || row.amount === ''
+            ? '₱0'
+            : isCost
+              ? `−${formatPeso(row.amount)}`
+              : formatPeso(row.amount)}
+        </td>
         <td className="col-status">{row.status}</td>
-        <td className="reports-row-actions col-actions">
-          <div className="manage-row-actions reports-row-actions-inner">
+        <td className="reports-row-actions col-actions" onClick={(e) => e.stopPropagation()}>
+          {readOnly ? (
             <button
               type="button"
-              className="icon-btn"
-              aria-label="Edit entry"
-              title="Edit"
-              onClick={() =>
-                onEdit({
-                  ...row,
-                  amount: row.amount == null ? '' : String(row.amount),
-                })
-              }
+              className="btn-ghost reports-open-rental-btn"
+              onClick={handleRowActivate}
+              title="View rental details"
             >
-              <IconEdit />
+              Open
             </button>
-            <button
-              type="button"
-              className="icon-btn icon-btn-danger"
-              aria-label="Delete entry"
-              title="Delete"
-              onClick={() => onDelete(row)}
-            >
-              <IconDelete />
-            </button>
-          </div>
+          ) : (
+            <div className="manage-row-actions reports-row-actions-inner">
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label="Edit entry"
+                title="Edit"
+                onClick={() =>
+                  onEdit({
+                    ...row,
+                    amount: row.amount == null ? '' : String(row.amount),
+                  })
+                }
+              >
+                <IconEdit />
+              </button>
+              <button
+                type="button"
+                className="icon-btn icon-btn-danger"
+                aria-label="Delete entry"
+                title="Delete"
+                onClick={() => onDelete(row)}
+              >
+                <IconDelete />
+              </button>
+            </div>
+          )}
         </td>
       </tr>
       {open && attachment ? (
@@ -375,14 +429,49 @@ function DeleteConfirmModal({ onConfirm, onCancel }) {
 }
 
 // ── Main component ────────────────────────────────────────────────
-export default function VehicleReports({ vehicles = [], adminName = 'Admin', dataReady = true, onOwnerUpdate }) {
+const REPORTS_NAV_KEY = 'alatas-reports-nav'
+
+function loadReportsNav() {
+  try {
+    const raw = sessionStorage.getItem(REPORTS_NAV_KEY)
+    if (!raw) return { ownerId: '', vehicleId: '' }
+    const parsed = JSON.parse(raw)
+    return {
+      ownerId: String(parsed?.ownerId || ''),
+      vehicleId: String(parsed?.vehicleId || ''),
+    }
+  } catch {
+    return { ownerId: '', vehicleId: '' }
+  }
+}
+
+function saveReportsNav(ownerId, vehicleId) {
+  try {
+    sessionStorage.setItem(
+      REPORTS_NAV_KEY,
+      JSON.stringify({ ownerId: ownerId || '', vehicleId: vehicleId || '' }),
+    )
+  } catch {
+    /* ignore */
+  }
+}
+
+export default function VehicleReports({
+  vehicles = [],
+  rentals = [],
+  adminName = 'Admin',
+  dataReady = true,
+  onOwnerUpdate,
+  onOpenRental,
+}) {
   const [owners, setOwners] = useState(() => loadOwners())
   const [storeVersion, setStoreVersion] = useState(0)
   const store = useMemo(() => loadReportStore(), [storeVersion])
 
+  const initialNav = useMemo(() => loadReportsNav(), [])
   const [ownerSearch, setOwnerSearch] = useState('')
-  const [selectedOwnerId, setSelectedOwnerId] = useState('')
-  const [selectedVehicleId, setSelectedVehicleId] = useState('')
+  const [selectedOwnerId, setSelectedOwnerId] = useState(initialNav.ownerId)
+  const [selectedVehicleId, setSelectedVehicleId] = useState(initialNav.vehicleId)
   const [rangePreset, setRangePreset] = useState('month')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
@@ -398,7 +487,19 @@ export default function VehicleReports({ vehicles = [], adminName = 'Admin', dat
 
   useEffect(() => {
     if (!dataReady) return
-    setOwners(loadOwners())
+    let mounted = true
+    ;(async () => {
+      try {
+        const { pullOwnersFromCloud } = await import('../utils/owners')
+        await pullOwnersFromCloud()
+      } catch {
+        /* offline */
+      }
+      if (mounted) setOwners(loadOwners())
+    })()
+    return () => {
+      mounted = false
+    }
   }, [dataReady, vehicles])
 
   useEffect(() => {
@@ -447,6 +548,19 @@ export default function VehicleReports({ vehicles = [], adminName = 'Admin', dat
 
   const ownersFromVehicles = useMemo(() => {
     const map = new Map()
+
+    // Include owners from the store so newly added names appear before a vehicle is saved.
+    owners.forEach((o) => {
+      const id = String(o?.id || '').trim()
+      if (!id) return
+      map.set(id, {
+        id,
+        name: o.name || 'Unknown owner',
+        ownershipType: o.ownershipType === 'thirdParty' ? 'thirdParty' : 'company',
+        vehicleCount: 0,
+      })
+    })
+
     vehicles.forEach((v) => {
       const ownerKey =
         String(v.ownerId || '').trim() ||
@@ -464,9 +578,8 @@ export default function VehicleReports({ vehicles = [], adminName = 'Admin', dat
       }
       map.get(ownerKey).vehicleCount += 1
     })
-    return Array.from(map.values())
-      .filter((o) => o.vehicleCount > 0)
-      .sort((a, b) => a.name.localeCompare(b.name))
+
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name))
   }, [owners, vehicles])
 
   const filteredOwners = useMemo(() => {
@@ -518,14 +631,18 @@ export default function VehicleReports({ vehicles = [], adminName = 'Admin', dat
 
   const entries = useMemo(() => {
     if (!selectedVehicleId) return []
-    return filterEntries(store.entries, {
+    return buildVehicleReportRows({
+      entries: store.entries,
+      rentals,
       vehicleId: selectedVehicleId,
+      plateNo: selectedVehicle?.plateNo || '',
       from: dateBounds.from,
       to: dateBounds.to,
-    }).sort((a, b) => String(b.date).localeCompare(String(a.date)))
-  }, [store.entries, selectedVehicleId, dateBounds])
+      fleetVehicle: selectedVehicle || null,
+    })
+  }, [store.entries, rentals, selectedVehicleId, selectedVehicle, dateBounds])
 
-  const total = sumAmounts(entries)
+  const totals = useMemo(() => summarizeReportAmounts(entries), [entries])
   const monthKey = (dateBounds.from || new Date()).toISOString().slice(0, 7)
 
   const refresh = () => setStoreVersion((n) => n + 1)
@@ -580,6 +697,20 @@ export default function VehicleReports({ vehicles = [], adminName = 'Admin', dat
     setDeleteRow(null)
     refresh()
   }
+
+  const handleOpenRentalRow = (row) => {
+    if (!onOpenRental || row?.source !== 'rental') return
+    const rentalId = String(row.rentalId || '').trim()
+    if (!rentalId) return
+    const rental = rentals.find((r) => String(r.id) === rentalId)
+    if (!rental) return
+    saveReportsNav(selectedOwnerId, selectedVehicleId)
+    onOpenRental(rental)
+  }
+
+  useEffect(() => {
+    saveReportsNav(selectedOwnerId, selectedVehicleId)
+  }, [selectedOwnerId, selectedVehicleId])
 
   const handleOwnerSave = (newName) => {
     if (!editOwner?.id) return
@@ -641,22 +772,68 @@ export default function VehicleReports({ vehicles = [], adminName = 'Admin', dat
       doc.text(String(row.category || '').slice(0, 12), margin + 130, y)
       const desc = doc.splitTextToSize(String(row.description || ''), 180)
       doc.text(desc, margin + 220, y)
-      doc.text(row.amount == null ? 'PHP 0' : formatPesoPdf(row.amount), margin + 420, y)
+      const isCost = row.type === 'Expense' || row.type === 'Repair'
+      const amountLabel =
+        row.amount == null
+          ? 'PHP 0'
+          : isCost
+            ? `-${formatPesoPdf(row.amount)}`
+            : formatPesoPdf(row.amount)
+      doc.text(amountLabel, margin + 420, y)
       y += Math.max(14, desc.length * 12)
     })
-    y += 10
+    y += 14
     doc.setFont('helvetica', 'bold')
-    doc.text(`Total: ${formatPesoPdf(total)}`, margin, y)
+    doc.text(`Rental income: ${formatPesoPdf(totals.income)}`, margin, y)
+    y += 14
+    doc.text(`Costs (repairs / expenses): ${formatPesoPdf(totals.costs)}`, margin, y)
+    y += 14
+    doc.text(`Net earnings: ${formatPesoPdf(totals.net)}`, margin, y)
     doc.save(`Vehicle_Report_${selectedVehicle.plateNo || selectedVehicle.id}_${monthKey}.pdf`)
   }
 
   const exportExcel = () => {
     if (!selectedVehicle) return
-    const rows = entries.map((row) => ({
-      Date: row.date, Type: row.type, Category: row.category,
-      Description: row.description, Amount: row.amount ?? '', Status: row.status, 'Recorded by': row.recordedBy,
-    }))
-    rows.push({ Date: '', Type: '', Category: '', Description: 'TOTAL', Amount: total, Status: '', 'Recorded by': '' })
+    const rows = entries.map((row) => {
+      const isCost = row.type === 'Expense' || row.type === 'Repair'
+      const amt = row.amount == null || row.amount === '' ? 0 : Number(row.amount) || 0
+      return {
+        Date: row.date,
+        Type: row.type,
+        Category: row.category,
+        Description: row.description,
+        Amount: isCost ? -Math.abs(amt) : amt,
+        Status: row.status,
+        'Recorded by': row.recordedBy,
+      }
+    })
+    rows.push({
+      Date: '',
+      Type: '',
+      Category: '',
+      Description: 'RENTAL INCOME',
+      Amount: totals.income,
+      Status: '',
+      'Recorded by': '',
+    })
+    rows.push({
+      Date: '',
+      Type: '',
+      Category: '',
+      Description: 'COSTS (REPAIRS / EXPENSES)',
+      Amount: -Math.abs(totals.costs),
+      Status: '',
+      'Recorded by': '',
+    })
+    rows.push({
+      Date: '',
+      Type: '',
+      Category: '',
+      Description: 'NET EARNINGS',
+      Amount: totals.net,
+      Status: '',
+      'Recorded by': '',
+    })
     const sheet = XLSX.utils.json_to_sheet(rows)
     const book = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(book, sheet, 'Report')
@@ -684,7 +861,7 @@ export default function VehicleReports({ vehicles = [], adminName = 'Admin', dat
               <p className="empty-state">
                 {ownerSearch.trim()
                   ? 'No matching owners or vehicles.'
-                  : 'No owners yet. Add a vehicle with an owner in Manage Vehicle.'}
+                  : 'No owners yet. Add an owner when creating a vehicle in Manage Vehicle.'}
               </p>
             )}
             {filteredOwners.map((owner) => {
@@ -873,13 +1050,30 @@ export default function VehicleReports({ vehicles = [], adminName = 'Admin', dat
                     formatPeso={formatPeso}
                     onEdit={setEditRow}
                     onDelete={setDeleteRow}
+                    onOpenRental={handleOpenRentalRow}
                   />
                 ))}
               </tbody>
               <tfoot>
-                <tr>
-                  <td colSpan={4}>Running total</td>
-                  <td className="col-amount">{formatPeso(total)}</td>
+                <tr className="reports-total-row">
+                  <td colSpan={4}>Rental income</td>
+                  <td className="col-amount is-income">{formatPeso(totals.income)}</td>
+                  <td className="col-status" />
+                  <td className="col-actions" />
+                </tr>
+                <tr className="reports-total-row">
+                  <td colSpan={4}>Costs (repairs / expenses)</td>
+                  <td className="col-amount is-cost">
+                    {totals.costs ? `−${formatPeso(totals.costs)}` : formatPeso(0)}
+                  </td>
+                  <td className="col-status" />
+                  <td className="col-actions" />
+                </tr>
+                <tr className="reports-total-row reports-total-net">
+                  <td colSpan={4}>Net earnings</td>
+                  <td className={`col-amount${totals.net < 0 ? ' is-cost' : ' is-income'}`}>
+                    {formatPeso(totals.net)}
+                  </td>
                   <td className="col-status" />
                   <td className="col-actions" />
                 </tr>

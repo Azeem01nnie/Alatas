@@ -1,4 +1,5 @@
 import { safeSetItem } from './storage'
+import { isSupabaseConfigured } from '../api/supabaseClient'
 
 const OWNERS_KEY = 'alatas-owners'
 
@@ -19,7 +20,64 @@ export function loadOwners() {
 
 function saveOwners(owners) {
   safeSetItem(OWNERS_KEY, JSON.stringify(owners))
+  if (isSupabaseConfigured) {
+    void import('../api/backend')
+      .then(({ saveOwnersRemote }) => saveOwnersRemote(owners))
+      .catch((err) => console.warn('Could not sync owners to cloud', err))
+  }
   return owners
+}
+
+/** Merge remote + local owners by id (and by name when ids differ). */
+export function mergeOwnerLists(localList = [], remoteList = []) {
+  const byId = new Map()
+  const byName = new Map()
+
+  const upsert = (o) => {
+    if (!o || typeof o !== 'object') return
+    const id = String(o.id || '').trim()
+    const name = autoCapitalizeWords(String(o.name || '').trim())
+    if (!id || !name) return
+    const next = {
+      id,
+      name,
+      ownershipType: o.ownershipType === 'thirdParty' ? 'thirdParty' : 'company',
+      createdAt: o.createdAt || new Date().toISOString(),
+    }
+    const existingByName = byName.get(name.toLowerCase())
+    if (existingByName && existingByName.id !== id) {
+      // Prefer the first id we saw; keep latest name/type
+      byId.set(existingByName.id, {
+        ...existingByName,
+        name,
+        ownershipType: next.ownershipType,
+      })
+      return
+    }
+    byId.set(id, next)
+    byName.set(name.toLowerCase(), next)
+  }
+
+  ;(Array.isArray(localList) ? localList : []).forEach(upsert)
+  ;(Array.isArray(remoteList) ? remoteList : []).forEach(upsert)
+  return Array.from(byId.values()).sort((a, b) =>
+    String(a.name || '').localeCompare(String(b.name || '')),
+  )
+}
+
+/** Pull owners from Supabase and merge into localStorage. */
+export async function pullOwnersFromCloud() {
+  if (!isSupabaseConfigured) return loadOwners()
+  try {
+    const { fetchOwnersRemote } = await import('../api/backend')
+    const remote = await fetchOwnersRemote()
+    const merged = mergeOwnerLists(loadOwners(), remote)
+    safeSetItem(OWNERS_KEY, JSON.stringify(merged))
+    return merged
+  } catch (err) {
+    console.warn('Could not pull owners from cloud', err)
+    return loadOwners()
+  }
 }
 
 export function addOwner({ name, ownershipType = 'company' }) {

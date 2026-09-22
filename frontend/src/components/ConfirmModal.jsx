@@ -47,7 +47,7 @@ export default function ConfirmModal({
       onClick={onCancel}
     >
       <div
-        className="modal-panel confirm-modal"
+        className={`modal-panel confirm-modal${secondaryLabel && onSecondary ? ' confirm-modal--actions-row' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="confirm-title"

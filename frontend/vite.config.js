@@ -74,10 +74,4 @@ export default defineConfig({
     port: 4173,
     host: true,
   },
-  optimizeDeps: {
-    exclude: ['tesseract.js'],
-  },
-  worker: {
-    format: 'es',
-  },
 })

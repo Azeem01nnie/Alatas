@@ -2,8 +2,43 @@ import { isSupabaseConfigured, requireSupabase } from './supabaseClient'
 import { collectPhotographerCredits, mergePhotographerCredits } from '../utils/photoCredits'
 import { assertSafeDbId } from '../utils/security'
 
+/** Parse gallery URLs from legacy `image` text (single URL or JSON array). */
+function unpackImageField(raw) {
+  const s = String(raw || '').trim()
+  if (!s) return []
+  if (s.startsWith('[')) {
+    try {
+      const arr = JSON.parse(s)
+      if (Array.isArray(arr)) {
+        return arr.map((u) => String(u || '').trim()).filter(Boolean)
+      }
+    } catch {
+      /* not JSON — treat as plain URL */
+    }
+  }
+  return [s]
+}
+
+/** Persist multi photos in `image` text when jsonb `images` column is unavailable. */
+function packImageField(gallery, fallbackPrimary = null) {
+  const urls = (Array.isArray(gallery) ? gallery : [])
+    .map((u) => String(u || '').trim())
+    .filter(Boolean)
+  if (urls.length > 1) return JSON.stringify(urls)
+  return urls[0] || fallbackPrimary || null
+}
+
 function mapVehicle(row) {
   if (!row) return null
+  const fromCol = Array.isArray(row.images)
+    ? row.images.map((u) => String(u || '').trim()).filter(Boolean)
+    : []
+  const fromImage = unpackImageField(row.image)
+  const images = fromCol.length ? fromCol : fromImage
+  const insuranceImages = Array.isArray(row.insurance_images)
+    ? row.insurance_images.map((u) => String(u || '').trim()).filter(Boolean)
+    : []
+  const image = images[0] || ''
   return {
     id: row.id,
     make: row.make,
@@ -15,7 +50,10 @@ function mapVehicle(row) {
     engineNo: row.engine_no,
     chassisNo: row.chassis_no,
     status: row.status,
-    image: row.image,
+    image,
+    images,
+    insuranceImages,
+    insuranceImage: insuranceImages[0] || '',
     ownerId: row.owner_id || '',
     ownerName: row.owner_name || '',
     ownershipType: row.ownership_type || 'company',
@@ -34,6 +72,13 @@ function mapVehicle(row) {
 }
 
 function toVehicleRow(vehicle) {
+  const images = Array.isArray(vehicle?.images)
+    ? vehicle.images.map((u) => String(u || '').trim()).filter(Boolean)
+    : unpackImageField(vehicle?.image)
+  const primary = images[0] || null
+  const insuranceImages = Array.isArray(vehicle?.insuranceImages)
+    ? vehicle.insuranceImages.map((u) => String(u || '').trim()).filter(Boolean)
+    : []
   return {
     id: String(vehicle?.id || '').trim(),
     make: vehicle.make ?? null,
@@ -45,7 +90,9 @@ function toVehicleRow(vehicle) {
     engine_no: vehicle.engineNo ?? null,
     chassis_no: vehicle.chassisNo ?? null,
     status: vehicle.status ?? null,
-    image: vehicle.image ?? null,
+    image: primary,
+    images: images.length ? images : primary ? [primary] : [],
+    insurance_images: insuranceImages,
     owner_id: vehicle.ownerId ?? null,
     owner_name: vehicle.ownerName ?? null,
     ownership_type: vehicle.ownershipType ?? 'company',
@@ -179,9 +226,15 @@ export function fetchVehicles() {
 export async function replaceVehicles(vehicles, options = {}) {
   const prune = Boolean(options.prune)
   const sb = requireSupabase()
-  const items = (Array.isArray(vehicles) ? vehicles : [])
-    .map(toVehicleRow)
-    .filter((v) => v.id)
+  const items = (
+    await Promise.all(
+      (Array.isArray(vehicles) ? vehicles : []).map(async (v) => {
+        const row = toVehicleRow(v)
+        if (!row.id) return null
+        return materializeVehicleRow(row)
+      }),
+    )
+  ).filter(Boolean)
 
   // Only delete missing rows for explicit full replaces (import / clear sync).
   // Autosave must never delete fleet rows — a partial client list was wiping vehicles
@@ -200,7 +253,29 @@ export async function replaceVehicles(vehicles, options = {}) {
   }
 
   if (items.length) {
-    const { error } = await sb.from('vehicles').upsert(items, { onConflict: 'id' })
+    let { error } = await sb.from('vehicles').upsert(items, { onConflict: 'id' })
+    // Gallery/insurance columns may be missing until migration 008 is applied.
+    // Fall back: keep the full gallery packed into the legacy `image` text column.
+    if (
+      error &&
+      /images|insurance_images|schema cache|column/i.test(String(error.message || error.code || ''))
+    ) {
+      const stripped = items.map(({ images, insurance_images, ...rest }) => {
+        const gallery = Array.isArray(images)
+          ? images.map((u) => String(u || '').trim()).filter(Boolean)
+          : unpackImageField(rest.image)
+        return {
+          ...rest,
+          image: packImageField(gallery, rest.image),
+        }
+      })
+      ;({ error } = await sb.from('vehicles').upsert(stripped, { onConflict: 'id' }))
+      if (!error) {
+        console.warn(
+          'vehicles.images column missing — multi photos saved in image text. Run migration 008 for proper gallery + insurance columns.',
+        )
+      }
+    }
     if (error) throwSb(error)
   }
 
@@ -261,8 +336,17 @@ export async function completeVehicleRental(
         row.rental && typeof row.rental === 'object' && !Array.isArray(row.rental)
           ? { ...row.rental }
           : {}
-      rentalJson.returnCondition = returnMeta.condition || 'damaged'
-      rentalJson.returnInspection = returnMeta.inspection || returnMeta
+      rentalJson.returnCondition = returnMeta.condition || 'ok'
+      // Only persist a real damage inspection form — never the whole returnMeta wrapper.
+      if (
+        String(returnMeta.condition || '').toLowerCase() === 'damaged' &&
+        returnMeta.inspection &&
+        typeof returnMeta.inspection === 'object'
+      ) {
+        rentalJson.returnInspection = returnMeta.inspection
+      } else if (String(returnMeta.condition || '').toLowerCase() === 'ok') {
+        rentalJson.returnInspection = null
+      }
       const { data: one, error } = await sb
         .from('rentals')
         .update({
@@ -439,6 +523,63 @@ function dataUrlToBlob(dataUrl) {
   const bytes = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
   return new Blob([bytes], { type: mime })
+}
+
+/** Upload a data-URL image into the public `vehicles` bucket; return a stable public URL. */
+async function uploadVehicleImage(vehicleId, fileKey, dataUrl) {
+  if (!dataUrl || typeof dataUrl !== 'string') return ''
+  if (!dataUrl.startsWith('data:')) return dataUrl
+
+  const sb = requireSupabase()
+  const blob = dataUrlToBlob(dataUrl)
+  const ext = (blob.type || '').includes('png') ? 'png' : 'jpg'
+  const safeKey = String(fileKey || 'photo').replace(/[^\w\-]+/g, '_').slice(0, 40)
+  const path = `${String(vehicleId)}/${safeKey}-${Date.now()}.${ext}`
+
+  const { error } = await sb.storage.from('vehicles').upload(path, blob, {
+    contentType: blob.type || 'image/jpeg',
+    upsert: true,
+  })
+  if (error) throwSb(error)
+
+  const { data } = sb.storage.from('vehicles').getPublicUrl(path)
+  return data?.publicUrl || ''
+}
+
+/** Convert embedded vehicle data-URLs to Storage URLs so multi-photo rows stay small. */
+async function materializeVehicleRow(row) {
+  if (!row?.id) return row
+
+  const safeUpload = async (fileKey, dataUrl) => {
+    if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) return dataUrl || ''
+    try {
+      return await uploadVehicleImage(row.id, fileKey, dataUrl)
+    } catch (err) {
+      console.warn(`Vehicle photo upload failed for ${fileKey}; keeping local image`, err)
+      return dataUrl
+    }
+  }
+
+  const galleryIn = Array.isArray(row.images) ? row.images : unpackImageField(row.image)
+  const images = await Promise.all(
+    galleryIn.map((url, index) => safeUpload(`gallery-${index}`, url)),
+  )
+  const insuranceIn = Array.isArray(row.insurance_images) ? row.insurance_images : []
+  const insurance_images = await Promise.all(
+    insuranceIn.map((url, index) => safeUpload(`insurance-${index}`, url)),
+  )
+  const orcr_image = await safeUpload('orcr', row.orcr_image)
+  const or_image = await safeUpload('or', row.or_image)
+  const primary = images[0] || (await safeUpload('primary', row.image))
+
+  return {
+    ...row,
+    images: images.filter(Boolean),
+    insurance_images: insurance_images.filter(Boolean),
+    image: images.filter(Boolean)[0] || primary || null,
+    orcr_image: orcr_image || null,
+    or_image: or_image || null,
+  }
 }
 
 /** Upload a data-URL image into the public `rentals` bucket; return a stable public URL. */
@@ -930,6 +1071,33 @@ export async function saveVehicleReportsRemote(store) {
   }
   const { error } = await sb.from('app_settings').upsert({
     key: 'vehicle_reports',
+    value: next,
+    updated_at: new Date().toISOString(),
+  })
+  if (error) throwSb(error)
+  return next
+}
+
+/** Fleet owners list (Manage Vehicle + Vehicle Reports). */
+export async function fetchOwnersRemote() {
+  const sb = requireSupabase()
+  const { data, error } = await sb
+    .from('app_settings')
+    .select('value')
+    .eq('key', 'owners')
+    .maybeSingle()
+  if (error) throwSb(error)
+  const value = data?.value
+  if (Array.isArray(value)) return value
+  if (value && Array.isArray(value.owners)) return value.owners
+  return []
+}
+
+export async function saveOwnersRemote(owners) {
+  const sb = requireSupabase()
+  const next = Array.isArray(owners) ? owners : []
+  const { error } = await sb.from('app_settings').upsert({
+    key: 'owners',
     value: next,
     updated_at: new Date().toISOString(),
   })

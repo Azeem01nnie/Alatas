@@ -1,5 +1,10 @@
 import AddressAutocomplete from './AddressAutocomplete'
 import { ensurePhMobilePrefix, formatPhMobile } from '../utils/phone'
+import {
+  customerDisplayName,
+  findCustomerByContact,
+  loadCustomers,
+} from '../utils/customers'
 
 export const EMERGENCY_RELATIONS = [
   'Parent',
@@ -73,16 +78,59 @@ function PhoneInput({ name, value, onChange, error, autoComplete = 'tel' }) {
 }
 
 export default function StepPersonalInfo({ data, onChange, errors }) {
+  const customers = loadCustomers()
+  const matched = findCustomerByContact(data.contactNo)
+
   const nameFields = [
     { key: 'firstName', label: 'First Name', required: true },
     { key: 'middleName', label: 'Middle Name (optional)', required: false },
     { key: 'lastName', label: 'Last Name', required: true },
   ]
 
+  const applyCustomer = (customer) => {
+    if (!customer) return
+    onChange('firstName', customer.firstName || '')
+    onChange('middleName', customer.middleName || '')
+    onChange('lastName', customer.lastName || '')
+    onChange('address', customer.address || '')
+    onChange('contactNo', customer.contactNo || '')
+    onChange('emergencyName', customer.emergencyName || '')
+    onChange('emergencyRelation', customer.emergencyRelation || '')
+    onChange('emergencyRelationOther', customer.emergencyRelationOther || '')
+    onChange('emergencyPhone', customer.emergencyPhone || '')
+  }
+
   return (
     <section className="step-panel">
       <h2 className="step-title">Lessee / Renter Information</h2>
       <p className="step-subtitle">Enter the customer&apos;s personal details.</p>
+
+      {customers.length > 0 ? (
+        <label className="field field-full returning-customer-field">
+          <span className="field-label">Returning customer</span>
+          <select
+            value=""
+            onChange={(e) => {
+              const id = e.target.value
+              if (!id) return
+              const c = customers.find((row) => String(row.id) === id)
+              applyCustomer(c)
+            }}
+          >
+            <option value="">Select saved customer to autofill…</option>
+            {customers.map((c) => (
+              <option key={c.id} value={c.id}>
+                {customerDisplayName(c)} · {c.contactNo}
+              </option>
+            ))}
+          </select>
+          {matched ? (
+            <span className="returning-customer-hint">
+              Returning customer matched by contact — form autofilled.
+            </span>
+          ) : null}
+        </label>
+      ) : null}
 
       <div className="form-grid">
         {nameFields.map(({ key, label, required }) => (
@@ -118,7 +166,11 @@ export default function StepPersonalInfo({ data, onChange, errors }) {
           <PhoneInput
             name="contactNo"
             value={data.contactNo}
-            onChange={(val) => onChange('contactNo', val)}
+            onChange={(val) => {
+              onChange('contactNo', val)
+              const found = findCustomerByContact(val)
+              if (found) applyCustomer(found)
+            }}
             error={errors.contactNo}
           />
         </label>

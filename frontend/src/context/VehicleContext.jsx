@@ -108,12 +108,23 @@ export function VehicleProvider({ children }) {
         ])
         if (!mounted || gen !== loadGen) return
 
+        const archived = getArchivedIdSet()
+        const fleetOnly = (Array.isArray(vehiclesData) ? vehiclesData : []).filter(
+          (v) => !archived.has(String(v.id)),
+        )
+        // Drop cloud rows that are archived locally so they cannot reappear.
+        for (const row of Array.isArray(vehiclesData) ? vehiclesData : []) {
+          if (archived.has(String(row.id))) {
+            void deleteVehicleApi(row.id).catch(() => {})
+          }
+        }
+
         try {
           const healed = await reconcileDuplicateOpenRentalsApi()
           if (healed?.closed > 0) {
             const refreshed = await loadRentals()
             if (!mounted || gen !== loadGen) return
-            setVehicles(Array.isArray(vehiclesData) ? vehiclesData : [])
+            setVehicles(fleetOnly)
             setRentals(
               Array.isArray(refreshed) ? refreshed.map(normalizeRental) : [],
             )
@@ -126,7 +137,7 @@ export function VehicleProvider({ children }) {
         }
 
         if (!mounted || gen !== loadGen) return
-        setVehicles(Array.isArray(vehiclesData) ? vehiclesData : [])
+        setVehicles(fleetOnly)
         setRentals(
           Array.isArray(rentalsData)
             ? rentalsData.map(normalizeRental)
@@ -199,7 +210,7 @@ export function VehicleProvider({ children }) {
       skipVehicleAutosave.current = false
       return
     }
-    saveVehicles(vehicles).catch((err) => {
+    saveVehicles(vehicles.filter((v) => !getArchivedIdSet().has(String(v.id)))).catch((err) => {
       console.warn('Vehicle save failed', err)
     })
   }, [vehicles])
@@ -224,7 +235,10 @@ export function VehicleProvider({ children }) {
 
   const reloadData = useCallback(async () => {
     const [vehiclesData, rentalsData] = await Promise.all([loadVehicles(), loadRentals()])
-    const nextVehicles = Array.isArray(vehiclesData) ? vehiclesData : []
+    const archived = getArchivedIdSet()
+    const nextVehicles = (Array.isArray(vehiclesData) ? vehiclesData : []).filter(
+      (v) => !archived.has(String(v.id)),
+    )
     const nextRentals = Array.isArray(rentalsData)
       ? rentalsData.map(normalizeRental)
       : []
@@ -531,14 +545,18 @@ export function VehicleProvider({ children }) {
 
   const addVehicle = (vehicle) => {
     const now = new Date().toISOString()
+    const id = String(vehicle?.id || '').trim() || `v-${Date.now()}`
     const entry = {
       ...vehicle,
       status: vehicle.status || 'Available',
-      id: `v-${Date.now()}`,
+      id,
       createdAt: vehicle.createdAt || now,
       updatedAt: now,
     }
-    setVehicles((prev) => [...prev, entry])
+    setVehicles((prev) => {
+      const without = prev.filter((v) => String(v.id) !== String(id))
+      return [...without, entry]
+    })
     return entry
   }
 
@@ -553,17 +571,25 @@ export function VehicleProvider({ children }) {
 
   const removeVehicle = useCallback(async (id) => {
     if (!id) return null
+    const key = String(id)
 
-    const result = await deleteVehicleApi(id)
-    if (!result || !result.ok) return null
+    // Drop locally first so autosave cannot resurrect the row.
+    setVehicles((prev) => prev.filter((v) => String(v.id) !== key))
 
-    if (Array.isArray(result.vehicles)) {
-      setVehicles(result.vehicles)
-    } else {
-      setVehicles((prev) => prev.filter((v) => v.id !== id))
+    try {
+      const result = await deleteVehicleApi(key)
+      if (Array.isArray(result)) {
+        const archived = getArchivedIdSet()
+        const next = result.filter((v) => !archived.has(String(v.id)))
+        skipVehicleAutosave.current = true
+        setVehicles(next)
+        return { ok: true, vehicles: next }
+      }
+      return { ok: true }
+    } catch (err) {
+      console.warn('Delete vehicle API failed; kept local removal', err)
+      return { ok: false, localOnly: true }
     }
-    // Keep rental history for audits — do not strip rentals on vehicle delete
-    return result
   }, [])
 
   const addRental = async (record) => {

@@ -1,0 +1,3 @@
+# Deno / Edge Function config for scan-orcr
+# Deploy: supabase functions deploy scan-orcr
+# Secrets: supabase secrets set GEMINI_API_KEY=...

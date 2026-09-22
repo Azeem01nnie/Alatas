@@ -34,6 +34,9 @@ import AdminLogin, {
 } from './AdminLogin'
 import ConfirmModal from './ConfirmModal'
 import DamageInspectionModal from './DamageInspectionModal'
+import DamageReports from './DamageReports'
+import CustomersPanel from './CustomersPanel'
+import XZReadings from './XZReadings'
 import AddOwnerModal from './AddOwnerModal'
 import PremiumDatePicker from './PremiumDatePicker'
 import RentCarForm from './RentCarForm'
@@ -47,12 +50,12 @@ import {
   addOwner,
   autoCapitalizeWords,
   loadOwners,
-  purgeOrphanOwners,
+  pullOwnersFromCloud,
   syncOwnersFromVehicles,
   updateOwner,
 } from '../utils/owners'
 import { loadReportStore } from '../utils/vehicleReports'
-import { scanOrcrImage, mergeScanFields } from '../utils/orcrOcr'
+import { getVehicleGallery, getInsuranceImages } from '../utils/vehicleImages'
 import { fetchSystemStatus, runCloudSync, saveAdminProfileRemote, clearAllAppData } from '../api/backend'
 import { CLOUD_SYNC_ENABLED, isCloudConfigured } from '../api/cloudSync'
 import { describeCloudConnection } from '../config/cloudConnection'
@@ -172,6 +175,8 @@ const EMPTY = {
   engineNo: '',
   chassisNo: '',
   image: '',
+  images: [],
+  insuranceImages: [],
   status: 'Available',
   ownerId: '',
   ownerName: '',
@@ -295,6 +300,39 @@ function IconReports() {
   )
 }
 
+function IconDamage() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+      <path d="M12 9v4" />
+      <path d="M12 17h.01" />
+    </svg>
+  )
+}
+
+function IconCustomers() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  )
+}
+
+function IconXZ() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M7 9h4" />
+      <path d="M7 13h10" />
+      <path d="M7 17h6" />
+      <path d="M15 8l2 2 2-2" />
+    </svg>
+  )
+}
+
 function IconEmployees() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -314,15 +352,18 @@ const MANAGE_STATUS_FILTERS = [
   { id: 'Under Maintenance', label: 'Maintenance' },
 ]
 
-const ADMIN_ONLY_TABS = new Set(['manage', 'employees', 'reports'])
+const ADMIN_ONLY_TABS = new Set(['manage', 'employees', 'reports', 'damage', 'xz', 'customers'])
 
 const NAV = [
   { id: 'dashboard', label: 'Dashboard', shortLabel: 'Home', icon: <IconDashboard /> },
   { id: 'calendar', label: 'Calendar', shortLabel: 'Calendar', icon: <IconCalendar /> },
   { id: 'rent', label: 'Rent Car', shortLabel: 'Rent', icon: <IconRent /> },
   { id: 'manage', label: 'Manage Vehicle', shortLabel: 'Fleet', icon: <IconManage />, adminOnly: true },
+  { id: 'customers', label: 'Customers', shortLabel: 'Customers', icon: <IconCustomers />, adminOnly: true },
   { id: 'employees', label: 'Employees', shortLabel: 'Team', icon: <IconEmployees />, adminOnly: true },
   { id: 'reports', label: 'Vehicle Reports', shortLabel: 'Reports', icon: <IconReports />, adminOnly: true },
+  { id: 'damage', label: 'Damage Reports', shortLabel: 'Damage', icon: <IconDamage />, adminOnly: true },
+  { id: 'xz', label: 'X & Z Readings', shortLabel: 'X/Z', icon: <IconXZ />, adminOnly: true },
   { id: 'history', label: 'Rental History', shortLabel: 'History', icon: <IconHistory /> },
 ]
 
@@ -696,39 +737,25 @@ export default function AdminPanel() {
     }
   }, [manageLayout])
 
-  // Keep the owner dropdown in sync with fleet vehicles (same source as Vehicle Reports).
-  // Never wipe the store when the fleet is empty (load race). Keep draft form owners.
+  // Keep owners in sync with fleet + cloud so Vehicle Reports survives refresh.
   useEffect(() => {
     if (!ready || loadError) return
-    const fleet = [...vehicles, ...archivedVehicles]
-    if (!fleet.length) return
-
-    syncOwnersFromVehicles(fleet)
-    const linkedIds = [
-      ...fleet.map((v) => v.ownerId),
-      form.ownerId,
-      editForm?.ownerId,
-    ].filter(Boolean)
-    const linkedNames = [
-      ...fleet.map((v) => v.ownerName),
-      form.ownerName,
-      editForm?.ownerName,
-    ].filter(Boolean)
-    setOwners(
-      purgeOrphanOwners({ ownerIds: linkedIds, ownerNames: linkedNames }).sort((a, b) =>
-        String(a.name || '').localeCompare(String(b.name || '')),
-      ),
-    )
-  }, [
-    ready,
-    loadError,
-    vehicles,
-    archivedVehicles,
-    form.ownerId,
-    form.ownerName,
-    editForm?.ownerId,
-    editForm?.ownerName,
-  ])
+    let mounted = true
+    ;(async () => {
+      try {
+        await pullOwnersFromCloud()
+      } catch {
+        /* offline */
+      }
+      if (!mounted) return
+      const fleet = [...vehicles, ...archivedVehicles]
+      if (fleet.length) syncOwnersFromVehicles(fleet)
+      setOwners(loadOwners())
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [ready, loadError, vehicles, archivedVehicles])
 
   useEffect(() => {
     if (tab === 'settings') {
@@ -1037,6 +1064,8 @@ export default function AdminPanel() {
       localStorage.removeItem('alatas-offline-queue')
       localStorage.removeItem('alatas-owners')
       localStorage.removeItem('alatas-vehicle-reports')
+      localStorage.removeItem('alatas-xz-readings')
+      localStorage.removeItem('alatas-customers')
       localStorage.removeItem('alatas-vehicles-v6')
       localStorage.removeItem('alatas-manage-layout')
       saveArchivedVehicles([])
@@ -1514,23 +1543,70 @@ export default function AdminPanel() {
   }
 
   const handleImageFile = (e, forEdit = false) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = async () => {
-      try {
-        const raw = String(reader.result || '')
-        const compressed = (await compressImageDataUrl(raw, 1280, 0.82)) || raw
-        if (forEdit) updateEdit('image', compressed)
-        else update('image', compressed)
-      } catch (err) {
-        console.warn('Vehicle image compress failed', err)
-        const raw = String(reader.result || '')
-        if (forEdit) updateEdit('image', raw)
-        else update('image', raw)
+    const files = Array.from(e.target.files || [])
+    if (!files.length) return
+
+    const appendImages = async () => {
+      const nextUrls = []
+      for (const file of files) {
+        try {
+          const raw = await new Promise((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(String(reader.result || ''))
+            reader.onerror = () => reject(new Error('Could not read file'))
+            reader.readAsDataURL(file)
+          })
+          const compressed = (await compressImageDataUrl(raw, 1280, 0.82)) || raw
+          if (compressed) nextUrls.push(compressed)
+        } catch (err) {
+          console.warn('Vehicle image compress failed', err)
+        }
       }
+      if (!nextUrls.length) return
+      const setter = forEdit ? setEditForm : setForm
+      setter((prev) => {
+        const current = getVehicleGallery(prev)
+        const images = [...current, ...nextUrls]
+        return { ...prev, images, image: images[0] || '' }
+      })
     }
-    reader.readAsDataURL(file)
+
+    void appendImages().finally(() => {
+      e.target.value = ''
+    })
+  }
+
+  const handleInsuranceFile = (e, forEdit = false) => {
+    const files = Array.from(e.target.files || [])
+    if (!files.length) return
+
+    const append = async () => {
+      const nextUrls = []
+      for (const file of files) {
+        try {
+          const raw = await new Promise((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(String(reader.result || ''))
+            reader.onerror = () => reject(new Error('Could not read file'))
+            reader.readAsDataURL(file)
+          })
+          const compressed = (await compressImageDataUrl(raw, 1280, 0.82)) || raw
+          if (compressed) nextUrls.push(compressed)
+        } catch (err) {
+          console.warn('Insurance image compress failed', err)
+        }
+      }
+      if (!nextUrls.length) return
+      const setter = forEdit ? setEditForm : setForm
+      setter((prev) => {
+        const current = getInsuranceImages(prev)
+        return { ...prev, insuranceImages: [...current, ...nextUrls] }
+      })
+    }
+
+    void append().finally(() => {
+      e.target.value = ''
+    })
   }
 
   const applyOwnerSelection = (ownerId, forEdit = false) => {
@@ -1632,8 +1708,14 @@ export default function AdminPanel() {
       else setForm((prev) => attachImage(prev))
 
       let fields = {}
+      let mergeScanFields = (existing, incoming) => ({ ...(existing || {}), ...(incoming || {}) })
       try {
-        const scanned = await scanOrcrImage(compressed, setOrcrProgress, docHint)
+        const [{ scanOrcrDocument }, orcrMod] = await Promise.all([
+          import('../api/orcrScan'),
+          import('../utils/orcrOcr'),
+        ])
+        mergeScanFields = orcrMod.mergeScanFields
+        const scanned = await scanOrcrDocument(compressed, setOrcrProgress, docHint)
         fields = scanned?.fields || {}
       } catch (scanErr) {
         console.error(scanErr)
@@ -1805,7 +1887,7 @@ export default function AdminPanel() {
     return next
   }
 
-  const toVehiclePayload = (data) => {
+  const toVehiclePayload = (data, existing = null) => {
     const ownershipType = data.ownershipType === 'thirdParty' ? 'thirdParty' : 'company'
     const ownerName = String(data.ownerName || '').trim()
     const ownerId = String(data.ownerId || '').trim()
@@ -1824,27 +1906,59 @@ export default function AdminPanel() {
       }
     }
 
+    const formGallery = Array.isArray(data.images)
+      ? data.images.map((u) => String(u || '').trim()).filter(Boolean)
+      : getVehicleGallery(data)
+    const existingGallery = existing ? getVehicleGallery(existing) : []
+    // Prefer form photos; if none, keep what was already saved (edit must not wipe).
+    const images = formGallery.length > 0 ? formGallery : existingGallery
+
+    const formInsurance = Array.isArray(data.insuranceImages)
+      ? data.insuranceImages.map((u) => String(u || '').trim()).filter(Boolean)
+      : getInsuranceImages(data)
+    const existingInsurance = existing ? getInsuranceImages(existing) : []
+    const insuranceImages = formInsurance.length > 0 ? formInsurance : existingInsurance
+
+    const pickRate = (formKey, existingVal) => {
+      const raw = String(data[formKey] ?? '').trim()
+      if (raw !== '') {
+        const n = Number(raw.replace(/[^\d.]/g, ''))
+        return Number.isFinite(n) ? n : Number(existingVal) || 0
+      }
+      if (existingVal != null && existingVal !== '') {
+        const n = Number(existingVal)
+        return Number.isFinite(n) ? n : 0
+      }
+      return 0
+    }
+
+    const exRates = existing?.rates || {}
+
     return {
       make: forceUpper(data.make).trim(),
       series: forceUpper(data.series).trim(),
       bodyType: data.bodyType.trim(),
-      seats: Number(data.seats) || 5,
-      transmission: data.transmission.trim(),
-      plateNo: sanitizePlateNo(data.plateNo),
-      engineNo: forceUpper(data.engineNo).trim(),
-      chassisNo: forceUpper(data.chassisNo).trim(),
-      image: data.image.trim() || logo,
+      seats: Number(data.seats) || Number(existing?.seats) || 5,
+      transmission: data.transmission.trim() || existing?.transmission || 'Automatic',
+      plateNo: sanitizePlateNo(data.plateNo) || sanitizePlateNo(existing?.plateNo),
+      engineNo: forceUpper(data.engineNo || existing?.engineNo || '').trim(),
+      chassisNo: forceUpper(data.chassisNo || existing?.chassisNo || '').trim(),
+      images,
+      image: images[0] || existing?.image || logo,
+      insuranceImages,
       status: data.status === 'Under Maintenance' ? 'Under Maintenance' : 'Available',
-      ownerId: resolvedOwnerId || '',
-      ownerName: forceUpper(resolvedOwnerName || '').trim(),
-      ownershipType,
-      orcrImage: data.orcrImage || '',
-      orImage: data.orImage || '',
+      ownerId: resolvedOwnerId || existing?.ownerId || '',
+      ownerName: forceUpper(resolvedOwnerName || existing?.ownerName || '').trim(),
+      ownershipType:
+        ownershipType ||
+        (existing?.ownershipType === 'thirdParty' ? 'thirdParty' : 'company'),
+      orcrImage: data.orcrImage || existing?.orcrImage || '',
+      orImage: data.orImage || existing?.orImage || '',
       rates: {
-        hrs5: Number(String(data.hrs5 ?? '').replace(/[^\d.]/g, '')) || 0,
-        hrs12: Number(String(data.hrs12 ?? '').replace(/[^\d.]/g, '')) || 0,
-        hrs24: Number(String(data.hrs24 ?? '').replace(/[^\d.]/g, '')) || 0,
-        exceedHour: Number(String(data.exceedHour ?? '').replace(/[^\d.]/g, '')) || 0,
+        hrs5: pickRate('hrs5', exRates.hrs5 ?? existing?.hrs5),
+        hrs12: pickRate('hrs12', exRates.hrs12 ?? existing?.hrs12),
+        hrs24: pickRate('hrs24', exRates.hrs24 ?? existing?.hrs24),
+        exceedHour: pickRate('exceedHour', exRates.exceedHour ?? existing?.exceedHour),
       },
     }
   }
@@ -1864,10 +1978,13 @@ export default function AdminPanel() {
   }
 
   const openEdit = (vehicle) => {
+    const images = getVehicleGallery(vehicle)
+    const rates = vehicle.rates || {}
+    const rateStr = (v) => (v == null || v === '' ? '' : String(v))
     setEditForm({
       ...vehicle,
       status: vehicle.status === 'Under Maintenance' ? 'Under Maintenance' : 'Available',
-      seats: vehicle.seats ?? 5,
+      seats: vehicle.seats != null && vehicle.seats !== '' ? String(vehicle.seats) : '5',
       transmission: vehicle.transmission || 'Automatic',
       plateNo: sanitizePlateNo(vehicle.plateNo),
       ownerId: vehicle.ownerId || '',
@@ -1875,13 +1992,16 @@ export default function AdminPanel() {
       ownershipType: vehicle.ownershipType === 'thirdParty' ? 'thirdParty' : 'company',
       orcrImage: vehicle.orcrImage || '',
       orImage: vehicle.orImage || '',
-      hrs5: vehicle.rates?.hrs5 ?? '',
-      hrs12: vehicle.rates?.hrs12 ?? '',
-      hrs24: vehicle.rates?.hrs24 ?? '',
-      exceedHour: vehicle.rates?.exceedHour ?? '',
+      images,
+      image: images[0] || vehicle.image || '',
+      insuranceImages: getInsuranceImages(vehicle),
+      hrs5: rateStr(rates.hrs5 ?? vehicle.hrs5),
+      hrs12: rateStr(rates.hrs12 ?? vehicle.hrs12),
+      hrs24: rateStr(rates.hrs24 ?? vehicle.hrs24),
+      exceedHour: rateStr(rates.exceedHour ?? vehicle.exceedHour),
     })
     setEditErrors({})
-    setEditFieldsLocked(Boolean(vehicle.orcrImage))
+    setEditFieldsLocked(Boolean(vehicle.orcrImage || vehicle.orImage))
   }
 
   const requestSaveEdit = () => {
@@ -2099,7 +2219,7 @@ export default function AdminPanel() {
       setTimeout(() => setMessage(''), 2500)
     }
     if (confirm.type === 'add') {
-      const payload = toVehiclePayload(form)
+      const payload = toVehiclePayload(form, null)
       if (payload.ownerId) {
         updateOwner(payload.ownerId, { ownershipType: payload.ownershipType })
         setOwners(loadOwners())
@@ -2113,12 +2233,24 @@ export default function AdminPanel() {
       setTimeout(() => setMessage(''), 2500)
     }
     if (confirm.type === 'archive' && confirm.vehicle) {
-      setArchivedVehicles(archiveVehicleSnapshot(confirm.vehicle))
+      const v = confirm.vehicle
+      setArchivedVehicles(archiveVehicleSnapshot(v))
+      // Remove from live fleet + cloud so archive cannot resurrect on refresh.
+      void removeVehicle(v.id)
       setMessage('Vehicle archived.')
       setTimeout(() => setMessage(''), 2500)
     }
     if (confirm.type === 'restore' && confirm.vehicleId) {
+      const snap = archivedVehicles.find((row) => String(row.id) === String(confirm.vehicleId))
       setArchivedVehicles(restoreArchivedVehicle(confirm.vehicleId))
+      if (snap) {
+        const { archivedAt: _archivedAt, ...rest } = snap
+        addVehicle({
+          ...rest,
+          id: snap.id,
+          status: rest.status === 'Rented' ? 'Available' : rest.status || 'Available',
+        })
+      }
       setMessage('Vehicle restored to fleet.')
       setTimeout(() => setMessage(''), 2500)
     }
@@ -2130,7 +2262,7 @@ export default function AdminPanel() {
     }
     if (confirm.type === 'edit' && editForm) {
       const existing = vehicles.find((v) => v.id === editForm.id)
-      const payload = toVehiclePayload(editForm)
+      const payload = toVehiclePayload(editForm, existing)
       if (payload.ownerId) {
         updateOwner(payload.ownerId, { ownershipType: payload.ownershipType })
         setOwners(loadOwners())
@@ -2418,7 +2550,9 @@ export default function AdminPanel() {
                   ? '← Back to Calendar'
                   : transactionReturnTab === 'dashboard'
                     ? '← Back to Dashboard'
-                    : '← Back to History'
+                    : transactionReturnTab === 'reports'
+                      ? '← Back to Reports'
+                      : '← Back to History'
               }
               onBack={closeTransaction}
               canEditCarPhotos
@@ -2969,8 +3103,7 @@ export default function AdminPanel() {
                   onChange={update}
                   fileRef={fileRef}
                   onFile={(e) => handleImageFile(e, false)}
-                    locked={fieldsLocked}
-                    onToggleLock={() => setFieldsLocked(false)}
+                  onInsuranceFile={(e) => handleInsuranceFile(e, false)}
                     owners={owners}
                     onOwnerSelect={(id) => applyOwnerSelection(id, false)}
                     crFileRef={crFileRef}
@@ -2980,6 +3113,8 @@ export default function AdminPanel() {
                     orcrBusy={orcrBusy && orcrTarget === 'add'}
                     orcrDocHint={orcrTarget === 'add' ? orcrDocHint : null}
                     orcrProgress={orcrProgress}
+                    locked={fieldsLocked}
+                    onToggleLock={() => setFieldsLocked(false)}
                 />
                 <div className="field field-full admin-form-actions">
                     <button type="submit" className="btn-primary" disabled={orcrBusy}>
@@ -3187,8 +3322,10 @@ export default function AdminPanel() {
           {tab === 'reports' && isAdminUser && (
             <VehicleReports
               vehicles={vehicles}
+              rentals={rentals}
               adminName={profile.displayName}
               dataReady={ready && !loadError}
+              onOpenRental={(rental) => openTransaction(rental, 'reports')}
               onOwnerUpdate={(ownerId, patch) => {
                 updateOwner(ownerId, patch)
                 if (patch.name) {
@@ -3199,6 +3336,34 @@ export default function AdminPanel() {
               }}
             />
           )}
+
+          {tab === 'damage' && isAdminUser && (
+            <DamageReports
+              rentals={rentals}
+              vehicles={vehicles}
+              adminName={
+                sessionUser?.displayName ||
+                sessionUser?.username ||
+                profile?.displayName ||
+                'Admin'
+              }
+            />
+          )}
+
+          {tab === 'xz' && isAdminUser && (
+            <XZReadings
+              rentals={rentals}
+              vehicles={vehicles}
+              adminName={
+                sessionUser?.displayName ||
+                sessionUser?.username ||
+                profile?.displayName ||
+                'Admin'
+              }
+            />
+          )}
+
+          {tab === 'customers' && isAdminUser && <CustomersPanel rentals={rentals} />}
 
           {tab === 'employees' && isAdminUser && <EmployeesPanel />}
 
@@ -4082,6 +4247,7 @@ export default function AdminPanel() {
                 onChange={updateEdit}
                 fileRef={editFileRef}
                 onFile={(e) => handleImageFile(e, true)}
+                onInsuranceFile={(e) => handleInsuranceFile(e, true)}
                     locked={editFieldsLocked}
                     onToggleLock={() => setEditFieldsLocked(false)}
                     owners={owners}
@@ -4246,7 +4412,7 @@ export default function AdminPanel() {
 }
 
 function sanitizePesoInput(raw) {
-  let s = String(raw || '').replace(/[^\d.]/g, '')
+  let s = String(raw ?? '').replace(/[^\d.]/g, '')
   const dot = s.indexOf('.')
   if (dot !== -1) {
     s = `${s.slice(0, dot + 1)}${s.slice(dot + 1).replace(/\./g, '')}`
@@ -4296,6 +4462,7 @@ function VehicleFields({
   onChange,
   fileRef,
   onFile,
+  onInsuranceFile,
   locked = false,
   onToggleLock,
   owners = [],
@@ -4311,12 +4478,23 @@ function VehicleFields({
   const disabled = locked || orcrBusy
   const crScanning = orcrBusy && orcrDocHint === 'cr'
   const orScanning = orcrBusy && orcrDocHint === 'or'
-  const hasCustomImage = Boolean(
-    String(data.image || '').trim() &&
-      data.image !== logo &&
-      !String(data.image || '').endsWith('logonobg.png'),
-  )
-  const previewImage = hasCustomImage ? data.image : logo
+  const gallery = getVehicleGallery(data)
+  const insuranceList = getInsuranceImages(data)
+  const hasCustomImage = gallery.length > 0
+  const previewImage = hasCustomImage ? gallery[0] : logo
+
+  const removeGalleryAt = (index) => {
+    const next = gallery.filter((_, i) => i !== index)
+    onChange('images', next)
+    onChange('image', next[0] || '')
+  }
+
+  const removeInsuranceAt = (index) => {
+    onChange(
+      'insuranceImages',
+      insuranceList.filter((_, i) => i !== index),
+    )
+  }
 
   return (
     <>
@@ -4325,9 +4503,9 @@ function VehicleFields({
           <span className="field-label">LTO OR &amp; CR scan</span>
           <p className="edit-section-copy">
             Upload the Certificate of Registration (CR) and Official Receipt (OR) as PNG, JPEG,
-            WebP, or PDF (first page). Word files are not supported. Fields are filled from both
-            documents when readable. After a successful scan, fields become read-only — use Edit
-            only to correct mistakes.
+            WebP, or PDF (first page). Word files are not supported. Fields are filled by AI when
+            online (Gemini via Supabase), with local OCR as fallback. After a successful scan,
+            fields become read-only — use Edit only to correct mistakes.
           </p>
         </div>
         <div className="vehicle-form-toolbar-actions">
@@ -4384,18 +4562,76 @@ function VehicleFields({
           <div className="orcr-preview-row">
             {data.orcrImage ? (
               <div className="orcr-preview">
-                <span className="orcr-preview-label">CR</span>
+                <div className="orcr-preview-top">
+                  <span className="orcr-preview-label">CR</span>
+                  <button
+                    type="button"
+                    className="orcr-preview-remove"
+                    aria-label="Remove CR"
+                    title="Remove CR"
+                    onClick={() => onChange('orcrImage', '')}
+                  >
+                    ×
+                  </button>
+                </div>
                 <img src={data.orcrImage} alt="Certificate of Registration" />
               </div>
             ) : null}
             {data.orImage ? (
               <div className="orcr-preview">
-                <span className="orcr-preview-label">OR</span>
+                <div className="orcr-preview-top">
+                  <span className="orcr-preview-label">OR</span>
+                  <button
+                    type="button"
+                    className="orcr-preview-remove"
+                    aria-label="Remove OR"
+                    title="Remove OR"
+                    onClick={() => onChange('orImage', '')}
+                  >
+                    ×
+                  </button>
+                </div>
                 <img src={data.orImage} alt="Official Receipt" />
               </div>
             ) : null}
           </div>
         )}
+      </div>
+
+      <div className="field field-full edit-section-heading">
+        <span className="field-label">Insurance photos</span>
+        <p className="edit-section-copy">
+          Upload insurance documents as photos only (no AI scan). Shown in vehicle info.
+        </p>
+      </div>
+      <div className="field field-full">
+        <label className="edit-upload-btn">
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={onInsuranceFile}
+            className="file-input"
+          />
+          <span>Upload insurance photo(s)</span>
+        </label>
+        {insuranceList.length ? (
+          <div className="vehicle-thumb-grid">
+            {insuranceList.map((src, index) => (
+              <div key={`ins-${index}`} className="vehicle-thumb-card">
+                <img src={src} alt={`Insurance ${index + 1}`} />
+                <button
+                  type="button"
+                  className="vehicle-thumb-remove"
+                  aria-label={`Remove insurance photo ${index + 1}`}
+                  onClick={() => removeInsuranceAt(index)}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       <div className="field field-full edit-section-heading">
@@ -4619,46 +4855,58 @@ function VehicleFields({
       <div className="field field-full edit-section-heading">
         <span className="field-label">Vehicle Image (optional)</span>
         <p className="edit-section-copy">
-          Upload a vehicle photo, or leave blank — the fleet will use the Alatas logo as the default.
+          Upload one or more vehicle photos. Leave blank to use the Alatas logo. First photo is the
+          main fleet thumbnail.
         </p>
       </div>
 
       <div className="field field-full edit-image-panel">
         <div className="edit-image-upload">
           <span className="field-label">Upload Image</span>
-          {!String(data.image || '').startsWith('data:') && data.image ? (
-            <p className="edit-image-source">Current asset: {data.image}</p>
-          ) : (
-            <p className="edit-image-source">
-              {data.image
-                ? 'Upload a cleaner image to replace the current one.'
-                : 'No photo selected yet — add one when ready.'}
-            </p>
-          )}
+          <p className="edit-image-source">
+            {gallery.length
+              ? `${gallery.length} photo${gallery.length === 1 ? '' : 's'} selected — add more anytime.`
+              : 'No photo selected yet — add one when ready.'}
+          </p>
           <label className="edit-upload-btn">
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          onChange={onFile}
-          className="file-input"
-        />
-            <span>Choose Image</span>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={onFile}
+              className="file-input"
+            />
+            <span>Choose Image(s)</span>
           </label>
-          {hasCustomImage ? (
-            <button
-              type="button"
-              className="btn-ghost btn-sm edit-image-remove"
-              onClick={() => onChange('image', '')}
-            >
-              Remove photo
-            </button>
+          {gallery.length ? (
+            <div className="vehicle-thumb-grid">
+              {gallery.map((src, index) => (
+                <div key={`gal-${index}`} className="vehicle-thumb-card">
+                  <img src={src} alt={`Vehicle ${index + 1}`} />
+                  <button
+                    type="button"
+                    className="vehicle-thumb-remove"
+                    aria-label={`Remove photo ${index + 1}`}
+                    onClick={() => removeGalleryAt(index)}
+                  >
+                    ×
+                  </button>
+                  {index === 0 ? <span className="vehicle-thumb-badge">Main</span> : null}
+                </div>
+              ))}
+            </div>
           ) : null}
-          </div>
+        </div>
 
         <div className="edit-image-preview-wrap">
-          <div className={`admin-image-preview edit-image-preview${hasCustomImage ? '' : ' edit-image-default'}`}>
-            <img src={previewImage} alt={hasCustomImage ? 'Vehicle preview' : 'Default Alatas logo'} />
+          <div
+            className={`admin-image-preview edit-image-preview${hasCustomImage ? '' : ' edit-image-default'}`}
+          >
+            <img
+              src={previewImage}
+              alt={hasCustomImage ? 'Vehicle preview' : 'Default Alatas logo'}
+            />
             {!hasCustomImage ? (
               <span className="edit-image-default-label">Default logo</span>
             ) : null}
