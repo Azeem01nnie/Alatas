@@ -1,15 +1,35 @@
-import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/build/pdf.mjs'
-import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
-
-GlobalWorkerOptions.workerSrc = pdfWorker
+import { getDocument, GlobalWorkerOptions, version as pdfjsVersion } from 'pdfjs-dist/build/pdf.mjs'
 
 const PDF_MIME = 'application/pdf'
+
+function ensureWorkerSrc() {
+  if (GlobalWorkerOptions.workerSrc) return
+  try {
+    GlobalWorkerOptions.workerSrc = new URL(
+      'pdfjs-dist/build/pdf.worker.min.mjs',
+      import.meta.url,
+    ).toString()
+  } catch {
+    GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsVersion}/build/pdf.worker.min.mjs`
+  }
+}
+
+ensureWorkerSrc()
 
 export function isPdfFile(file) {
   if (!file) return false
   const type = String(file.type || '').toLowerCase()
   if (type === PDF_MIME || type === 'application/x-pdf') return true
   return /\.pdf$/i.test(String(file.name || ''))
+}
+
+export function isOrcrImageFile(file) {
+  if (!file) return false
+  const type = String(file.type || '').toLowerCase()
+  if (type.startsWith('image/')) {
+    return /png|jpe?g|webp|gif|bmp/i.test(type) || type === 'image/*'
+  }
+  return /\.(png|jpe?g|webp|gif|bmp)$/i.test(String(file.name || ''))
 }
 
 /**
@@ -19,17 +39,36 @@ export function isPdfFile(file) {
  * @returns {Promise<string>}
  */
 export async function pdfFirstPageToDataUrl(source, options = {}) {
-  const scale = Math.min(3, Math.max(1.5, Number(options.scale) || 2.2))
-  const data =
+  ensureWorkerSrc()
+  const scale = Math.min(2.5, Math.max(1.25, Number(options.scale) || 1.8))
+  const buffer =
     source instanceof ArrayBuffer
       ? source
-      : await (source instanceof Blob ? source.arrayBuffer() : Promise.reject(new Error('Invalid PDF')))
+      : source instanceof Blob
+        ? await source.arrayBuffer()
+        : null
+  if (!buffer) throw new Error('Invalid PDF')
 
-  const loadingTask = getDocument({
-    data: new Uint8Array(data),
-    disableWorker: false,
-  })
-  const pdf = await loadingTask.promise
+  // pdf.js may transfer/detach the buffer — always pass a fresh copy.
+  const bytes = new Uint8Array(buffer.slice(0))
+
+  async function load(disableWorker) {
+    const loadingTask = getDocument({
+      data: bytes.slice(0),
+      disableWorker: Boolean(disableWorker),
+      useSystemFonts: true,
+    })
+    return loadingTask.promise
+  }
+
+  let pdf
+  try {
+    pdf = await load(false)
+  } catch (workerErr) {
+    console.warn('PDF worker failed, retrying on main thread', workerErr)
+    pdf = await load(true)
+  }
+
   try {
     if (!pdf.numPages) throw new Error('PDF has no pages')
     const page = await pdf.getPage(1)

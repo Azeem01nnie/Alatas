@@ -217,12 +217,7 @@ export async function deleteVehicle(id) {
 }
 
 /** Mark active rental(s) for a vehicle completed and set fleet status Available. */
-export async function completeVehicleRental(
-  vehicleId,
-  plateNo = '',
-  rentalId = '',
-  returnMeta = null,
-) {
+export async function completeVehicleRental(vehicleId, plateNo = '', rentalId = '') {
   const sb = requireSupabase()
   const key = String(vehicleId || '').trim()
   const plate = String(plateNo || '').trim().toUpperCase()
@@ -230,77 +225,41 @@ export async function completeVehicleRental(
   if (!key && !plate && !rentalKey) throw new Error('Vehicle id is required')
   const now = new Date().toISOString()
 
-  const hasReturnMeta =
-    returnMeta && typeof returnMeta === 'object' && !Array.isArray(returnMeta)
-
-  async function applyComplete(idList) {
-    if (!idList.length) return []
-    if (!hasReturnMeta) {
-      const { data, error } = await sb
-        .from('rentals')
-        .update({
-          rental_lifecycle: 'completed',
-          completed_at: now,
-          updated_at: now,
-        })
-        .in('id', idList)
-        .select('*')
-      if (error) throwSb(error)
-      return data || []
-    }
-
-    const { data: rows, error: fetchErr } = await sb
-      .from('rentals')
-      .select('*')
-      .in('id', idList)
-    if (fetchErr) throwSb(fetchErr)
-
-    const updated = []
-    for (const row of rows || []) {
-      const rentalJson =
-        row.rental && typeof row.rental === 'object' && !Array.isArray(row.rental)
-          ? { ...row.rental }
-          : {}
-      rentalJson.returnCondition = returnMeta.condition || 'damaged'
-      rentalJson.returnInspection = returnMeta.inspection || returnMeta
-      const { data: one, error } = await sb
-        .from('rentals')
-        .update({
-          rental_lifecycle: 'completed',
-          completed_at: now,
-          updated_at: now,
-          rental: rentalJson,
-        })
-        .eq('id', row.id)
-        .select('*')
-        .maybeSingle()
-      if (error) throwSb(error)
-      if (one) updated.push(one)
-    }
-    return updated
-  }
-
   let completedRentals = []
 
   if (rentalKey) {
-    completedRentals = await applyComplete([rentalKey])
+    const { data: byId, error: byIdErr } = await sb
+      .from('rentals')
+      .update({
+        rental_lifecycle: 'completed',
+        completed_at: now,
+        updated_at: now,
+      })
+      .eq('id', rentalKey)
+      .select('*')
+    if (byIdErr) throwSb(byIdErr)
+    completedRentals = byId || []
   }
 
   if (key) {
-    const { data: activeForVehicle, error: listVehErr } = await sb
+    const { data: updatedRentals, error: rentalErr } = await sb
       .from('rentals')
-      .select('id')
+      .update({
+        rental_lifecycle: 'completed',
+        completed_at: now,
+        updated_at: now,
+      })
       .eq('rental_lifecycle', 'active')
       .eq('vehicle_id', key)
-    if (listVehErr) throwSb(listVehErr)
-    const ids = (activeForVehicle || []).map((r) => r.id).filter(Boolean)
-    const more = await applyComplete(ids)
+      .select('*')
+    if (rentalErr) throwSb(rentalErr)
     const seen = new Set(completedRentals.map((r) => String(r.id)))
-    for (const row of more) {
+    for (const row of updatedRentals || []) {
       if (!seen.has(String(row.id))) completedRentals.push(row)
     }
   }
 
+  // Complete any other active rows for this vehicle id (JSON) or same plate.
   const { data: activeRows, error: listErr } = await sb
     .from('rentals')
     .select('id, vehicle, vehicle_id')
@@ -324,8 +283,17 @@ export async function completeVehicleRental(
     .map((row) => row.id)
 
   if (extraIds.length) {
-    const extraUpdated = await applyComplete(extraIds)
-    completedRentals = [...completedRentals, ...extraUpdated]
+    const { data: extraUpdated, error } = await sb
+      .from('rentals')
+      .update({
+        rental_lifecycle: 'completed',
+        completed_at: now,
+        updated_at: now,
+      })
+      .in('id', extraIds)
+      .select('*')
+    if (error) throwSb(error)
+    completedRentals = [...completedRentals, ...(extraUpdated || [])]
   }
 
   const vehicleIdsToFree = new Set()
@@ -423,22 +391,16 @@ function countCarPhotoEntries(carPhotos) {
   return n
 }
 
-function dataUrlToBlob(dataUrl) {
+function dataUrlToBytes(dataUrl) {
   const raw = String(dataUrl || '')
   const match = raw.match(/^data:([^;,]+)?((?:;[^;,]*)*);base64,(.*)$/i)
-  if (!match) {
-    // Non-base64 data URLs (rare) — decode without fetch (CSP blocks fetch(data:)).
-    const plain = raw.match(/^data:([^;,]+)?,(.*)$/i)
-    if (!plain) throw new Error('Could not read image data')
-    const mime = plain[1] || 'image/jpeg'
-    return new Blob([decodeURIComponent(plain[2] || '')], { type: mime })
-  }
+  if (!match) throw new Error('Could not read image data')
   const mime = match[1] || 'image/jpeg'
   const base64 = match[3] || ''
   const binary = atob(base64)
   const bytes = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
-  return new Blob([bytes], { type: mime })
+  return { bytes, mime }
 }
 
 /** Upload a data-URL image into the public `rentals` bucket; return a stable public URL. */
@@ -447,13 +409,13 @@ async function uploadRentalImage(rentalId, fileKey, dataUrl) {
   if (!dataUrl.startsWith('data:')) return dataUrl
 
   const sb = requireSupabase()
-  const blob = dataUrlToBlob(dataUrl)
-  const ext = (blob.type || '').includes('png') ? 'png' : 'jpg'
+  const { bytes, mime } = dataUrlToBytes(dataUrl)
+  const ext = mime.includes('png') ? 'png' : 'jpg'
   const safeKey = String(fileKey || 'photo').replace(/[^\w\-]+/g, '_').slice(0, 40)
   const path = `${String(rentalId)}/${safeKey}-${Date.now()}.${ext}`
 
-  const { error } = await sb.storage.from('rentals').upload(path, blob, {
-    contentType: blob.type || 'image/jpeg',
+  const { error } = await sb.storage.from('rentals').upload(path, bytes, {
+    contentType: mime || 'image/jpeg',
     upsert: true,
   })
   if (error) throwSb(error)

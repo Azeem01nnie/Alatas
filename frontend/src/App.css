@@ -3529,6 +3529,21 @@ input[type='number']:focus {
   background: var(--bg);
 }
 
+.manage-add-form input[type='text'],
+.edit-modal input[type='text'],
+.add-owner-modal input[type='text'],
+.manage-add-form select,
+.edit-modal select,
+.add-owner-modal select {
+  text-transform: uppercase;
+}
+
+.manage-add-form select option,
+.edit-modal select option,
+.add-owner-modal select option {
+  text-transform: uppercase;
+}
+
 .manage-vehicle-list {
   max-height: none;
   gap: 1.5rem;
@@ -4006,76 +4021,6 @@ html[data-theme='dark'] .login-logo-plate {
   font-size: 0.9rem;
   line-height: 1.5;
   font-weight: 400;
-}
-
-.login-bio-block {
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
-  margin-bottom: 1.15rem;
-  padding-bottom: 1.1rem;
-  border-bottom: 1px solid color-mix(in srgb, currentColor 12%, transparent);
-}
-
-.login-bio-btn {
-  width: 100%;
-}
-
-.login-bio-hint {
-  margin: 0;
-  font-size: 0.85rem;
-  color: #666;
-  text-align: center;
-  line-height: 1.35;
-}
-
-html[data-theme='dark'] .login-bio-hint {
-  color: #a3a3a3;
-}
-
-.login-bio-remove {
-  align-self: center;
-  border: 0;
-  background: transparent;
-  color: #b32025;
-  font-size: 0.8rem;
-  font-weight: 600;
-  cursor: pointer;
-  padding: 0.2rem 0.4rem;
-}
-
-.login-bio-enroll {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.login-bio-enroll-title {
-  margin: 0;
-  font-size: 1.15rem;
-  font-weight: 700;
-}
-
-.login-bio-enroll-copy {
-  margin: 0;
-  font-size: 0.92rem;
-  line-height: 1.45;
-  color: #555;
-}
-
-html[data-theme='dark'] .login-bio-enroll-copy {
-  color: #b3b3b3;
-}
-
-.login-bio-skip {
-  width: 100%;
-}
-
-.settings-bio-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  margin-top: 0.75rem;
 }
 
 .login-https-badge {
@@ -11985,3 +11930,167 @@ html[data-theme='dark'] .employees-role-option.is-active {
   }
 }
 
+/* ── Damage inspection modal (vehicle return) ───────────────── */
+.damage-modal-overlay {
+  z-index: 1200;
+}
+
+.damage-modal {
+  width: min(820px, 96vw);
+  max-height: min(92vh, 940px);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+.damage-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.1rem 1.25rem 0.85rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.damage-modal-eyebrow {
+  margin: 0 0 0.2rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.damage-modal .modal-title {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.damage-modal-form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.damage-modal-scroll {
+  overflow: auto;
+  padding: 1rem 1.25rem 0.5rem;
+  flex: 1;
+}
+
+.damage-section {
+  margin-bottom: 1.25rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.damage-section:last-child {
+  border-bottom: none;
+}
+
+.damage-section h4 {
+  margin: 0 0 0.65rem;
+  font-size: 0.92rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.damage-section-copy {
+  margin: 0 0 0.75rem;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.damage-modal input[type='text'],
+.damage-modal input[type='date'],
+.damage-modal textarea,
+.damage-modal select {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+  background: #fff;
+  color: var(--text);
+  text-transform: uppercase;
+}
+
+.damage-modal textarea {
+  resize: vertical;
+  min-height: 4.5rem;
+}
+
+.damage-modal input[type='date'],
+.damage-modal select {
+  text-transform: none;
+}
+
+.damage-time-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.damage-time-row select {
+  width: auto;
+  min-width: 4.5rem;
+}
+
+.damage-check-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.45rem 0.75rem;
+  margin-top: 0.35rem;
+}
+
+.damage-radio-row,
+.damage-radio-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.damage-radio-row {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+}
+
+.damage-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  font-size: 0.86rem;
+  line-height: 1.35;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.damage-check input {
+  margin-top: 0.15rem;
+  width: auto;
+  text-transform: none;
+}
+
+.damage-modal-actions {
+  padding: 0.85rem 1.25rem 1.1rem;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.confirm-modal .modal-actions {
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+html[data-theme='dark'] .damage-modal input[type='text'],
+html[data-theme='dark'] .damage-modal input[type='date'],
+html[data-theme='dark'] .damage-modal textarea,
+html[data-theme='dark'] .damage-modal select {
+  background: #18181b;
+  border-color: #3f3f46;
+  color: #fafafa;
+}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import logoLight from '../assets/logo.jpg'
 import { requireSupabase } from '../api/supabaseClient'
 import { recordLoginAudit } from '../utils/loginAudit'
@@ -10,18 +10,6 @@ import {
   rememberFingerprint,
   sanitizeUsername,
 } from '../utils/security'
-import {
-  assertBiometrics,
-  biometricLabel,
-  clearBiometricEnrollment,
-  clearBiometricSessionVault,
-  enrollBiometrics,
-  isPlatformAuthenticatorAvailable,
-  loadBiometricEnrollment,
-  loadBiometricSessionVault,
-  saveBiometricSessionVault,
-  vaultCurrentSupabaseSession,
-} from '../utils/webauthnBiometrics'
 
 const AUTH_KEY = 'customer-encoder-admin-auth'
 const ROLE_KEY = 'alatas-session-role'
@@ -51,43 +39,20 @@ export function getSessionUser() {
   }
 }
 
-/**
- * Clear the desk UI session.
- * When biometrics are enrolled, the session vault is kept so fingerprint can open
- * the desk again after Lock or Sign out (unless wipe: true).
- */
-export async function clearAdminSession({ full = false, wipe = false } = {}) {
-  const enrolled = loadBiometricEnrollment()
-  const keepFingerprintUnlock = Boolean(enrolled?.credentialId) && !wipe
-
-  if (keepFingerprintUnlock) {
-    try {
-      await vaultCurrentSupabaseSession(requireSupabase())
-    } catch {
-      /* ignore — vault may already have tokens */
-    }
-  }
-
+export function clearAdminSession() {
   sessionStorage.removeItem(AUTH_KEY)
   sessionStorage.removeItem(ROLE_KEY)
   sessionStorage.removeItem(USER_KEY)
   clearCsrfToken()
-
-  if (keepFingerprintUnlock) {
-    // Drop the active Supabase client session only; vault stays for fingerprint restore.
-    if (full) {
-      try {
-        await requireSupabase().auth.signOut({ scope: 'local' })
-      } catch {
-        /* ignore */
-      }
-    }
-    return
-  }
-
-  clearBiometricSessionVault()
+  // Drop leftover PWA biometric keys if any remain from older builds.
   try {
-    await requireSupabase().auth.signOut()
+    localStorage.removeItem('alatas-webauthn-biometrics')
+    localStorage.removeItem('alatas-webauthn-session-vault')
+  } catch {
+    /* ignore */
+  }
+  try {
+    requireSupabase().auth.signOut()
   } catch {
     // ignore if supabase not ready
   }
@@ -234,131 +199,6 @@ export default function AdminLogin({ onSuccess }) {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [loading, setLoading] = useState(false)
-  const [bioAvailable, setBioAvailable] = useState(false)
-  const [bioEnrollment, setBioEnrollment] = useState(() => loadBiometricEnrollment())
-  const [enrollPrompt, setEnrollPrompt] = useState(null) // sessionUser awaiting opt-in
-  const bioName = biometricLabel()
-
-  useEffect(() => {
-    let mounted = true
-    isPlatformAuthenticatorAvailable().then((ok) => {
-      if (mounted) setBioAvailable(ok)
-    })
-    const enrolled = loadBiometricEnrollment()
-    if (enrolled?.username) setUsername(enrolled.username)
-    return () => {
-      mounted = false
-    }
-  }, [])
-
-  const finishLogin = async (sessionUser, { offerEnroll = false } = {}) => {
-    applyDeskSession(sessionUser)
-    if (offerEnroll && bioAvailable) {
-      const existing = loadBiometricEnrollment()
-      if (!existing || existing.username !== sessionUser.username) {
-        setEnrollPrompt(sessionUser)
-        setLoading(false)
-        return true
-      }
-    }
-    onSuccess(sessionUser)
-    return false
-  }
-
-  const handleEnableBiometrics = async () => {
-    if (!enrollPrompt) return
-    setLoading(true)
-    setError('')
-    try {
-      await enrollBiometrics({
-        username: enrollPrompt.username,
-        displayName: enrollPrompt.displayName,
-        role: enrollPrompt.role,
-        sessionUser: enrollPrompt,
-      })
-      try {
-        await vaultCurrentSupabaseSession(requireSupabase())
-      } catch {
-        /* ignore */
-      }
-      setBioEnrollment(loadBiometricEnrollment())
-      setNotice(`${bioName} enabled — you can unlock with it after locking the desk.`)
-      setEnrollPrompt(null)
-      onSuccess(enrollPrompt)
-    } catch (err) {
-      setError(err?.message || `Could not enable ${bioName}.`)
-      setLoading(false)
-    }
-  }
-
-  const handleSkipEnroll = () => {
-    const user = enrollPrompt
-    setEnrollPrompt(null)
-    if (user) onSuccess(user)
-  }
-
-  const handleBiometricSignIn = async () => {
-    if (loading) return
-    setError('')
-    setNotice('')
-    setLoading(true)
-    try {
-      const enrollment = await assertBiometrics()
-      const sb = requireSupabase()
-      let {
-        data: { session },
-      } = await sb.auth.getSession()
-
-      // Restore from vault so fingerprint works across many locks / restarts.
-      if (!session) {
-        const vault = loadBiometricSessionVault()
-        if (!vault) {
-          setUsername(enrollment.username || '')
-          setError(
-            `${bioName} OK, but your session expired. Enter your password once — then fingerprint works again.`,
-          )
-          setLoading(false)
-          return
-        }
-        const { data, error } = await sb.auth.setSession({
-          access_token: vault.access_token,
-          refresh_token: vault.refresh_token,
-        })
-        if (error || !data?.session) {
-          clearBiometricSessionVault()
-          setUsername(enrollment.username || '')
-          setError(
-            `${bioName} OK, but your saved session expired. Enter your password once — then fingerprint works again.`,
-          )
-          setLoading(false)
-          return
-        }
-        session = data.session
-      }
-
-      saveBiometricSessionVault(session)
-
-      let sessionUser = enrollment.sessionUser
-      try {
-        sessionUser = await resolveSessionUser(sb, enrollment.username)
-      } catch {
-        /* keep stored profile */
-      }
-
-      await recordLoginAudit({
-        username: sessionUser.username,
-        role: sessionUser.role,
-        status: 'success',
-        detail: `Signed in with ${bioName}`,
-      })
-
-      await finishLogin(sessionUser, { offerEnroll: false })
-      setLoading(false)
-    } catch (err) {
-      setError(err?.message || `${bioName} sign-in failed.`)
-      setLoading(false)
-    }
-  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -412,17 +252,9 @@ export default function AdminLogin({ onSuccess }) {
       }
       rememberFingerprint(fp)
 
-      try {
-        const {
-          data: { session },
-        } = await sb.auth.getSession()
-        saveBiometricSessionVault(session)
-      } catch {
-        /* ignore */
-      }
-
-      const pendingEnroll = await finishLogin(sessionUser, { offerEnroll: true })
-      if (!pendingEnroll) setLoading(false)
+      applyDeskSession(sessionUser)
+      onSuccess(sessionUser)
+      setLoading(false)
     } catch (err) {
       try {
         requireSupabase().auth.signOut()
@@ -458,66 +290,13 @@ export default function AdminLogin({ onSuccess }) {
         <p>Admin and employee access to the fleet desk.</p>
       </div>
 
-      {enrollPrompt ? (
-        <div className="login-bio-enroll" role="dialog" aria-labelledby="bio-enroll-title">
-          <h2 id="bio-enroll-title" className="login-bio-enroll-title">
-            Enable {bioName}?
-          </h2>
-          <p className="login-bio-enroll-copy">
-            After Lock or Sign out, open the desk again with {bioName} on this device — no
-            password needed until you remove biometrics or the login expires.
-          </p>
-          {error && <span className="error-msg">{error}</span>}
-          <button
-            type="button"
-            className="btn-primary login-submit"
-            disabled={loading}
-            onClick={() => void handleEnableBiometrics()}
-          >
-            {loading ? 'Waiting for biometrics…' : `Enable ${bioName}`}
-          </button>
-          <button
-            type="button"
-            className="btn-outline login-bio-skip"
-            disabled={loading}
-            onClick={handleSkipEnroll}
-          >
-            Not now
-          </button>
-        </div>
-      ) : loading ? (
+      {loading ? (
         <div className="login-loading" aria-live="polite" aria-busy="true">
           <div className="loader" aria-hidden="true" />
           <p>Signing you in…</p>
         </div>
       ) : (
         <form className="login-form" onSubmit={handleSubmit} autoComplete="on">
-          {bioAvailable && bioEnrollment ? (
-            <div className="login-bio-block">
-              <button
-                type="button"
-                className="btn-primary login-submit login-bio-btn"
-                onClick={() => void handleBiometricSignIn()}
-              >
-                Sign in with {bioName}
-              </button>
-              <p className="login-bio-hint">
-                Enrolled for <strong>{bioEnrollment.username}</strong>. Or use password below.
-              </p>
-              <button
-                type="button"
-                className="login-bio-remove"
-                onClick={() => {
-                  clearBiometricEnrollment()
-                  setBioEnrollment(null)
-                  setNotice(`${bioName} removed from this device.`)
-                }}
-              >
-                Remove {bioName} on this device
-              </button>
-            </div>
-          ) : null}
-
           <label className="field">
             <span className="field-label">Username</span>
             <input

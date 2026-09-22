@@ -5,6 +5,7 @@ export default function ConfirmModal({
   message,
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
+  secondaryLabel = '',
   danger = false,
   hideCancel = false,
   confirmDisabled = false,
@@ -12,6 +13,7 @@ export default function ConfirmModal({
   children,
   onConfirm,
   onCancel,
+  onSecondary,
 }) {
   const [remaining, setRemaining] = useState(() =>
     countdownSeconds > 0 ? Math.ceil(countdownSeconds) : 0,
@@ -62,6 +64,16 @@ export default function ConfirmModal({
               {cancelLabel}
             </button>
           )}
+          {secondaryLabel && onSecondary ? (
+            <button
+              type="button"
+              className="btn-outline"
+              disabled={confirmDisabled || waiting}
+              onClick={onSecondary}
+            >
+              {secondaryLabel}
+            </button>
+          ) : null}
           <button
             type="button"
             className={danger ? 'btn-primary btn-danger-solid' : 'btn-primary'}

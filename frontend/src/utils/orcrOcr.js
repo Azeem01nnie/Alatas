@@ -355,6 +355,7 @@ export function parseOrCrText(text, hint = 'auto') {
 
 /**
  * Enhance LTO security-paper photos for Tesseract (browser canvas).
+ * Caps size so huge phone photos / PDF renders do not OOM the tab.
  */
 export async function enhanceOrcrImage(dataUrl) {
   if (typeof document === 'undefined') return dataUrl
@@ -363,14 +364,23 @@ export async function enhanceOrcrImage(dataUrl) {
     const img = new Image()
     img.onload = () => {
       try {
-        const maxSide = 2200
-        const scale = Math.min(3, maxSide / Math.max(img.width, img.height))
-        const w = Math.max(1, Math.round(img.width * Math.max(scale, 1.5)))
-        const h = Math.max(1, Math.round(img.height * Math.max(scale, 1.5)))
+        const maxSide = 1400
+        const longest = Math.max(img.width, img.height) || 1
+        const scale = Math.min(1.25, maxSide / longest)
+        const w = Math.max(1, Math.round(img.width * scale))
+        const h = Math.max(1, Math.round(img.height * scale))
+        if (w * h > 3_000_000) {
+          resolve(dataUrl)
+          return
+        }
         const canvas = document.createElement('canvas')
         canvas.width = w
         canvas.height = h
         const ctx = canvas.getContext('2d', { willReadFrequently: true })
+        if (!ctx) {
+          resolve(dataUrl)
+          return
+        }
         ctx.fillStyle = '#ffffff'
         ctx.fillRect(0, 0, w, h)
         ctx.drawImage(img, 0, 0, w, h)
@@ -398,30 +408,60 @@ export async function enhanceOrcrImage(dataUrl) {
   })
 }
 
+async function createOrcrWorker(onProgress) {
+  const logger = (m) => {
+    if (m?.status === 'recognizing text' && typeof onProgress === 'function') {
+      onProgress(Math.round((m.progress || 0) * 100))
+    }
+  }
+
+  const options = {
+    logger,
+    corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@7.0.0',
+    langPath: 'https://tessdata.projectnaptha.com/4.0.0',
+    workerBlobURL: false,
+    errorHandler: (err) => console.error('Tesseract worker error', err),
+  }
+
+  try {
+    const workerPath = (await import('tesseract.js/dist/worker.min.js?url')).default
+    return await createWorker('eng', 1, { ...options, workerPath })
+  } catch (localErr) {
+    console.warn('Bundled Tesseract worker failed, using CDN worker', localErr)
+    return createWorker('eng', 1, {
+      ...options,
+      workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/worker.min.js',
+    })
+  }
+}
+
 /**
  * Run OCR on an OR or CR image and map to form fields.
  */
 export async function scanOrcrImage(dataUrl, onProgress, hint = 'auto') {
-  const enhanced = await enhanceOrcrImage(dataUrl)
-  const worker = await createWorker('eng', 1, {
-    logger: (m) => {
-      if (m?.status === 'recognizing text' && typeof onProgress === 'function') {
-        onProgress(Math.round((m.progress || 0) * 100))
-      }
-    },
-  })
+  if (!dataUrl || typeof dataUrl !== 'string') {
+    throw new Error('No image data to scan')
+  }
+
+  let enhanced = dataUrl
+  try {
+    enhanced = await enhanceOrcrImage(dataUrl)
+  } catch (err) {
+    console.warn('OR/CR enhance skipped', err)
+  }
+
+  const worker = await createOrcrWorker(onProgress)
 
   try {
     const texts = []
-    // Multiple page-seg modes help with LTO grid layouts
-    for (const psm of ['6', '4', '11']) {
+    // Two PSMs is enough for LTO forms and much less likely to hang/crash.
+    for (const psm of ['6', '4']) {
       await worker.setParameters({
         tessedit_pageseg_mode: psm,
         preserve_interword_spaces: '1',
       })
-      const { data } = await worker.recognize(enhanced)
-      if (data?.text) texts.push(data.text)
-      // also try original once on first pass if enhanced is weak
+      const result = await worker.recognize(enhanced)
+      if (result?.data?.text) texts.push(result.data.text)
       if (psm === '6') {
         const raw = await worker.recognize(dataUrl)
         if (raw?.data?.text) texts.push(raw.data.text)
@@ -441,17 +481,22 @@ export async function scanOrcrImage(dataUrl, onProgress, hint = 'auto') {
       }
     }
 
-    // Final merge across all parses so one pass's plate + another's owner combine
     let mergedAll = {}
     for (const text of texts) {
       mergedAll = mergeFields(mergedAll, parseOrCrText(text, hint))
     }
     mergedAll = mergeFields(mergedAll, best)
-    if (scoreFields(mergedAll) >= bestScore) best = { ...mergedAll, docType: best.docType || mergedAll.docType }
+    if (scoreFields(mergedAll) >= bestScore) {
+      best = { ...mergedAll, docType: best.docType || mergedAll.docType }
+    }
 
     return { rawText: combined, fields: best }
   } finally {
-    await worker.terminate()
+    try {
+      await worker.terminate()
+    } catch {
+      /* ignore */
+    }
   }
 }
 

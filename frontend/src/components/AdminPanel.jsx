@@ -33,6 +33,7 @@ import AdminLogin, {
   verifyAdminCredentials,
 } from './AdminLogin'
 import ConfirmModal from './ConfirmModal'
+import DamageInspectionModal from './DamageInspectionModal'
 import AddOwnerModal from './AddOwnerModal'
 import PremiumDatePicker from './PremiumDatePicker'
 import RentCarForm from './RentCarForm'
@@ -42,7 +43,14 @@ import VehicleModal from './VehicleModal'
 import VehicleReports from './VehicleReports'
 import PendingApprovals from './PendingApprovals'
 import EmployeesPanel from './EmployeesPanel'
-import { addOwner, autoCapitalizeWords, loadOwners, purgeOrphanOwners, updateOwner } from '../utils/owners'
+import {
+  addOwner,
+  autoCapitalizeWords,
+  loadOwners,
+  purgeOrphanOwners,
+  syncOwnersFromVehicles,
+  updateOwner,
+} from '../utils/owners'
 import { loadReportStore } from '../utils/vehicleReports'
 import { scanOrcrImage, mergeScanFields } from '../utils/orcrOcr'
 import { fetchSystemStatus, runCloudSync, saveAdminProfileRemote, clearAllAppData } from '../api/backend'
@@ -50,15 +58,6 @@ import { CLOUD_SYNC_ENABLED, isCloudConfigured } from '../api/cloudSync'
 import { describeCloudConnection } from '../config/cloudConnection'
 import { useConnectivity } from '../hooks/useConnectivity'
 import { clearLoginAudit, fetchLoginAudit, formatAuditRole, formatAuditStatus } from '../utils/loginAudit'
-import {
-  biometricLabel,
-  clearBiometricEnrollment,
-  enrollBiometrics,
-  isPlatformAuthenticatorAvailable,
-  loadBiometricEnrollment,
-  vaultCurrentSupabaseSession,
-} from '../utils/webauthnBiometrics'
-import { requireSupabase } from '../api/supabaseClient'
 import {
   assertSameOriginRequest,
   ensureCsrfToken,
@@ -647,6 +646,7 @@ export default function AdminPanel() {
   const [previewVehicle, setPreviewVehicle] = useState(null)
   const [addOwnerModal, setAddOwnerModal] = useState(null) // null | { forEdit: boolean }
   const [confirm, setConfirm] = useState(null)
+  const [damageReturn, setDamageReturn] = useState(null)
   const [clearDataCreds, setClearDataCreds] = useState({
     username: '',
     password: '',
@@ -660,8 +660,6 @@ export default function AdminPanel() {
   const [loginAuditOpen, setLoginAuditOpen] = useState(false)
   const [cloudConnectionOpen, setCloudConnectionOpen] = useState(false)
   const [loginAuditPage, setLoginAuditPage] = useState(1)
-  const [bioAvailable, setBioAvailable] = useState(false)
-  const [bioEnrollment, setBioEnrollment] = useState(() => loadBiometricEnrollment())
   const [selectedTransaction, setSelectedTransaction] = useState(null)
   const [transactionReturnTab, setTransactionReturnTab] = useState('history')
   const [rentDirty, setRentDirty] = useState(false)
@@ -698,17 +696,39 @@ export default function AdminPanel() {
     }
   }, [manageLayout])
 
-  // Remove OCR junk owners that were never linked to a saved vehicle.
-  // Never purge when the fleet is empty (load race / wipe) — that deleted real owners.
+  // Keep the owner dropdown in sync with fleet vehicles (same source as Vehicle Reports).
+  // Never wipe the store when the fleet is empty (load race). Keep draft form owners.
   useEffect(() => {
     if (!ready || loadError) return
-    if (!vehicles.length && !archivedVehicles.length) return
+    const fleet = [...vehicles, ...archivedVehicles]
+    if (!fleet.length) return
+
+    syncOwnersFromVehicles(fleet)
     const linkedIds = [
-      ...vehicles.map((v) => v.ownerId),
-      ...archivedVehicles.map((v) => v.ownerId),
+      ...fleet.map((v) => v.ownerId),
+      form.ownerId,
+      editForm?.ownerId,
     ].filter(Boolean)
-    setOwners(purgeOrphanOwners(linkedIds))
-  }, [ready, loadError, vehicles, archivedVehicles])
+    const linkedNames = [
+      ...fleet.map((v) => v.ownerName),
+      form.ownerName,
+      editForm?.ownerName,
+    ].filter(Boolean)
+    setOwners(
+      purgeOrphanOwners({ ownerIds: linkedIds, ownerNames: linkedNames }).sort((a, b) =>
+        String(a.name || '').localeCompare(String(b.name || '')),
+      ),
+    )
+  }, [
+    ready,
+    loadError,
+    vehicles,
+    archivedVehicles,
+    form.ownerId,
+    form.ownerName,
+    editForm?.ownerId,
+    editForm?.ownerName,
+  ])
 
   useEffect(() => {
     if (tab === 'settings') {
@@ -721,47 +741,6 @@ export default function AdminPanel() {
     if (!authed) return
     ensureCsrfToken()
   }, [authed])
-
-  useEffect(() => {
-    let mounted = true
-    isPlatformAuthenticatorAvailable().then((ok) => {
-      if (mounted) setBioAvailable(ok)
-    })
-    setBioEnrollment(loadBiometricEnrollment())
-    return () => {
-      mounted = false
-    }
-  }, [authed])
-
-  const handleEnableBiometricsSettings = async () => {
-    try {
-      await enrollBiometrics({
-        username: sessionUser?.username || sessionDisplayName,
-        displayName: sessionDisplayName,
-        role: sessionRole,
-        sessionUser: sessionUser || {
-          username: sessionUser?.username || 'alatas',
-          displayName: sessionDisplayName,
-          role: sessionRole,
-        },
-      })
-      try {
-        await vaultCurrentSupabaseSession(requireSupabase())
-      } catch {
-        /* ignore */
-      }
-      setBioEnrollment(loadBiometricEnrollment())
-      setProfileMessage(`${biometricLabel()} enabled — unlock after locking, across many sessions.`)
-    } catch (err) {
-      setConfirm({
-        type: 'orcr-error',
-        title: 'Biometrics',
-        message: err?.message || `Could not enable ${biometricLabel()}.`,
-        confirmLabel: 'OK',
-        hideCancel: true,
-      })
-    }
-  }
 
   useEffect(() => {
     applyTheme(systemSettings.theme)
@@ -1089,8 +1068,8 @@ export default function AdminPanel() {
       setClearDataCreds({ username: '', password: '', error: '' })
       setConfirm(null)
 
-      // Sign out and return to login after wipe (also revoke biometric session vault).
-      await clearAdminSession({ full: true, wipe: true })
+      // Sign out and return to login after wipe.
+      clearAdminSession()
       setSessionRole('admin')
       setSessionUser(null)
       setTab('dashboard')
@@ -1518,16 +1497,18 @@ export default function AdminPanel() {
     })
   }, [filteredHistory, vehicles])
 
-  const TEXT_CAP_KEYS = new Set(['make', 'series', 'engineNo', 'chassisNo', 'ownerName'])
+  const TEXT_UPPER_KEYS = new Set(['make', 'series', 'engineNo', 'chassisNo', 'ownerName'])
+
+  const forceUpper = (value) => String(value ?? '').toUpperCase()
 
   const update = (key, value) => {
-    const nextValue = TEXT_CAP_KEYS.has(key) ? autoCapitalizeWords(value) : value
+    const nextValue = TEXT_UPPER_KEYS.has(key) ? forceUpper(value) : value
     setForm((prev) => ({ ...prev, [key]: nextValue }))
     setErrors((prev) => ({ ...prev, [key]: '' }))
   }
 
   const updateEdit = (key, value) => {
-    const nextValue = TEXT_CAP_KEYS.has(key) ? autoCapitalizeWords(value) : value
+    const nextValue = TEXT_UPPER_KEYS.has(key) ? forceUpper(value) : value
     setEditForm((prev) => ({ ...prev, [key]: nextValue }))
     setEditErrors((prev) => ({ ...prev, [key]: '' }))
   }
@@ -1577,15 +1558,19 @@ export default function AdminPanel() {
     const file = e.target.files?.[0]
     if (!file) return
     const type = String(file.type || '').toLowerCase()
+    const name = String(file.name || '')
     const pdf =
       type === 'application/pdf' ||
       type === 'application/x-pdf' ||
-      /\.pdf$/i.test(String(file.name || ''))
-    if (!pdf && !file.type.startsWith('image/')) {
+      /\.pdf$/i.test(name)
+    const imageOk =
+      type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(name)
+    if (!pdf && !imageOk) {
       setConfirm({
         type: 'orcr-error',
         title: 'Invalid file',
-        message: 'Please upload a PNG, JPEG, WebP, or PDF of the LTO OR or CR.',
+        message:
+          'Please upload a PNG, JPEG, WebP, or PDF of the LTO OR or CR. Word documents (.doc/.docx) are not supported.',
         confirmLabel: 'OK',
         hideCancel: true,
       })
@@ -1623,8 +1608,49 @@ export default function AdminPanel() {
           reader.readAsDataURL(file)
         })
       }
+      if (!raw) {
+        setConfirm({
+          type: 'orcr-error',
+          title: 'Could not read file',
+          message: 'The selected file could not be opened. Try another PNG, JPEG, WebP, or PDF.',
+          confirmLabel: 'OK',
+          hideCancel: true,
+        })
+        return
+      }
+
       const compressed = (await compressImageDataUrl(raw, 1600, 0.88)) || raw
-      const { fields } = await scanOrcrImage(compressed, setOrcrProgress, docHint)
+
+      // Always attach the uploaded document so the form keeps a preview even if OCR fails.
+      const attachImage = (prev) => {
+        const next = { ...prev }
+        if (docHint === 'or') next.orImage = compressed
+        else next.orcrImage = compressed
+        return next
+      }
+      if (forEdit) setEditForm((prev) => attachImage(prev))
+      else setForm((prev) => attachImage(prev))
+
+      let fields = {}
+      try {
+        const scanned = await scanOrcrImage(compressed, setOrcrProgress, docHint)
+        fields = scanned?.fields || {}
+      } catch (scanErr) {
+        console.error(scanErr)
+        const detail = String(scanErr?.message || scanErr || '').trim()
+        setConfirm({
+          type: 'orcr-error',
+          title: 'OR/CR scan failed',
+          message:
+            'The file was attached, but the scanner could not read it. Fill the fields manually or try a clearer PNG/JPEG/PDF.' +
+            (detail ? `\n\nDetails: ${detail}` : ''),
+          confirmLabel: 'OK',
+          hideCancel: true,
+        })
+        if (forEdit) setEditFieldsLocked(false)
+        else setFieldsLocked(false)
+        return
+      }
 
       const hasAnyField = Boolean(
         fields.make ||
@@ -1642,27 +1668,39 @@ export default function AdminPanel() {
           type: 'orcr-error',
           title: 'No information found',
           message:
-            'No readable LTO OR/CR fields were found. Upload a clear photo of the Certificate of Registration (CR) and/or Official Receipt (OR), or fill the form manually.',
+            'The file was attached, but no readable LTO OR/CR fields were found. Upload a clearer photo/PDF, or fill the form manually.',
           confirmLabel: 'OK',
           hideCancel: true,
         })
+        if (forEdit) setEditFieldsLocked(false)
+        else setFieldsLocked(false)
         return
       }
 
       const applyOwnerFromName = (next, ownerName) => {
         if (!ownerName) return next
-        const name = autoCapitalizeWords(ownerName)
-        const existing = loadOwners().find((o) => o.name.toLowerCase() === name.toLowerCase())
+        const nameUpper = autoCapitalizeWords(ownerName)
+        const existing = loadOwners().find((o) => o.name.toLowerCase() === nameUpper.toLowerCase())
         if (existing) {
           next.ownerId = existing.id
           next.ownerName = existing.name
           next.ownershipType = existing.ownershipType || next.ownershipType || 'company'
+          setOwners(loadOwners())
           return next
         }
-        // IMPORTANT: do NOT auto-create an Owner record during OCR scan.
-        // We only fill the detected ownerName as a suggestion; the Owner gets created
-        // later when user clicks "Add Vehicle" / "Save Changes".
-        next.ownerName = name
+        try {
+          const created = addOwner({
+            name: nameUpper,
+            ownershipType: next.ownershipType === 'thirdParty' ? 'thirdParty' : 'company',
+          })
+          setOwners(loadOwners())
+          next.ownerId = created.id
+          next.ownerName = created.name
+          next.ownershipType = created.ownershipType
+        } catch (err) {
+          console.error('Could not create owner from OCR:', err)
+          next.ownerName = nameUpper
+        }
         return next
       }
 
@@ -1688,7 +1726,8 @@ export default function AdminPanel() {
         if (docHint === 'or' || fields.docType === 'or') {
           next.orImage = compressed
         }
-        // If auto and unknown, still keep a preview on CR slot
+        if (docHint === 'or') next.orImage = compressed
+        else if (docHint === 'cr') next.orcrImage = compressed
         if (!next.orcrImage && !next.orImage) next.orcrImage = compressed
 
         if (merged.make) next.make = autoCapitalizeWords(merged.make)
@@ -1702,7 +1741,6 @@ export default function AdminPanel() {
         if (merged.ownerName && !prev.ownerId) {
           applyOwnerFromName(next, merged.ownerName)
         } else if (merged.ownerName && fields.ownerName) {
-          // Prefer newly scanned owner when re-scanning
           applyOwnerFromName(next, fields.ownerName)
         }
 
@@ -1724,7 +1762,7 @@ export default function AdminPanel() {
         type: 'orcr-error',
         title: 'OR/CR scan failed',
         message:
-          'The scanner could not read this image. Please try again with a clearer photo of the OR and/or CR, or fill the form manually.',
+          'The scanner could not read this file. Please try a clearer PNG, JPEG, WebP, or PDF of the OR/CR, or fill the form manually.',
         confirmLabel: 'OK',
         hideCancel: true,
       })
@@ -1787,18 +1825,18 @@ export default function AdminPanel() {
     }
 
     return {
-      make: data.make.trim(),
-      series: data.series.trim(),
+      make: forceUpper(data.make).trim(),
+      series: forceUpper(data.series).trim(),
       bodyType: data.bodyType.trim(),
       seats: Number(data.seats) || 5,
       transmission: data.transmission.trim(),
       plateNo: sanitizePlateNo(data.plateNo),
-      engineNo: data.engineNo.trim(),
-      chassisNo: data.chassisNo.trim(),
+      engineNo: forceUpper(data.engineNo).trim(),
+      chassisNo: forceUpper(data.chassisNo).trim(),
       image: data.image.trim() || logo,
       status: data.status === 'Under Maintenance' ? 'Under Maintenance' : 'Available',
       ownerId: resolvedOwnerId || '',
-      ownerName: resolvedOwnerName || '',
+      ownerName: forceUpper(resolvedOwnerName || '').trim(),
       ownershipType,
       orcrImage: data.orcrImage || '',
       orImage: data.orImage || '',
@@ -1863,14 +1901,33 @@ export default function AdminPanel() {
   const requestRentCompleted = (vehicle, rental = null) => {
     if (!isAdminUser) return
     setConfirm({
-      type: 'complete-rental',
-      title: 'Mark rent as completed?',
-      message: `Confirm that the rental for ${vehicle.make} — ${vehicle.series} (${vehicle.plateNo}) is completed? The vehicle will be set back to Available.`,
-      confirmLabel: 'Rent Completed',
+      type: 'complete-rental-choice',
+      title: 'Complete rental return?',
+      message: `How was ${vehicle.make} — ${vehicle.series} (${vehicle.plateNo}) returned? Choose Complete if the vehicle is in good condition, or Damaged to fill out the return inspection form.`,
+      confirmLabel: 'Vehicle complete (OK)',
+      cancelLabel: 'Cancel',
+      secondaryLabel: 'Damaged — inspect',
       vehicleId: vehicle?.id || rental?.vehicleId || rental?.vehicle?.id || '',
       plateNo: vehicle?.plateNo || rental?.vehicle?.plateNo || '',
       rentalId: rental?.id || '',
+      vehicle,
+      rental,
     })
+  }
+
+  const finishRentCompleted = async ({ vehicleId, plateNo, rentalId, returnMeta = null }) => {
+    try {
+      await completeRentalForVehicle(vehicleId, plateNo, rentalId, returnMeta)
+      setMessage(
+        returnMeta?.condition === 'damaged'
+          ? 'Damaged return recorded. Rental marked completed.'
+          : 'Rental marked completed.',
+      )
+      setTimeout(() => setMessage(''), 2500)
+    } catch (err) {
+      setMessage(err?.message || 'Could not complete rental. Try again.')
+      setTimeout(() => setMessage(''), 4000)
+    }
   }
 
   const requestCancelRental = (rental, vehicle) => {
@@ -2006,14 +2063,11 @@ export default function AdminPanel() {
   }
 
   const requestLogout = () => {
-    const bio = loadBiometricEnrollment()
     setConfirm({
       type: 'logout',
-      title: bio ? 'Lock desk?' : 'Log out?',
-      message: bio
-        ? `This locks the desk. Unlock again with ${biometricLabel()} anytime on this device (many sessions).`
-        : 'You will need to sign in again to access the admin panel.',
-      confirmLabel: bio ? 'Lock' : 'Log out',
+      title: 'Log out?',
+      message: 'You will need to sign in again to access the admin panel.',
+      confirmLabel: 'Log out',
       danger: true,
     })
   }
@@ -2021,15 +2075,7 @@ export default function AdminPanel() {
   const handleConfirm = async () => {
     if (!confirm) return
     if (confirm.type === 'logout') {
-      await clearAdminSession()
-      setSessionRole('admin')
-      setSessionUser(null)
-      setTab('dashboard')
-      setSelectedTransaction(null)
-      setAuthed(false)
-    }
-    if (confirm.type === 'logout-full') {
-      await clearAdminSession({ full: true })
+      clearAdminSession()
       setSessionRole('admin')
       setSessionUser(null)
       setTab('dashboard')
@@ -2039,15 +2085,13 @@ export default function AdminPanel() {
     if (confirm.type === 'status') {
       updateVehicleStatus(confirm.vehicleId, confirm.status)
     }
-    if (confirm.type === 'complete-rental') {
-      try {
-        await completeRentalForVehicle(confirm.vehicleId, confirm.plateNo, confirm.rentalId)
-        setMessage('Rental marked completed.')
-        setTimeout(() => setMessage(''), 2500)
-      } catch (err) {
-        setMessage(err?.message || 'Could not complete rental. Try again.')
-        setTimeout(() => setMessage(''), 4000)
-      }
+    if (confirm.type === 'complete-rental' || confirm.type === 'complete-rental-choice') {
+      await finishRentCompleted({
+        vehicleId: confirm.vehicleId,
+        plateNo: confirm.plateNo,
+        rentalId: confirm.rentalId,
+        returnMeta: { condition: 'ok', inspection: null },
+      })
     }
     if (confirm.type === 'cancel-rental') {
       cancelScheduledRental(confirm.rentalId)
@@ -3494,47 +3538,6 @@ export default function AdminPanel() {
                         ))}
                       </div>
                     </article>
-
-                    <article className="settings-card">
-                      <div className="settings-card-head">
-                        <h4 className="settings-card-title">{biometricLabel()}</h4>
-                        <p className="settings-card-copy">
-                          Unlock this PWA with Face ID, Touch ID, or fingerprint after Lock or
-                          Sign out — until you remove biometrics or clear all data. Requires HTTPS.
-                        </p>
-                      </div>
-                      <p className="settings-card-copy">
-                        {bioEnrollment
-                          ? `Enabled for @${bioEnrollment.username}`
-                          : bioAvailable
-                            ? 'Not enabled on this device yet.'
-                            : 'Not available in this browser or context.'}
-                      </p>
-                      <div className="settings-bio-actions">
-                        {bioAvailable && !bioEnrollment ? (
-                          <button
-                            type="button"
-                            className="btn-primary"
-                            onClick={() => void handleEnableBiometricsSettings()}
-                          >
-                            Enable {biometricLabel()}
-                          </button>
-                        ) : null}
-                        {bioEnrollment ? (
-                          <button
-                            type="button"
-                            className="btn-outline"
-                            onClick={() => {
-                              clearBiometricEnrollment()
-                              setBioEnrollment(null)
-                              setProfileMessage(`${biometricLabel()} removed from this device.`)
-                            }}
-                          >
-                            Remove from this device
-                          </button>
-                        ) : null}
-                      </div>
-                    </article>
                   </div>
                 </section>
 
@@ -4004,15 +4007,11 @@ export default function AdminPanel() {
 
                   <article className="settings-card settings-session-card">
                     <div className="settings-card-head">
-                      <h4 className="settings-card-title">
-                        {bioEnrollment ? 'Lock desk' : 'Sign out'}
-                      </h4>
+                      <h4 className="settings-card-title">Sign out</h4>
                       <p className="settings-card-copy">
-                        {bioEnrollment
-                          ? `Locks the desk. Unlock again with ${biometricLabel()} — works across many sessions on this device.`
-                          : isAdminUser
-                            ? 'End this admin session. You’ll need to sign in again to manage the fleet.'
-                            : 'End this employee session. You’ll need to sign in again to use the desk.'}
+                        {isAdminUser
+                          ? 'End this admin session. You’ll need to sign in again to manage the fleet.'
+                          : 'End this employee session. You’ll need to sign in again to use the desk.'}
                       </p>
                     </div>
                     <button
@@ -4020,26 +4019,8 @@ export default function AdminPanel() {
                       className="btn-outline settings-logout-btn"
                       onClick={requestLogout}
                     >
-                      {bioEnrollment ? 'Lock' : 'Log out'}
+                      Log out
                     </button>
-                    {bioEnrollment ? (
-                      <button
-                        type="button"
-                        className="btn-outline settings-logout-btn"
-                        style={{ marginTop: 8 }}
-                        onClick={() => {
-                          setConfirm({
-                            type: 'logout-full',
-                            title: 'Sign out of account?',
-                            message: `Ends the active session. You can still open the desk with ${biometricLabel()} on this device.`,
-                            confirmLabel: 'Sign out',
-                            danger: true,
-                          })
-                        }}
-                      >
-                        Sign out of account
-                      </button>
-                    ) : null}
                   </article>
                 </section>
               </div>
@@ -4151,6 +4132,7 @@ export default function AdminPanel() {
               : confirm.confirmLabel
           }
           cancelLabel={confirm.cancelLabel || 'Cancel'}
+          secondaryLabel={confirm.secondaryLabel || ''}
           danger={confirm.danger}
           hideCancel={Boolean(confirm.hideCancel)}
           countdownSeconds={confirm.type === 'clear-data' ? confirm.countdownSeconds || 5 : 0}
@@ -4166,6 +4148,20 @@ export default function AdminPanel() {
             setClearDataCreds({ username: '', password: '', error: '' })
             setConfirm(null)
           }}
+          onSecondary={
+            confirm.type === 'complete-rental-choice'
+              ? () => {
+                  setDamageReturn({
+                    vehicle: confirm.vehicle,
+                    rental: confirm.rental,
+                    vehicleId: confirm.vehicleId,
+                    plateNo: confirm.plateNo,
+                    rentalId: confirm.rentalId,
+                  })
+                  setConfirm(null)
+                }
+              : undefined
+          }
           onConfirm={handleConfirm}
         >
           {confirm.type === 'clear-data' ? (
@@ -4220,6 +4216,31 @@ export default function AdminPanel() {
           ) : null}
         </ConfirmModal>
       )}
+
+      <DamageInspectionModal
+        open={Boolean(damageReturn)}
+        vehicle={damageReturn?.vehicle}
+        rental={damageReturn?.rental}
+        adminName={
+          sessionUser?.displayName ||
+          sessionUser?.username ||
+          profile?.displayName ||
+          'Admin'
+        }
+        onCancel={() => setDamageReturn(null)}
+        onSubmit={async (inspection) => {
+          await finishRentCompleted({
+            vehicleId: damageReturn?.vehicleId,
+            plateNo: damageReturn?.plateNo,
+            rentalId: damageReturn?.rentalId,
+            returnMeta: {
+              condition: 'damaged',
+              inspection,
+            },
+          })
+          setDamageReturn(null)
+        }}
+      />
     </div>
   )
 }
@@ -4303,10 +4324,10 @@ function VehicleFields({
         <div>
           <span className="field-label">LTO OR &amp; CR scan</span>
           <p className="edit-section-copy">
-            Upload the Certificate of Registration (CR) and Official Receipt (OR) as an image or PDF.
-            Fields are filled from both documents (owner, plate, make/series, engine, chassis, body
-            type, seats). PDF uses the first page. After a successful scan, fields become read-only —
-            use Edit only to correct mistakes.
+            Upload the Certificate of Registration (CR) and Official Receipt (OR) as PNG, JPEG,
+            WebP, or PDF (first page). Word files are not supported. Fields are filled from both
+            documents when readable. After a successful scan, fields become read-only — use Edit
+            only to correct mistakes.
           </p>
         </div>
         <div className="vehicle-form-toolbar-actions">
@@ -4390,14 +4411,14 @@ function VehicleFields({
           disabled={disabled}
           className={errors.ownerId ? 'input-error' : ''}
         >
-          <option value="">Select owner…</option>
+          <option value="">SELECT OWNER…</option>
           {owners.map((o) => (
             <option key={o.id} value={o.id}>
-              {o.name}
-              {o.ownershipType === 'thirdParty' ? ' (Third-party)' : ' (Company)'}
+              {String(o.name || '').toUpperCase()}
+              {o.ownershipType === 'thirdParty' ? ' (THIRD-PARTY)' : ' (COMPANY)'}
             </option>
           ))}
-          <option value="__new__">+ Add New Owner</option>
+          <option value="__new__">+ ADD NEW OWNER</option>
         </select>
         {errors.ownerId && <span className="error-msg">{errors.ownerId}</span>}
       </label>
@@ -4409,8 +4430,8 @@ function VehicleFields({
           onChange={(e) => onChange('ownershipType', e.target.value)}
           disabled={disabled}
         >
-          <option value="company">Company-owned</option>
-          <option value="thirdParty">Third-party owned</option>
+          <option value="company">COMPANY-OWNED</option>
+          <option value="thirdParty">THIRD-PARTY OWNED</option>
         </select>
       </label>
 
@@ -4430,7 +4451,8 @@ function VehicleFields({
           onChange={(e) => onChange('make', e.target.value)}
           disabled={disabled}
           className={errors.make ? 'input-error' : ''}
-          placeholder="Toyota"
+          autoCapitalize="characters"
+          placeholder="TOYOTA"
         />
         {errors.make && <span className="error-msg">{errors.make}</span>}
       </label>
@@ -4442,7 +4464,8 @@ function VehicleFields({
           onChange={(e) => onChange('series', e.target.value)}
           disabled={disabled}
           className={errors.series ? 'input-error' : ''}
-          placeholder="Wigo"
+          autoCapitalize="characters"
+          placeholder="WIGO"
         />
         {errors.series && <span className="error-msg">{errors.series}</span>}
       </label>
@@ -4456,7 +4479,7 @@ function VehicleFields({
         >
           {BODY_TYPES.map((t) => (
             <option key={t} value={t}>
-              {t}
+              {String(t).toUpperCase()}
             </option>
           ))}
         </select>
@@ -4483,9 +4506,9 @@ function VehicleFields({
           disabled={disabled}
           className={errors.transmission ? 'input-error' : ''}
         >
-          <option value="Automatic">Automatic</option>
-          <option value="Manual">Manual</option>
-          <option value="Manual / Automatic">Manual / Automatic</option>
+          <option value="Automatic">AUTOMATIC</option>
+          <option value="Manual">MANUAL</option>
+          <option value="Manual / Automatic">MANUAL / AUTOMATIC</option>
         </select>
         {errors.transmission && <span className="error-msg">{errors.transmission}</span>}
       </label>
@@ -4496,8 +4519,8 @@ function VehicleFields({
           onChange={(e) => onChange('status', e.target.value)}
           disabled={disabled || data.status === 'Rented'}
         >
-          <option value="Available">Available</option>
-          <option value="Under Maintenance">In maintenance</option>
+          <option value="Available">AVAILABLE</option>
+          <option value="Under Maintenance">IN MAINTENANCE</option>
         </select>
         {data.status === 'Rented' ? (
           <span className="edit-section-copy">Status is managed while this vehicle is on rent.</span>
@@ -4529,7 +4552,8 @@ function VehicleFields({
           onChange={(e) => onChange('engineNo', e.target.value)}
           disabled={disabled}
           className={errors.engineNo ? 'input-error' : ''}
-          placeholder="As on CR"
+          autoCapitalize="characters"
+          placeholder="AS ON CR"
         />
         {errors.engineNo && <span className="error-msg">{errors.engineNo}</span>}
       </label>
@@ -4541,7 +4565,8 @@ function VehicleFields({
           onChange={(e) => onChange('chassisNo', e.target.value)}
           disabled={disabled}
           className={errors.chassisNo ? 'input-error' : ''}
-          placeholder="As on CR"
+          autoCapitalize="characters"
+          placeholder="AS ON CR"
         />
         {errors.chassisNo && <span className="error-msg">{errors.chassisNo}</span>}
       </label>

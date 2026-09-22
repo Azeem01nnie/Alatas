@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "Alatas",
+    "slug": "alatas",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#b32025"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.alatas.desk"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#b32025",
+        "foregroundImage": "./assets/adaptive-icon.png"
+      },
+      "package": "com.alatas.desk"
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Alatas to access your photos for vehicle images.",
+          "cameraPermission": "Allow Alatas to use the camera for vehicle photos."
+        }
+      ],
+      "@react-native-community/datetimepicker"
+    ]
+  }
+}

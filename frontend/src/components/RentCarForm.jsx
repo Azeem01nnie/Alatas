@@ -61,8 +61,8 @@ const AUTO_CAPITALIZE_KEYS = new Set([
   'emergencyRelationOther',
 ])
 
-function autoCapitalizeWords(value) {
-  return String(value ?? '').replace(/\b([a-z])/g, (match) => match.toUpperCase())
+function forceUppercase(value) {
+  return String(value ?? '').toUpperCase()
 }
 
 export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApprove = false }) {
@@ -112,20 +112,26 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
   }, [onDirtyChange])
 
   const updatePersonal = (key, value) => {
-    const nextValue = AUTO_CAPITALIZE_KEYS.has(key) ? autoCapitalizeWords(value) : value
+    const nextValue = AUTO_CAPITALIZE_KEYS.has(key) ? forceUppercase(value) : value
     setPersonal((prev) => ({ ...prev, [key]: nextValue }))
     setErrors((prev) => ({ ...prev, [key]: '' }))
   }
 
   const updateRental = (keyOrPatch, value) => {
-    const sanitizeKey = (key, val) =>
-      key === 'fromHour' ||
-      key === 'fromMinute' ||
-      key === 'toHour' ||
-      key === 'toMinute'
-        ? sanitizeTimePart(val)
-        : val
-
+    const sanitizeKey = (key, val) => {
+      if (
+        key === 'fromHour' ||
+        key === 'fromMinute' ||
+        key === 'toHour' ||
+        key === 'toMinute'
+      ) {
+        return sanitizeTimePart(val)
+      }
+      if (key === 'durationOther' || key === 'feeNote') {
+        return forceUppercase(val)
+      }
+      return val
+    }
     if (typeof keyOrPatch === 'object' && keyOrPatch !== null) {
       const patch = {}
       Object.entries(keyOrPatch).forEach(([key, val]) => {

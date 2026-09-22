@@ -10,11 +10,7 @@ export default function AddOwnerModal({
   const [error, setError] = useState('')
   const inputRef = useRef(null)
 
-  const capitalizeEachWord = (value) => {
-    // Uppercase the first letter of each word, without changing the rest of the text.
-    // Keeps the user's typing intent while enforcing "Capitalized words".
-    return value.replace(/(^|[\s])([a-zA-Z])/g, (match, leading, letter) => `${leading}${String(letter).toUpperCase()}`)
-  }
+  const capitalizeEachWord = (value) => String(value ?? '').toUpperCase()
 
   useEffect(() => {
     inputRef.current?.focus()
@@ -62,6 +58,7 @@ export default function AddOwnerModal({
               ref={inputRef}
               type="text"
               value={name}
+              autoCapitalize="characters"
               onChange={(e) => {
                 setName(capitalizeEachWord(e.target.value))
                 setError('')
@@ -77,8 +74,8 @@ export default function AddOwnerModal({
               value={type}
               onChange={(e) => setType(e.target.value === 'thirdParty' ? 'thirdParty' : 'company')}
             >
-              <option value="company">Company-owned</option>
-              <option value="thirdParty">Third-party owned</option>
+              <option value="company">COMPANY-OWNED</option>
+              <option value="thirdParty">THIRD-PARTY OWNED</option>
             </select>
           </label>
 

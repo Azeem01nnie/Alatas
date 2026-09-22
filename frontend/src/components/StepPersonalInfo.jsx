@@ -98,7 +98,7 @@ export default function StepPersonalInfo({ data, onChange, errors }) {
               onChange={(e) => onChange(key, e.target.value)}
               className={errors[key] ? 'input-error' : ''}
               autoComplete="off"
-              autoCapitalize="words"
+              autoCapitalize="characters"
             />
             {errors[key] && <span className="error-msg">{errors[key]}</span>}
           </label>
@@ -142,7 +142,7 @@ export default function StepPersonalInfo({ data, onChange, errors }) {
                 onChange={(e) => onChange('emergencyName', e.target.value)}
                 className={errors.emergencyName ? 'input-error' : ''}
                 autoComplete="off"
-                autoCapitalize="words"
+                autoCapitalize="characters"
               />
               {errors.emergencyName && (
                 <span className="error-msg">{errors.emergencyName}</span>
@@ -189,7 +189,7 @@ export default function StepPersonalInfo({ data, onChange, errors }) {
                   onChange={(e) => onChange('emergencyRelationOther', e.target.value)}
                   className={errors.emergencyRelationOther ? 'input-error' : ''}
                   autoComplete="off"
-                  autoCapitalize="words"
+                  autoCapitalize="characters"
                 />
                 {errors.emergencyRelationOther && (
                   <span className="error-msg">{errors.emergencyRelationOther}</span>

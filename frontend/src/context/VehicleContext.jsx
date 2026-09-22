@@ -376,12 +376,15 @@ export function VehicleProvider({ children }) {
     )
   }, [])
 
-  const completeRentalForVehicle = useCallback(async (vehicleId, plateNo = '', rentalId = '') => {
+  const completeRentalForVehicle = useCallback(
+    async (vehicleId, plateNo = '', rentalId = '', returnMeta = null) => {
     if (!vehicleId && !plateNo && !rentalId) return
     const key = String(vehicleId || '')
     const plate = String(plateNo || '').trim().toUpperCase()
     const rentalKey = String(rentalId || '').trim()
     const now = new Date().toISOString()
+    const hasReturnMeta =
+      returnMeta && typeof returnMeta === 'object' && !Array.isArray(returnMeta)
 
     // Optimistic UI update
     skipVehicleAutosave.current = true
@@ -401,8 +404,15 @@ export function VehicleProvider({ children }) {
           r.rentalLifecycle === 'active' &&
           ((key && rid === key) || (plate && rPlate === plate))
         if (!matchByRental && !matchByVehicle) return r
+        const rentalJson =
+          r.rental && typeof r.rental === 'object' ? { ...r.rental } : {}
+        if (hasReturnMeta) {
+          rentalJson.returnCondition = returnMeta.condition || 'ok'
+          rentalJson.returnInspection = returnMeta.inspection || null
+        }
         return {
           ...r,
+          rental: rentalJson,
           rentalLifecycle: 'completed',
           completedAt: now,
           updatedAt: now,
@@ -411,12 +421,14 @@ export function VehicleProvider({ children }) {
     )
 
     try {
-      await completeVehicleRentalApi(key, plate, rentalKey)
+      await completeVehicleRentalApi(key, plate, rentalKey, returnMeta)
     } catch (err) {
       console.warn('Complete rental API failed; local state updated', err)
       throw err
     }
-  }, [])
+  },
+  [])
+
 
   const cancelScheduledRental = useCallback((rentalId) => {
     if (!rentalId) return
