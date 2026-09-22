@@ -7,6 +7,7 @@ import {
   listZCloses,
   loadXZStore,
   recordZClose,
+  resetXZHistory,
 } from '../utils/xzReadings'
 
 function formatRange(from, to) {
@@ -68,6 +69,7 @@ export default function XZReadings({ rentals = [], vehicles = [], adminName = 'A
   const [storeVersion, setStoreVersion] = useState(0)
   const [tick, setTick] = useState(0)
   const [confirmZ, setConfirmZ] = useState(false)
+  const [confirmReset, setConfirmReset] = useState(false)
   const [message, setMessage] = useState('')
 
   // Keep period end at "now" while this tab stays open so new sales appear.
@@ -102,6 +104,22 @@ export default function XZReadings({ rentals = [], vehicles = [], adminName = 'A
     setTimeout(() => setMessage(''), 3500)
   }
 
+  const handleResetHistory = () => {
+    resetXZHistory()
+    setConfirmReset(false)
+    refresh()
+    setMessage('Z history cleared. Open period now starts from today.')
+    setTimeout(() => setMessage(''), 3500)
+  }
+
+  const acceptedRentals = Array.isArray(rentals)
+    ? rentals.filter((r) => {
+        const a = String(r?.approvalStatus || 'accepted').toLowerCase()
+        const life = String(r?.rentalLifecycle || '').toLowerCase()
+        return a !== 'pending' && a !== 'rejected' && life !== 'pending_approval' && life !== 'cancelled'
+      }).length
+    : 0
+
   return (
     <section className="xz-readings">
       <header className="xz-readings-header">
@@ -124,6 +142,11 @@ export default function XZReadings({ rentals = [], vehicles = [], adminName = 'A
               ? `Since last Z-close (${new Date(reading.lastClose.closedAt).toLocaleString()})`
               : 'Since start of today (no Z-close yet)'}
           </p>
+          {acceptedRentals === 0 ? (
+            <p className="xz-period-meta">
+              No rentals loaded yet. Import your backup or encode a rental first.
+            </p>
+          ) : null}
         </div>
         <div className="xz-period-stats">
           <div>
@@ -142,11 +165,17 @@ export default function XZReadings({ rentals = [], vehicles = [], adminName = 'A
       </div>
 
       <div className="xz-actions">
+        <button type="button" className="btn-outline" onClick={refresh}>
+          Refresh
+        </button>
         <button type="button" className="btn-outline" onClick={handleTakeX}>
           Take X-reading
         </button>
         <button type="button" className="btn-primary" onClick={() => setConfirmZ(true)}>
           Take Z-reading (close period)
+        </button>
+        <button type="button" className="btn-ghost" onClick={() => setConfirmReset(true)}>
+          Reset Z history
         </button>
       </div>
 
@@ -268,6 +297,43 @@ export default function XZReadings({ rentals = [], vehicles = [], adminName = 'A
               </button>
               <button type="button" className="btn-primary" onClick={handleConfirmZ}>
                 Close period (Z)
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {confirmReset ? (
+        <div
+          className="modal-overlay confirm-modal-overlay"
+          role="presentation"
+          onClick={() => setConfirmReset(false)}
+        >
+          <div
+            className="modal-panel confirm-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="xz-reset-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="xz-reset-title" className="modal-title">
+              Reset Z history?
+            </h3>
+            <p className="confirm-message">
+              This clears all saved Z-closes on this computer and restarts the open period from
+              the start of today. Use this after switching Supabase or if totals look stuck.
+              Rental data is not deleted.
+            </p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn-outline confirm-cancel-btn"
+                onClick={() => setConfirmReset(false)}
+              >
+                Cancel
+              </button>
+              <button type="button" className="btn-primary" onClick={handleResetHistory}>
+                Reset Z history
               </button>
             </div>
           </div>

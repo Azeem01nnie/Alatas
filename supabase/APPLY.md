@@ -2,20 +2,20 @@
 
 Your desk app is wired to:
 
-- URL: `https://mgfhomzbykdcuidllysv.supabase.co`
+- URL: `https://lspqhbbgvnpygiohcskg.supabase.co`
 - Publishable key in `frontend/.env`
 
 Express + SQLite are no longer started by `npm start` / Electron.
 
 ## 1. Create tables (you run this once)
 
-1. Open [SQL Editor](https://supabase.com/dashboard/project/mgfhomzbykdcuidllysv/sql/new)
+1. Open [SQL Editor](https://supabase.com/dashboard/project/lspqhbbgvnpygiohcskg/sql/new)
 2. Paste the full contents of [`supabase/migrations/001_init.sql`](../supabase/migrations/001_init.sql)
 3. Click **Run**
 
 ## 2. Create the admin account (SQL — no Auth “Add user” UI)
 
-1. Open [SQL Editor](https://supabase.com/dashboard/project/mgfhomzbykdcuidllysv/sql/new)
+1. Open [SQL Editor](https://supabase.com/dashboard/project/lspqhbbgvnpygiohcskg/sql/new)
 2. Paste and **Run** [`supabase/migrations/002_seed_admin.sql`](migrations/002_seed_admin.sql)
 
 That inserts into `auth.users` + `public.employees` for:
@@ -53,15 +53,15 @@ Manage Vehicle → Upload CR/OR prefers Gemini vision via Edge Function `scan-or
 
 ```bash
 npx supabase login
-npx supabase link --project-ref mgfhomzbykdcuidllysv
+npx supabase link --project-ref lspqhbbgvnpygiohcskg
 npx supabase functions deploy scan-orcr
 npx supabase secrets set GEMINI_API_KEY=YOUR_KEY_HERE
 ```
 
 Or in the Dashboard (no CLI):
 
-1. Open [Edge Functions](https://supabase.com/dashboard/project/mgfhomzbykdcuidllysv/functions) → deploy/create `scan-orcr` from `supabase/functions/scan-orcr`
-2. Open [Function secrets](https://supabase.com/dashboard/project/mgfhomzbykdcuidllysv/settings/functions) → add:
+1. Open [Edge Functions](https://supabase.com/dashboard/project/lspqhbbgvnpygiohcskg/functions) → deploy/create `scan-orcr` from `supabase/functions/scan-orcr`
+2. Open [Function secrets](https://supabase.com/dashboard/project/lspqhbbgvnpygiohcskg/settings/functions) → add:
    - Name: `GEMINI_API_KEY`
    - Value: your Gemini key
 

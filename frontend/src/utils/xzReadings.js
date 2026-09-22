@@ -195,3 +195,8 @@ export function listZCloses(store = loadXZStore()) {
     String(b.closedAt || '').localeCompare(String(a.closedAt || '')),
   )
 }
+
+/** Wipe Z-close history so the open period restarts (start of today). */
+export function resetXZHistory() {
+  return saveXZStore(emptyStore())
+}
