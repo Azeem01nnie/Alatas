@@ -40,6 +40,14 @@ const initialRental = {
   duration: '',
   durationOther: '',
   rentalType: '',
+  coverage: 'within_city',
+  outsideCityDestinationId: '',
+  outsideCityDestinationName: '',
+  outsideCityFee: '',
+  driverWagePerHour: '',
+  driverBillableHours: null,
+  driverFee: '',
+  driverFeeNote: '',
   fromDate: '',
   fromHour: '',
   fromMinute: '',
@@ -128,7 +136,7 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
       ) {
         return sanitizeTimePart(val)
       }
-      if (key === 'durationOther' || key === 'feeNote') {
+      if (key === 'durationOther') {
         return forceUppercase(val)
       }
       return val
@@ -220,6 +228,19 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
         if (!days) nextErrors.durationOther = 'Enter the number of days'
       }
       if (!rental.rentalType) nextErrors.rentalType = 'Select a rental type'
+
+      if (rental.coverage === 'outside_city' && !String(rental.outsideCityDestinationId || '').trim()) {
+        nextErrors.outsideCityDestinationId = 'Select an outside-city destination'
+      }
+
+      if (
+        rental.rentalType === 'With-driver' &&
+        rental.duration &&
+        !(Number(String(rental.driverFee || '').replace(/[^\d.]/g, '')) > 0)
+      ) {
+        nextErrors.driverFee =
+          'Set driver wage/hour in Settings → Rates & extras before booking With-driver'
+      }
 
       if (!rental.fromDate) nextErrors.fromDate = 'From date is required'
       if (!rental.fromHour.trim()) nextErrors.fromHour = 'From hour is required'
@@ -392,6 +413,33 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
           duration:
             rental.duration === 'Others' ? rental.durationOther : rental.duration,
           rentalType: rental.rentalType,
+          coverage: rental.coverage === 'outside_city' ? 'outside_city' : 'within_city',
+          outsideCityDestinationId:
+            rental.coverage === 'outside_city'
+              ? String(rental.outsideCityDestinationId || '').trim()
+              : '',
+          outsideCityDestinationName:
+            rental.coverage === 'outside_city'
+              ? String(rental.outsideCityDestinationName || '').trim()
+              : '',
+          outsideCityFee:
+            rental.coverage === 'outside_city'
+              ? String(rental.outsideCityFee || '').trim()
+              : '',
+          driverWagePerHour:
+            rental.rentalType === 'With-driver'
+              ? String(rental.driverWagePerHour || '').trim()
+              : '',
+          driverBillableHours:
+            rental.rentalType === 'With-driver' ? rental.driverBillableHours : null,
+          driverFee:
+            rental.rentalType === 'With-driver'
+              ? String(rental.driverFee || '').trim()
+              : '',
+          driverFeeNote:
+            rental.rentalType === 'With-driver'
+              ? String(rental.driverFeeNote || '').trim()
+              : '',
           rentalFee: rental.rentalFee,
           fromDate: rental.fromDate,
           fromHour: rental.fromHour,

@@ -1,6 +1,6 @@
 import { compressImageDataUrl, safeSetItem } from './storage'
 import { pushVehicleReportsToCloud } from '../api/vehicleReportsApi'
-import { resolveRentalSaleAmount } from './rentalFee'
+import { resolveRentalTotalCharges } from './rentalFee'
 
 const REPORTS_KEY = 'alatas-vehicle-reports'
 
@@ -157,7 +157,7 @@ function isReportableRental(rental) {
   const approval = String(rental?.approvalStatus || 'accepted').toLowerCase()
   if (approval === 'pending' || approval === 'rejected') return false
   const life = String(rental?.rentalLifecycle || '').toLowerCase()
-  if (life === 'pending_approval') return false
+  if (life === 'pending_approval' || life === 'cancelled' || life === 'rejected') return false
   // Include active, scheduled, completed, and legacy rows without lifecycle.
   return true
 }
@@ -171,7 +171,14 @@ function rentalStatusLabel(rental) {
 }
 
 function rentalCustomerName(rental) {
-  const name = `${rental?.personal?.firstName || ''} ${rental?.personal?.lastName || ''}`.trim()
+  const name = [
+    rental?.personal?.firstName,
+    rental?.personal?.middleName,
+    rental?.personal?.lastName,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .trim()
   return name || 'Customer'
 }
 
@@ -190,7 +197,7 @@ export function rentalToReportRow(rental, fleetVehicle = null) {
     rental?.createdAt ||
     ''
   const date = toDateKeyLocal(periodRaw) || toDateKeyLocal(new Date())
-  const fee = resolveRentalSaleAmount(rental, fleetVehicle)
+  const fee = resolveRentalTotalCharges(rental, fleetVehicle)
   const customer = rentalCustomerName(rental)
   const duration = rentalDurationLabel(rental)
   return {

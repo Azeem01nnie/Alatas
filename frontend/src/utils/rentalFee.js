@@ -98,6 +98,107 @@ export function resolveRentalSaleAmount(rental, fleetVehicle = null) {
   return amount == null ? 0 : Number(amount) || 0
 }
 
+/** Rentals that count toward est. revenue / X&Z (excludes cancelled & pending). */
+export function isRevenueCountableRental(rental) {
+  const approval = String(rental?.approvalStatus || 'accepted').toLowerCase()
+  if (approval === 'pending' || approval === 'rejected') return false
+  const life = String(rental?.rentalLifecycle || '').toLowerCase()
+  if (life === 'pending_approval' || life === 'cancelled' || life === 'rejected') return false
+  return true
+}
+
+/**
+ * Overdue / exceed charge from periodTo → completedAt (or now if still active).
+ * Uses vehicle exceedHour rate × whole overdue hours (ceil).
+ */
+export function resolveOverdueCharge(rental, fleetVehicle = null, now = Date.now()) {
+  const rates = fleetVehicle?.rates || rental?.vehicle?.rates || null
+  const exceed = Number(rates?.exceedHour) || 0
+  if (exceed <= 0) return 0
+
+  const due = new Date(rental?.rental?.periodTo || 0).getTime()
+  if (!due || Number.isNaN(due)) return 0
+
+  const life = String(rental?.rentalLifecycle || '').toLowerCase()
+  let endMs = Number(now) || Date.now()
+  if (life === 'completed') {
+    const completed = new Date(rental?.completedAt || 0).getTime()
+    if (!completed || Number.isNaN(completed)) return 0
+    endMs = completed
+  } else if (life !== 'active') {
+    return 0
+  }
+
+  const overdueMs = endMs - due
+  if (overdueMs < 60_000) return 0
+  const hours = Math.ceil(overdueMs / 3_600_000)
+  return hours * exceed
+}
+
+/** Damage settlement / estimate amounts from return inspection. */
+export function resolveDamageCharge(rental) {
+  const insp = rental?.rental?.returnInspection
+  if (!insp || typeof insp !== 'object') return 0
+
+  const settlement = String(insp.settlement || '').toLowerCase()
+  if (settlement === 'paid') return parseRentalFeeAmount(insp.paidAmount)
+  if (settlement === 'partial') return parseRentalFeeAmount(insp.partialAmount)
+
+  if (String(insp.assessment || '').toLowerCase() === 'estimate') {
+    return parseRentalFeeAmount(insp.estimatedCost)
+  }
+  return 0
+}
+
+/** Outside-city destination fee stored on the rental (0 when within city). */
+export function resolveOutsideCityCharge(rental) {
+  const coverage = String(rental?.rental?.coverage || 'within_city').toLowerCase()
+  if (coverage !== 'outside_city') return 0
+  return parseRentalFeeAmount(
+    rental?.rental?.outsideCityFee ?? rental?.rental?.outsideCityFeeLabel ?? 0,
+  )
+}
+
+/** With-driver wage stored on the rental (0 for Self-drive). */
+export function resolveDriverWageCharge(rental) {
+  const type = String(rental?.rental?.rentalType || '').toLowerCase()
+  if (type !== 'with-driver') return 0
+  return parseRentalFeeAmount(rental?.rental?.driverFee)
+}
+
+/** Full charge stack: city fee + outside-city + driver + overdue + damage. */
+export function resolveRentalChargeBreakdown(rental, fleetVehicle = null, now = Date.now()) {
+  if (!isRevenueCountableRental(rental)) {
+    return {
+      base: 0,
+      outsideCity: 0,
+      driver: 0,
+      overdue: 0,
+      damage: 0,
+      total: 0,
+      countable: false,
+    }
+  }
+  const base = resolveRentalSaleAmount(rental, fleetVehicle)
+  const outsideCity = resolveOutsideCityCharge(rental)
+  const driver = resolveDriverWageCharge(rental)
+  const overdue = resolveOverdueCharge(rental, fleetVehicle, now)
+  const damage = resolveDamageCharge(rental)
+  return {
+    base,
+    outsideCity,
+    driver,
+    overdue,
+    damage,
+    total: base + outsideCity + driver + overdue + damage,
+    countable: true,
+  }
+}
+
+export function resolveRentalTotalCharges(rental, fleetVehicle = null, now = Date.now()) {
+  return resolveRentalChargeBreakdown(rental, fleetVehicle, now).total
+}
+
 export function feeBreakdownLabel(rates, hours) {
   if (!rates || hours == null || hours <= 0) return ''
   if (hours <= 5) return `5-hour package`

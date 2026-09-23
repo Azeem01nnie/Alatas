@@ -1,5 +1,8 @@
 import { safeSetItem } from './storage'
-import { resolveRentalSaleAmount } from './rentalFee'
+import {
+  isRevenueCountableRental,
+  resolveRentalChargeBreakdown,
+} from './rentalFee'
 
 const STORE_KEY = 'alatas-xz-readings'
 
@@ -39,14 +42,6 @@ export function formatPesoXZ(n) {
   })}`
 }
 
-function isCountableRental(rental) {
-  const approval = String(rental?.approvalStatus || 'accepted').toLowerCase()
-  if (approval === 'pending' || approval === 'rejected') return false
-  const life = String(rental?.rentalLifecycle || '').toLowerCase()
-  if (life === 'pending_approval' || life === 'cancelled' || life === 'rejected') return false
-  return true
-}
-
 function rentalSaleStamp(rental) {
   // Prefer when the sale was booked/encoded — same clock History uses.
   const candidates = [
@@ -61,7 +56,6 @@ function rentalSaleStamp(rental) {
     const ms = new Date(raw).getTime()
     if (Number.isFinite(ms)) return { raw: String(raw), ms }
   }
-  // Last resort: rental period start (only if it parses)
   const period = rental?.rental?.periodFrom
   if (period) {
     const ms = new Date(period).getTime()
@@ -99,8 +93,8 @@ export function customerNameXZ(rental) {
 
 /**
  * Build POS sales lines for the open period (or custom bounds).
- * Sales are rentals encoded in-range; amount uses saved fee or rate-card fallback.
- * ₱0 lines are kept so History and X&Z stay aligned.
+ * Includes rental fee, overdue/exceed charges, and damage settlement amounts.
+ * Cancelled / pending rentals are excluded.
  */
 export function buildXZReading(
   rentals = [],
@@ -108,7 +102,6 @@ export function buildXZReading(
   store = loadXZStore(),
   vehicles = [],
 ) {
-  // Always end the open period at "now" so live sales keep counting while the tab is open.
   const base = bounds || getOpenPeriodBounds(new Date(), store)
   const from = base.from
   const to = new Date()
@@ -116,16 +109,16 @@ export function buildXZReading(
   const lastClose = base.lastClose
   const fromMs = from.getTime()
   const toMs = to.getTime()
+  const now = Date.now()
   const fleetById = new Map(
     (Array.isArray(vehicles) ? vehicles : []).map((v) => [String(v.id), v]),
   )
 
   const lines = []
   for (const r of Array.isArray(rentals) ? rentals : []) {
-    if (!isCountableRental(r)) continue
+    if (!isRevenueCountableRental(r)) continue
     const stamped = rentalSaleStamp(r)
     if (!stamped) continue
-    // Inclusive of period start so sales right after Z-close are not dropped.
     if (stamped.ms < fromMs || stamped.ms > toMs) continue
     const fleet =
       fleetById.get(String(r.vehicleId || r.vehicle?.id || '')) ||
@@ -137,27 +130,62 @@ export function buildXZReading(
               String(v.plateNo).toUpperCase() === String(r.vehicle.plateNo).toUpperCase(),
           )
         : null)
-    const amount = resolveRentalSaleAmount(r, fleet)
+    const breakdown = resolveRentalChargeBreakdown(r, fleet, now)
+    if (!breakdown.countable) continue
+
     const plate = r?.vehicle?.plateNo || fleet?.plateNo || '—'
     const vehicle =
       `${r?.vehicle?.make || fleet?.make || ''} ${r?.vehicle?.series || fleet?.series || ''}`.trim() ||
       '—'
-    lines.push({
-      rentalId: r.id,
-      stamp: stamped.raw,
-      dateLabel: new Date(stamped.ms).toLocaleString(),
-      customer: customerNameXZ(r),
-      plate,
-      vehicle,
-      duration: r?.rental?.duration || r?.rental?.durationOther || '—',
-      amount,
-      lifecycle: r?.rentalLifecycle || '—',
-    })
+    const customer = customerNameXZ(r)
+    const dateLabel = new Date(stamped.ms).toLocaleString()
+    const lifecycle = r?.rentalLifecycle || '—'
+
+    const pushLine = (kind, label, amount) => {
+      if (kind !== 'rental' && !(Number(amount) > 0)) return
+      lines.push({
+        rentalId: r.id,
+        kind,
+        stamp: stamped.raw,
+        dateLabel,
+        customer,
+        plate,
+        vehicle,
+        duration: label,
+        amount: Number(amount) || 0,
+        lifecycle,
+      })
+    }
+
+    pushLine(
+      'rental',
+      r?.rental?.duration || r?.rental?.durationOther || 'Rental',
+      breakdown.base,
+    )
+    if (breakdown.outsideCity > 0) {
+      const dest =
+        String(r?.rental?.outsideCityDestinationName || '').trim() || 'Outside city'
+      pushLine('outside_city', dest, breakdown.outsideCity)
+    }
+    if (breakdown.driver > 0) {
+      const hrs = Number(r?.rental?.driverBillableHours) || 0
+      pushLine(
+        'driver',
+        hrs > 0 ? `Driver wage · ${hrs} hrs` : 'Driver wage',
+        breakdown.driver,
+      )
+    }
+    if (breakdown.overdue > 0) {
+      pushLine('overdue', 'Overdue / exceed', breakdown.overdue)
+    }
+    if (breakdown.damage > 0) {
+      pushLine('damage', 'Damage settlement', breakdown.damage)
+    }
   }
 
   lines.sort((a, b) => String(b.stamp).localeCompare(String(a.stamp)))
   const revenue = lines.reduce((sum, row) => sum + (Number(row.amount) || 0), 0)
-  const count = lines.length
+  const count = new Set(lines.map((l) => l.rentalId).filter(Boolean)).size
 
   return {
     from,
@@ -181,7 +209,7 @@ export function recordZClose({ reading, closedBy = 'Admin', note = '' } = {}) {
     periodTo: reading.to?.toISOString?.() || reading.to,
     revenue: Number(reading.revenue) || 0,
     count: Number(reading.count) || 0,
-    rentalIds: (reading.lines || []).map((l) => l.rentalId).filter(Boolean),
+    rentalIds: [...new Set((reading.lines || []).map((l) => l.rentalId).filter(Boolean))],
     closedBy: String(closedBy || 'Admin').trim() || 'Admin',
     note: String(note || '').trim(),
   }

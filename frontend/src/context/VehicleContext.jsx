@@ -307,6 +307,15 @@ export function VehicleProvider({ children }) {
             }
             const aTs = Date.parse(a.updatedAt || '') || 0
             const bTs = Date.parse(b.updatedAt || '') || 0
+            // Local auto-start must win over a stale server "scheduled" row.
+            if (
+              a.rentalLifecycle === 'active' &&
+              b.rentalLifecycle === 'scheduled' &&
+              isDue(a.rental?.periodFrom || b.rental?.periodFrom)
+            ) {
+              merged.push(a)
+              continue
+            }
             if (aTs > bTs) {
               merged.push(a)
               continue
@@ -374,6 +383,21 @@ export function VehicleProvider({ children }) {
     suppressServerMergeUntil.current = Date.now() + 90_000
     setVehicles([])
     setRentals([])
+    hasLoaded.current = true
+  }, [])
+
+  /** Clear rentals only (keep vehicles). Used after admin Clear rentals & revenue. */
+  const wipeLocalRentals = useCallback(() => {
+    fleetWriteLocked.current = true
+    skipRentalAutosave.current = true
+    rentalSaveGen.current += 1
+    suppressServerMergeUntil.current = Date.now() + 90_000
+    setRentals([])
+    setVehicles((prev) =>
+      prev.map((v) =>
+        v.status === 'Rented' ? { ...v, status: 'Available', updatedAt: new Date().toISOString() } : v,
+      ),
+    )
     hasLoaded.current = true
   }, [])
 
@@ -448,17 +472,23 @@ export function VehicleProvider({ children }) {
     if (!rentalId) return
     const key = String(rentalId)
     const now = new Date().toISOString()
+    let freedVehicleId = null
+    let freedPlate = ''
+
     setRentals((prev) =>
       prev.map((r) => {
         if (String(r.id) !== key) return r
-        // Allow cancel for scheduled (and stuck pending that was accepted into schedule)
+        // Allow cancel for scheduled, active (immediate start), or stuck pending.
         if (
           r.rentalLifecycle !== 'scheduled' &&
+          r.rentalLifecycle !== 'active' &&
           r.rentalLifecycle !== 'pending_approval' &&
           r.approvalStatus !== 'pending'
         ) {
           return r
         }
+        freedVehicleId = r.vehicleId || r.vehicle?.id || null
+        freedPlate = String(r.vehicle?.plateNo || '').trim().toUpperCase()
         return {
           ...r,
           rentalLifecycle: 'cancelled',
@@ -469,6 +499,20 @@ export function VehicleProvider({ children }) {
         }
       }),
     )
+
+    if (freedVehicleId || freedPlate) {
+      setVehicles((prev) =>
+        prev.map((v) => {
+          const matchId = freedVehicleId && String(v.id) === String(freedVehicleId)
+          const matchPlate =
+            freedPlate &&
+            String(v.plateNo || '')
+              .trim()
+              .toUpperCase() === freedPlate
+          return matchId || matchPlate ? { ...v, status: 'Available', updatedAt: now } : v
+        }),
+      )
+    }
   }, [])
 
   const updateRentalCarPhotos = useCallback(async (rentalId, carPhotos, addedBy = '') => {
@@ -498,49 +542,66 @@ export function VehicleProvider({ children }) {
 
   useEffect(() => {
     const activateDueRentals = () => {
+      if (!hasLoaded.current || fleetWriteLocked.current) return
+
       const now = Date.now()
-      let vehicleIds = []
-
-      setRentals((prev) => {
-        const due = prev.filter((r) => {
-          if (r.rentalLifecycle !== 'scheduled') return false
-          if (r.approvalStatus === 'pending' || r.approvalStatus === 'rejected') return false
-          const start = r.rental?.periodFrom
-            ? new Date(r.rental.periodFrom).getTime()
-            : NaN
-          return !Number.isNaN(start) && start <= now
-        })
-        if (!due.length) return prev
-
-        vehicleIds = due.map((r) => r.vehicle?.id).filter(Boolean)
-        const dueIds = new Set(due.map((r) => r.id))
-        return prev.map((r) =>
-          dueIds.has(r.id)
-            ? {
-                ...r,
-                rentalLifecycle: 'active',
-                startedAt: new Date().toISOString(),
-                autoStarted: true,
-              }
-            : r,
-        )
+      const nowIso = new Date(now).toISOString()
+      const prev = rentalsRef.current
+      const due = prev.filter((r) => {
+        if (r.rentalLifecycle !== 'scheduled') return false
+        if (r.approvalStatus === 'pending' || r.approvalStatus === 'rejected') return false
+        return isDue(r.rental?.periodFrom)
       })
+      if (!due.length) return
+
+      const dueIds = new Set(due.map((r) => r.id))
+      const vehicleIds = due
+        .map((r) => r.vehicleId || r.vehicle?.id)
+        .filter(Boolean)
+        .map((id) => String(id))
+
+      const next = prev.map((r) =>
+        dueIds.has(r.id)
+          ? {
+              ...r,
+              rentalLifecycle: 'active',
+              startedAt: r.startedAt || nowIso,
+              autoStarted: true,
+              updatedAt: nowIso,
+            }
+          : r,
+      )
+
+      rentalsRef.current = next
+      skipRentalAutosave.current = true
+      rentalSaveGen.current += 1
+      setRentals(next)
 
       if (vehicleIds.length) {
-        const dueVehicleKeys = new Set(vehicleIds.map((id) => String(id)))
-        setTimeout(() => {
-          setVehicles((vehiclesPrev) =>
-            vehiclesPrev.map((v) =>
-              dueVehicleKeys.has(String(v.id)) ? { ...v, status: 'Rented' } : v,
-            ),
-          )
-        }, 0)
+        const dueVehicleKeys = new Set(vehicleIds)
+        setVehicles((vehiclesPrev) =>
+          vehiclesPrev.map((v) =>
+            dueVehicleKeys.has(String(v.id)) ? { ...v, status: 'Rented' } : v,
+          ),
+        )
       }
+
+      // Persist immediately so the 5s refresh cannot revert to "scheduled".
+      saveRentals(next).catch((err) => {
+        console.warn('Auto-activate rental save failed', err)
+      })
     }
 
     activateDueRentals()
-    const timer = setInterval(activateDueRentals, 15_000)
-    return () => clearInterval(timer)
+    const timer = setInterval(activateDueRentals, 1_000)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') activateDueRentals()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [])
 
   const addVehicle = (vehicle) => {
@@ -707,6 +768,7 @@ export function VehicleProvider({ children }) {
         reloadData,
         replaceAllData,
         wipeLocalFleet,
+        wipeLocalRentals,
         unlockFleetWrites,
       }}
     >

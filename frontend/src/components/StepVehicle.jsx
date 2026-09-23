@@ -86,7 +86,13 @@ export default function StepVehicle({ selectedId, onSelect, error }) {
                   >
                     {isSelected && <span className="vehicle-selected-badge">Selected</span>}
                     <span className="vehicle-thumb">
-                      <img src={vehicle.image} alt={vehicle.make} loading="lazy" />
+                      {vehicle.image ? (
+                        <img src={vehicle.image} alt={vehicle.make} loading="lazy" />
+                      ) : (
+                        <span className="vehicle-thumb-fallback" aria-hidden>
+                          {(vehicle.make || '?').slice(0, 1)}
+                        </span>
+                      )}
                     </span>
                     <span className="vehicle-make">{vehicle.make}</span>
                     <span className="vehicle-meta">{vehicle.series}</span>

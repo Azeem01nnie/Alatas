@@ -2,9 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   buildRentalAutoPatch,
   formatDurationDaysLabel,
+  formatRentalFee,
   parseDurationDays,
   parseDurationHours,
+  parseRentalFeeAmount,
 } from '../utils/rentalFee'
+import { listActiveOutsideCityDestinations } from '../utils/outsideCityDestinations'
+import { buildDriverFeePatch, DRIVER_MIN_HOURS } from '../utils/driverWage'
 import PremiumDatePicker from './PremiumDatePicker'
 import PremiumTimePicker from './PremiumTimePicker'
 
@@ -76,15 +80,68 @@ export default function StepRentalDetails({ data, onChange, errors, vehicle }) {
   const minDate = todayDateValue()
   const toMinDate = data.fromDate && data.fromDate > minDate ? data.fromDate : minDate
   const rates = vehicle?.rates
+  const ratesKey = rates
+    ? [rates.hrs5, rates.hrs12, rates.hrs24, rates.exceedHour].join('|')
+    : ''
   const hours = useMemo(
     () => parseDurationHours(data.duration, data.durationOther),
     [data.duration, data.durationOther],
   )
+  const destinations = listActiveOutsideCityDestinations()
+  const coverage = data.coverage === 'outside_city' ? 'outside_city' : 'within_city'
+  const withDriver = data.rentalType === 'With-driver'
+  const cityFee = parseRentalFeeAmount(data.rentalFee)
+  const outsideFee =
+    coverage === 'outside_city' ? parseRentalFeeAmount(data.outsideCityFee) : 0
+  const driverFee = withDriver ? parseRentalFeeAmount(data.driverFee) : 0
+  const totalFee = cityFee + outsideFee + driverFee
+  const totalFeeLabel = totalFee > 0 ? formatRentalFee(totalFee) : ''
+
+  const syncDriverPatch = (nextData, feeHours = null) => {
+    const hrs =
+      feeHours ??
+      parseDurationHours(nextData.duration, nextData.durationOther) ??
+      nextData.feeHours
+    return buildDriverFeePatch(nextData.rentalType, hrs)
+  }
 
   const applyField = (key, value) => {
     const next = { ...data, [key]: value }
     const auto = buildRentalAutoPatch(next, rates)
-    onChange({ [key]: value, ...auto })
+    const driver = syncDriverPatch({ ...next, ...auto }, auto.feeHours ?? next.feeHours)
+    onChange({ [key]: value, ...auto, ...driver })
+  }
+
+  const applyCoverage = (nextCoverage) => {
+    if (nextCoverage === 'within_city') {
+      onChange({
+        coverage: 'within_city',
+        outsideCityDestinationId: '',
+        outsideCityDestinationName: '',
+        outsideCityFee: '',
+      })
+      return
+    }
+    onChange({ coverage: 'outside_city' })
+  }
+
+  const applyDestination = (destinationId) => {
+    const dest = destinations.find((d) => d.id === destinationId)
+    if (!dest) {
+      onChange({
+        coverage: 'outside_city',
+        outsideCityDestinationId: '',
+        outsideCityDestinationName: '',
+        outsideCityFee: '',
+      })
+      return
+    }
+    onChange({
+      coverage: 'outside_city',
+      outsideCityDestinationId: dest.id,
+      outsideCityDestinationName: dest.name,
+      outsideCityFee: dest.priceLabel || formatRentalFee(dest.price),
+    })
   }
 
   const applyFromTime = ({ hour, minute, meridiem }) => {
@@ -95,11 +152,13 @@ export default function StepRentalDetails({ data, onChange, errors, vehicle }) {
       fromMeridiem: meridiem,
     }
     const auto = buildRentalAutoPatch(next, rates)
+    const driver = syncDriverPatch({ ...next, ...auto }, auto.feeHours ?? next.feeHours)
     onChange({
       fromHour: hour,
       fromMinute: minute,
       fromMeridiem: meridiem,
       ...auto,
+      ...driver,
     })
   }
 
@@ -114,16 +173,38 @@ export default function StepRentalDetails({ data, onChange, errors, vehicle }) {
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
 
-  // Keep fee + auto end time in sync when duration / start / rates change
+  // Keep fee + auto end time + driver wage in sync when duration / start / rates change
   useEffect(() => {
     const auto = buildRentalAutoPatch(data, rates)
-    const keys = Object.keys(auto)
+    const driver = syncDriverPatch(
+      { ...data, ...auto },
+      auto.feeHours ?? data.feeHours,
+    )
+    const patch = { ...auto, ...driver }
+    const keys = Object.keys(patch)
     if (!keys.length) return
-    const changed = keys.some((key) => data[key] !== auto[key])
-    if (changed) onChangeRef.current(auto)
+    const changed = keys.some((key) => data[key] !== patch[key])
+    if (changed) onChangeRef.current(patch)
   }, [
-    data,
-    rates,
+    data.duration,
+    data.durationOther,
+    data.fromDate,
+    data.fromHour,
+    data.fromMinute,
+    data.fromMeridiem,
+    data.rentalFee,
+    data.feeNote,
+    data.feeHours,
+    data.rentalType,
+    data.driverFee,
+    data.driverFeeNote,
+    data.driverBillableHours,
+    data.driverWagePerHour,
+    data.toDate,
+    data.toHour,
+    data.toMinute,
+    data.toMeridiem,
+    ratesKey,
   ])
 
   const toLocked = Boolean(
@@ -173,7 +254,11 @@ export default function StepRentalDetails({ data, onChange, errors, vehicle }) {
 
       {vehicle && (
         <div className="rental-vehicle-chip">
-          <img src={vehicle.image} alt="" className="rental-vehicle-chip-thumb" />
+          {vehicle.image ? (
+            <img src={vehicle.image} alt="" className="rental-vehicle-chip-thumb" />
+          ) : (
+            <div className="rental-vehicle-chip-thumb rental-vehicle-chip-thumb--empty" aria-hidden />
+          )}
           <div>
             <strong>
               {vehicle.make} — {vehicle.series}
@@ -250,6 +335,13 @@ export default function StepRentalDetails({ data, onChange, errors, vehicle }) {
           ))}
         </div>
         {errors.rentalType && <span className="error-msg">{errors.rentalType}</span>}
+        {withDriver ? (
+          <p className="period-hint">
+            Driver wage uses Settings rate · minimum {DRIVER_MIN_HOURS} hours billed
+            {data.driverFeeNote ? ` · ${data.driverFeeNote}` : ''}.
+          </p>
+        ) : null}
+        {errors.driverFee && <span className="error-msg">{errors.driverFee}</span>}
       </fieldset>
 
       <fieldset className="field-group">
@@ -296,6 +388,57 @@ export default function StepRentalDetails({ data, onChange, errors, vehicle }) {
         ) : null}
       </fieldset>
 
+      <fieldset className="field-group">
+        <legend className="field-label">Coverage</legend>
+        <div className="chip-group">
+          {[
+            { id: 'within_city', label: 'Within city' },
+            { id: 'outside_city', label: 'Outside city' },
+          ].map((opt) => (
+            <label
+              key={opt.id}
+              className={`chip${coverage === opt.id ? ' selected' : ''}`}
+            >
+              <input
+                type="radio"
+                name="coverage"
+                value={opt.id}
+                checked={coverage === opt.id}
+                onChange={() => applyCoverage(opt.id)}
+              />
+              {opt.label}
+            </label>
+          ))}
+        </div>
+        {errors.coverage && <span className="error-msg">{errors.coverage}</span>}
+      </fieldset>
+
+      {coverage === 'outside_city' ? (
+        <label className="field">
+          <span className="field-label">Destination</span>
+          <select
+            value={data.outsideCityDestinationId || ''}
+            onChange={(e) => applyDestination(e.target.value)}
+            className={errors.outsideCityDestinationId ? 'input-error' : ''}
+          >
+            <option value="">Select destination</option>
+            {destinations.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name} — {d.priceLabel}
+              </option>
+            ))}
+          </select>
+          {destinations.length === 0 ? (
+            <span className="field-hint">
+              No destinations yet. Add places in Settings → Rates &amp; extras.
+            </span>
+          ) : null}
+          {errors.outsideCityDestinationId && (
+            <span className="error-msg">{errors.outsideCityDestinationId}</span>
+          )}
+        </label>
+      ) : null}
+
       <div className="rental-fee-panel">
         <div className="rental-fee-copy">
           <span className="field-label">Rental Fee</span>
@@ -306,9 +449,40 @@ export default function StepRentalDetails({ data, onChange, errors, vehicle }) {
                 ? 'Select duration to calculate'
                 : 'Select a vehicle first'}
           </p>
+          {(coverage === 'outside_city' && outsideFee > 0) ||
+          (withDriver && (driverFee > 0 || data.driverFeeNote)) ? (
+            <ul className="rental-fee-stack">
+              <li>
+                <span>City package</span>
+                <strong>{data.rentalFee || '—'}</strong>
+              </li>
+              {coverage === 'outside_city' && outsideFee > 0 ? (
+                <li>
+                  <span>
+                    Outside city
+                    {data.outsideCityDestinationName
+                      ? ` · ${data.outsideCityDestinationName}`
+                      : ''}
+                  </span>
+                  <strong>{data.outsideCityFee || '—'}</strong>
+                </li>
+              ) : null}
+              {withDriver ? (
+                <li>
+                  <span>
+                    Driver wage
+                    {data.driverBillableHours
+                      ? ` · ${data.driverBillableHours} hrs`
+                      : ''}
+                  </span>
+                  <strong>{data.driverFee || '—'}</strong>
+                </li>
+              ) : null}
+            </ul>
+          ) : null}
         </div>
         <div className={`rental-fee-amount${errors.rentalFee ? ' input-error' : ''}`}>
-          {data.rentalFee || '—'}
+          {totalFeeLabel || data.rentalFee || '—'}
         </div>
         {errors.rentalFee && <span className="error-msg">{errors.rentalFee}</span>}
       </div>

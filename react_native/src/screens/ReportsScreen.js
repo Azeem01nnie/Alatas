@@ -32,8 +32,7 @@ import {
   sumAmounts,
   toReportDateKey,
 } from '../utils/vehicleReports'
-
-const logoFallback = require('../../assets/logo.jpg')
+import { vehicleImageSource } from '../utils/vehicleImages'
 
 const EMPTY_ENTRY = {
   date: toReportDateKey(new Date()),
@@ -48,14 +47,6 @@ const EMPTY_ENTRY = {
 function formatPeso(n) {
   const num = Number(n) || 0
   return `₱${num.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
-}
-
-function vehicleImageSource(vehicle) {
-  const uri = String(vehicle?.image || '').trim()
-  if (uri && (uri.startsWith('http') || uri.startsWith('data:') || uri.startsWith('file:'))) {
-    return { uri }
-  }
-  return logoFallback
 }
 
 async function assetToDataUrl(asset) {

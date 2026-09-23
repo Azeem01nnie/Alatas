@@ -922,7 +922,7 @@ export default function VehicleReports({
                 className="reports-vehicle-card"
                 onClick={() => setSelectedVehicleId(v.id)}
               >
-                <img src={v.image} alt="" />
+                {v.image ? <img src={v.image} alt="" /> : <span className="reports-vehicle-fallback" aria-hidden />}
                 <div className="reports-vehicle-copy">
                   <strong>{v.make} {v.series}</strong>
                   <span className="reports-vehicle-plate">{v.plateNo}</span>

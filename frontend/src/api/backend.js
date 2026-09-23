@@ -526,13 +526,50 @@ function dataUrlToBlob(dataUrl) {
 }
 
 /** Upload a data-URL image into the public `vehicles` bucket; return a stable public URL. */
+/** Upload a data-URL image into the public `vehicles` bucket; return a stable public URL.
+ *  Also re-hosts http(s) URLs that are not already on this project's Storage
+ *  (e.g. after switching Supabase accounts / importing an old backup).
+ */
 async function uploadVehicleImage(vehicleId, fileKey, dataUrl) {
   if (!dataUrl || typeof dataUrl !== 'string') return ''
-  if (!dataUrl.startsWith('data:')) return dataUrl
 
   const sb = requireSupabase()
-  const blob = dataUrlToBlob(dataUrl)
-  const ext = (blob.type || '').includes('png') ? 'png' : 'jpg'
+  const currentHost = (() => {
+    try {
+      return new URL(import.meta.env.VITE_SUPABASE_URL || '').host
+    } catch {
+      return ''
+    }
+  })()
+
+  let blob = null
+  if (dataUrl.startsWith('data:')) {
+    blob = dataUrlToBlob(dataUrl)
+  } else if (/^https?:\/\//i.test(dataUrl)) {
+    try {
+      const host = new URL(dataUrl).host
+      // Already on this project's public storage — keep as-is.
+      if (currentHost && host === currentHost) return dataUrl
+      // Broken Vite-hashed logo path masquerading as URL — skip.
+      if (/logonobg/i.test(dataUrl)) return ''
+      const res = await fetch(dataUrl, { mode: 'cors' })
+      if (!res.ok) return dataUrl
+      blob = await res.blob()
+      if (!blob || !blob.size) return dataUrl
+    } catch (err) {
+      console.warn('Could not fetch remote vehicle image for re-host', err)
+      return dataUrl
+    }
+  } else {
+    // Local /assets/... paths (including old hashed logos) — not re-uploaded.
+    return /logonobg/i.test(dataUrl) ? '' : dataUrl
+  }
+
+  const ext = (blob.type || '').includes('png')
+    ? 'png'
+    : (blob.type || '').includes('webp')
+      ? 'webp'
+      : 'jpg'
   const safeKey = String(fileKey || 'photo').replace(/[^\w\-]+/g, '_').slice(0, 40)
   const path = `${String(vehicleId)}/${safeKey}-${Date.now()}.${ext}`
 
@@ -546,12 +583,12 @@ async function uploadVehicleImage(vehicleId, fileKey, dataUrl) {
   return data?.publicUrl || ''
 }
 
-/** Convert embedded vehicle data-URLs to Storage URLs so multi-photo rows stay small. */
+/** Convert embedded vehicle data-URLs (and foreign Storage URLs) to this project's Storage. */
 async function materializeVehicleRow(row) {
   if (!row?.id) return row
 
   const safeUpload = async (fileKey, dataUrl) => {
-    if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) return dataUrl || ''
+    if (typeof dataUrl !== 'string' || !dataUrl.trim()) return ''
     try {
       return await uploadVehicleImage(row.id, fileKey, dataUrl)
     } catch (err) {
@@ -570,7 +607,7 @@ async function materializeVehicleRow(row) {
   )
   const orcr_image = await safeUpload('orcr', row.orcr_image)
   const or_image = await safeUpload('or', row.or_image)
-  const primary = images[0] || (await safeUpload('primary', row.image))
+  const primary = images.filter(Boolean)[0] || (await safeUpload('primary', row.image))
 
   return {
     ...row,
@@ -1275,6 +1312,47 @@ export async function clearAllAppData() {
     mode: rpcResult ? 'rpc+client' : 'client-fallback',
     rpc: rpcResult,
     ...clientResult,
+  }
+}
+
+/**
+ * Delete all rentals (and rental media) only. Keeps vehicles, employees, and admin login.
+ * Also clears rental-linked report income by wiping vehicle report entries that are system rentals
+ * — callers should clear local X&Z / customers stores.
+ */
+export async function clearRentalsData() {
+  const sb = requireSupabase()
+
+  const {
+    data: { session },
+  } = await sb.auth.getSession()
+  if (!session?.access_token) {
+    throw new Error('Not signed in to Supabase. Sign in as admin and try again.')
+  }
+
+  const rentalsDeleted = await deleteAllRowsById(sb, 'rentals')
+  const storageDeleted = await clearStorageBucket(sb, 'rentals')
+
+  // Mark every vehicle Available — no open rentals remain.
+  const { error: statusErr } = await sb
+    .from('vehicles')
+    .update({ status: 'Available', updated_at: new Date().toISOString() })
+    .neq('id', '')
+  if (statusErr) {
+    console.warn('Could not reset vehicle statuses after rental clear', statusErr)
+  }
+
+  const rentalsLeft = await countRows(sb, 'rentals')
+  if (rentalsLeft > 0) {
+    throw new Error(
+      `Clear incomplete — ${rentalsLeft} rental(s) still remain on Supabase. Check permissions and try again.`,
+    )
+  }
+
+  return {
+    ok: true,
+    rentalsDeleted,
+    storageObjectsDeleted: storageDeleted,
   }
 }
 

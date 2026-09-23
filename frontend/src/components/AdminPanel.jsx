@@ -36,6 +36,8 @@ import ConfirmModal from './ConfirmModal'
 import DamageInspectionModal from './DamageInspectionModal'
 import DamageReports from './DamageReports'
 import CustomersPanel from './CustomersPanel'
+import OutsideCityDestinationsPanel from './OutsideCityDestinationsPanel'
+import DriverWagePanel from './DriverWagePanel'
 import XZReadings from './XZReadings'
 import AddOwnerModal from './AddOwnerModal'
 import PremiumDatePicker from './PremiumDatePicker'
@@ -55,8 +57,20 @@ import {
   updateOwner,
 } from '../utils/owners'
 import { loadReportStore } from '../utils/vehicleReports'
+import {
+  loadOutsideCityDestinations,
+  replaceOutsideCityDestinations,
+} from '../utils/outsideCityDestinations'
+import {
+  loadDriverWageSettings,
+  replaceDriverWageSettings,
+} from '../utils/driverWage'
 import { getVehicleGallery, getInsuranceImages } from '../utils/vehicleImages'
-import { fetchSystemStatus, runCloudSync, saveAdminProfileRemote, clearAllAppData } from '../api/backend'
+import {
+  isRevenueCountableRental,
+  resolveRentalTotalCharges,
+} from '../utils/rentalFee'
+import { fetchSystemStatus, runCloudSync, saveAdminProfileRemote, clearAllAppData, clearRentalsData } from '../api/backend'
 import { CLOUD_SYNC_ENABLED, isCloudConfigured } from '../api/cloudSync'
 import { describeCloudConnection } from '../config/cloudConnection'
 import { useConnectivity } from '../hooks/useConnectivity'
@@ -413,6 +427,12 @@ function formatTimeRemaining(target, now = Date.now(), { mode = 'remaining' } = 
   return `${label} remaining`
 }
 
+/** Prefer real gallery photo; fall back to brand logo (never broken Vite-hashed logo paths). */
+function vehicleThumbSrc(vehicle) {
+  const gallery = getVehicleGallery(vehicle)
+  return gallery[0] || logo
+}
+
 /** How late a rental is/was past periodTo. Null when not overdue. */
 function formatOverdueDuration(rental, now = Date.now()) {
   const due = new Date(rental?.rental?.periodTo || 0).getTime()
@@ -456,12 +476,6 @@ function formatOverdueDuration(rental, now = Date.now()) {
     label,
     detail: detailParts.join(' ') || label,
   }
-}
-
-function parseFee(fee) {
-  if (fee == null || fee === '') return 0
-  const n = Number(String(fee).replace(/[^\d.]/g, ''))
-  return Number.isFinite(n) ? n : 0
 }
 
 function customerName(r) {
@@ -577,17 +591,33 @@ function getRevenueRange(preset, customFrom, customTo) {
   return { from: startOfDay(from), to: endOfDay(to) }
 }
 
-function buildDailyRevenueSeries(rentals, from, to) {
+function buildDailyRevenueSeries(rentals, from, to, vehicles = []) {
   const fromMs = from.getTime()
   const toMs = to.getTime()
   const byDay = new Map()
+  const fleetById = new Map(
+    (Array.isArray(vehicles) ? vehicles : []).map((v) => [String(v.id), v]),
+  )
+  const now = Date.now()
 
   for (const r of rentals) {
-    const encoded = new Date(r.encodedAt || 0).getTime()
+    if (!isRevenueCountableRental(r)) continue
+    const encoded = new Date(r.encodedAt || r.createdAt || 0).getTime()
     if (!Number.isFinite(encoded) || encoded < fromMs || encoded > toMs) continue
+    const fleet =
+      fleetById.get(String(r.vehicleId || r.vehicle?.id || '')) ||
+      (Array.isArray(vehicles)
+        ? vehicles.find(
+            (v) =>
+              v.plateNo &&
+              r.vehicle?.plateNo &&
+              String(v.plateNo).toUpperCase() === String(r.vehicle.plateNo).toUpperCase(),
+          )
+        : null)
+    const amount = resolveRentalTotalCharges(r, fleet, now)
     const key = toDateKey(encoded)
     const prev = byDay.get(key) || { revenue: 0, count: 0 }
-    prev.revenue += parseFee(r.rental?.rentalFee)
+    prev.revenue += amount
     prev.count += 1
     byDay.set(key, prev)
   }
@@ -642,6 +672,7 @@ export default function AdminPanel() {
     replaceAllData,
     reloadData,
     wipeLocalFleet,
+    wipeLocalRentals,
     unlockFleetWrites,
   } = useVehicles()
   const { online } = useConnectivity()
@@ -775,7 +806,7 @@ export default function AdminPanel() {
   }, [systemSettings])
 
   useEffect(() => {
-    const id = window.setInterval(() => setAlertTick((t) => t + 1), 60_000)
+    const id = window.setInterval(() => setAlertTick((t) => t + 1), 1_000)
     return () => window.clearInterval(id)
   }, [])
 
@@ -905,6 +936,8 @@ export default function AdminPanel() {
         owners: loadOwners(),
         archivedVehicles: loadArchivedVehicles(),
         vehicleReports: loadReportStore(),
+        outsideCityDestinations: loadOutsideCityDestinations(),
+        driverWage: loadDriverWageSettings(),
         systemSettings,
         adminProfile: profile,
       }
@@ -1002,6 +1035,14 @@ export default function AdminPanel() {
         setProfileDraft(nextProfile)
       }
 
+      if (Array.isArray(parsed.outsideCityDestinations)) {
+        replaceOutsideCityDestinations(parsed.outsideCityDestinations)
+      }
+
+      if (parsed.driverWage && typeof parsed.driverWage === 'object') {
+        replaceDriverWageSettings(parsed.driverWage)
+      }
+
       setDataMessage(
         `Imported ${parsed.vehicles.length} vehicles and ${parsed.rentals.length} rentals.`,
       )
@@ -1054,6 +1095,81 @@ export default function AdminPanel() {
     })
   }
 
+  const requestClearRentals = () => {
+    if (!isAdminUser) return
+    setClearDataCreds({
+      username: sessionUser?.username || 'alatas',
+      password: '',
+      error: '',
+    })
+    setClearDataBusy(false)
+    setConfirm({
+      type: 'clear-rentals',
+      title: 'Clear rentals & revenue?',
+      message:
+        'This permanently deletes all rentals, Est. revenue, X&Z readings, and customer profiles from rentals. Vehicles and employees stay. Re-enter admin credentials to confirm. This cannot be undone.',
+      confirmLabel: 'Yes, clear rentals',
+      danger: true,
+      countdownSeconds: 5,
+    })
+  }
+
+  const clearRentalsAndRevenue = async () => {
+    if (!isAdminUser) return
+    setDataBusy(true)
+    setDataMessage('')
+    try {
+      wipeLocalRentals()
+      localStorage.removeItem('alatas-xz-readings')
+      localStorage.removeItem('alatas-customers')
+      // Drop rental rows from offline queue only — keep vehicle ops.
+      try {
+        const raw = localStorage.getItem('alatas-offline-queue')
+        if (raw) {
+          const queue = JSON.parse(raw)
+          const next = Array.isArray(queue)
+            ? queue.filter((item) => {
+                const t = String(item?.type || '')
+                return !t.startsWith('rental') && t !== 'rentals' && t !== 'pending-rental'
+              })
+            : []
+          localStorage.setItem('alatas-offline-queue', JSON.stringify(next))
+        }
+      } catch {
+        /* ignore */
+      }
+
+      await clearRentalsData()
+
+      const refreshed = await reloadData()
+      unlockFleetWrites()
+      const rentalsLeft = refreshed?.rentals?.length || 0
+      if (rentalsLeft > 0) {
+        throw new Error(
+          `Supabase still has ${rentalsLeft} rental(s). Clear did not finish — check your connection and try again.`,
+        )
+      }
+
+      setDismissedAlerts(new Set())
+      setSelectedTransaction(null)
+      setClearDataCreds({ username: '', password: '', error: '' })
+      setConfirm(null)
+      setDataMessage('All rentals and revenue history cleared. Vehicles were kept.')
+      window.setTimeout(() => setDataMessage(''), 4000)
+    } catch (err) {
+      try {
+        unlockFleetWrites()
+        await reloadData()
+      } catch {
+        /* ignore */
+      }
+      setDataMessage(err?.message || 'Could not clear rentals.')
+      throw err
+    } finally {
+      setDataBusy(false)
+    }
+  }
+
   const clearAllData = async () => {
     if (!isAdminUser) return
     setDataBusy(true)
@@ -1066,6 +1182,8 @@ export default function AdminPanel() {
       localStorage.removeItem('alatas-vehicle-reports')
       localStorage.removeItem('alatas-xz-readings')
       localStorage.removeItem('alatas-customers')
+      localStorage.removeItem('alatas-outside-city-destinations')
+      localStorage.removeItem('alatas-driver-wage')
       localStorage.removeItem('alatas-vehicles-v6')
       localStorage.removeItem('alatas-manage-layout')
       saveArchivedVehicles([])
@@ -1382,7 +1500,7 @@ export default function AdminPanel() {
         const tb = new Date(b.rental.rental?.periodFrom || 0).getTime()
         return ta - tb
       })
-  }, [scheduledRentals, vehicles])
+  }, [scheduledRentals, vehicles, alertTick])
 
   const onRentQueue = useMemo(() => {
     const rows = activeRentals.map((r) => ({
@@ -1424,8 +1542,8 @@ export default function AdminPanel() {
 
   const revenueSnapshot = useMemo(() => {
     const { from, to } = getRevenueRange(revenuePreset, revenueDateFrom, revenueDateTo)
-    return buildDailyRevenueSeries(rentals, from, to)
-  }, [rentals, revenuePreset, revenueDateFrom, revenueDateTo])
+    return buildDailyRevenueSeries(rentals, from, to, vehicles)
+  }, [rentals, vehicles, revenuePreset, revenueDateFrom, revenueDateTo])
 
   const revenueCaption = useMemo(
     () => formatRangeCaption(revenueSnapshot.from, revenueSnapshot.to),
@@ -2024,7 +2142,7 @@ export default function AdminPanel() {
       type: 'complete-rental-choice',
       title: 'Complete rental return?',
       message: `How was ${vehicle.make} — ${vehicle.series} (${vehicle.plateNo}) returned? Choose Complete if the vehicle is in good condition, or Damaged to fill out the return inspection form.`,
-      confirmLabel: 'Vehicle complete (OK)',
+      confirmLabel: 'Complete (OK)',
       cancelLabel: 'Cancel',
       secondaryLabel: 'Damaged — inspect',
       vehicleId: vehicle?.id || rental?.vehicleId || rental?.vehicle?.id || '',
@@ -2053,10 +2171,11 @@ export default function AdminPanel() {
   const requestCancelRental = (rental, vehicle) => {
     if (!isAdminUser) return
     const name = customerName(rental)
+    const life = rental?.rentalLifecycle || 'scheduled'
     setConfirm({
       type: 'cancel-rental',
-      title: 'Cancel scheduled rental?',
-      message: `Cancel the upcoming rental for ${vehicle?.make || 'Vehicle'} — ${vehicle?.series || ''} (${vehicle?.plateNo || '—'}) with ${name}? The vehicle will stay available. This cannot be undone.`,
+      title: life === 'active' ? 'Cancel active rental?' : 'Cancel scheduled rental?',
+      message: `Cancel the rental for ${vehicle?.make || 'Vehicle'} — ${vehicle?.series || ''} (${vehicle?.plateNo || '—'}) with ${name}? The vehicle will become available and this booking will drop from Est. revenue / X&Z. This cannot be undone.`,
       confirmLabel: 'Yes, cancel rental',
       cancelLabel: 'Keep rental',
       danger: true,
@@ -2308,6 +2427,26 @@ export default function AdminPanel() {
         requireCsrfToken(getCsrfToken())
         await verifyAdminCredentials(clearDataCreds.username, clearDataCreds.password)
         await clearAllData()
+      } catch (err) {
+        setClearDataCreds((prev) => ({
+          ...prev,
+          error: err?.message || 'Could not verify admin credentials.',
+        }))
+        setClearDataBusy(false)
+        return
+      }
+      setClearDataBusy(false)
+      return
+    }
+    if (confirm.type === 'clear-rentals') {
+      if (clearDataBusy) return
+      setClearDataBusy(true)
+      setClearDataCreds((prev) => ({ ...prev, error: '' }))
+      try {
+        assertSameOriginRequest()
+        requireCsrfToken(getCsrfToken())
+        await verifyAdminCredentials(clearDataCreds.username, clearDataCreds.password)
+        await clearRentalsAndRevenue()
       } catch (err) {
         setClearDataCreds((prev) => ({
           ...prev,
@@ -2758,14 +2897,23 @@ export default function AdminPanel() {
                                   </span>
                                 </div>
                                 {isAdminUser ? (
-                      <button
-                        type="button"
-                                    className="btn-outline btn-sm"
-                                    onClick={() => requestRentCompleted(vehicle, rental)}
-                      >
-                                    Complete
-                      </button>
-                    ) : null}
+                                  <div className="dash-attn-actions">
+                                    <button
+                                      type="button"
+                                      className="btn-outline btn-sm btn-danger-outline"
+                                      onClick={() => requestCancelRental(rental, vehicle)}
+                                    >
+                                      Cancel
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="btn-outline btn-sm"
+                                      onClick={() => requestRentCompleted(vehicle, rental)}
+                                    >
+                                      Complete
+                                    </button>
+                                  </div>
+                                ) : null}
                               </article>
                               )
                             })}
@@ -3162,7 +3310,13 @@ export default function AdminPanel() {
                             }}
                           >
                             <div className="manage-card-media">
-                              <img src={v.image} alt="" />
+                              <img
+                                src={vehicleThumbSrc(v)}
+                                alt=""
+                                onError={(e) => {
+                                  if (e.currentTarget.src !== logo) e.currentTarget.src = logo
+                                }}
+                              />
                               <span className={`status-badge ${badgeClass}`}>
                                 {manageView === 'archive' ? 'Archived' : formatStatusLabel(display)}
                               </span>
@@ -3243,7 +3397,14 @@ export default function AdminPanel() {
                               }
                             }}
                           >
-                            <img src={v.image} alt="" className="admin-vehicle-thumb" />
+                            <img
+                              src={vehicleThumbSrc(v)}
+                              alt=""
+                              className="admin-vehicle-thumb"
+                              onError={(e) => {
+                                if (e.currentTarget.src !== logo) e.currentTarget.src = logo
+                              }}
+                            />
                     <div className="admin-vehicle-meta">
                       <strong>
                         {v.make} — {v.series}
@@ -3997,7 +4158,28 @@ export default function AdminPanel() {
                 </section>
                 )}
 
-                {/* 4. Data — admin only */}
+                {/* 4. Rates & extras — admin only */}
+                {isAdminUser && (
+                <section
+                  className="settings-section"
+                  aria-labelledby="settings-rates-heading"
+                >
+                  <header className="settings-section-head">
+                    <h3 id="settings-rates-heading" className="settings-section-title">
+                      Rates &amp; extras
+                    </h3>
+                    <p className="settings-section-copy">
+                      Outside-city destinations and With-driver hourly wage.
+                    </p>
+                  </header>
+                  <div className="settings-section-grid">
+                    <OutsideCityDestinationsPanel />
+                    <DriverWagePanel />
+                  </div>
+                </section>
+                )}
+
+                {/* 5. Data — admin only */}
                 {isAdminUser && (
                 <section className="settings-section" aria-labelledby="settings-data-heading">
                   <header className="settings-section-head">
@@ -4014,8 +4196,8 @@ export default function AdminPanel() {
                       <div className="settings-card-head">
                         <h4 className="settings-card-title">Data &amp; cache</h4>
                         <p className="settings-card-copy">
-                          Back up or migrate fleet data, clear temporary cache, or permanently wipe
-                          all app data (admin login is kept).
+                          Back up or migrate fleet data, clear temporary cache, clear rentals &amp;
+                          revenue only, or permanently wipe all app data (admin login is kept).
                         </p>
                       </div>
 
@@ -4043,6 +4225,14 @@ export default function AdminPanel() {
                           onClick={requestClearCache}
                         >
                           Clear cache
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-outline settings-clear-data-btn"
+                          disabled={dataBusy}
+                          onClick={requestClearRentals}
+                        >
+                          {dataBusy ? 'Working…' : 'Clear rentals & revenue'}
                         </button>
                         <button
                           type="button"
@@ -4293,7 +4483,7 @@ export default function AdminPanel() {
           title={confirm.title}
           message={confirm.message}
           confirmLabel={
-            confirm.type === 'clear-data' && clearDataBusy
+            (confirm.type === 'clear-data' || confirm.type === 'clear-rentals') && clearDataBusy
               ? 'Clearing…'
               : confirm.confirmLabel
           }
@@ -4301,10 +4491,14 @@ export default function AdminPanel() {
           secondaryLabel={confirm.secondaryLabel || ''}
           danger={confirm.danger}
           hideCancel={Boolean(confirm.hideCancel)}
-          countdownSeconds={confirm.type === 'clear-data' ? confirm.countdownSeconds || 5 : 0}
+          countdownSeconds={
+            confirm.type === 'clear-data' || confirm.type === 'clear-rentals'
+              ? confirm.countdownSeconds || 5
+              : 0
+          }
           confirmDisabled={
             clearDataBusy ||
-            (confirm.type === 'clear-data' &&
+            ((confirm.type === 'clear-data' || confirm.type === 'clear-rentals') &&
               (!String(clearDataCreds.username || '').trim() ||
                 !String(clearDataCreds.password || '')))
           }
@@ -4330,10 +4524,11 @@ export default function AdminPanel() {
           }
           onConfirm={handleConfirm}
         >
-          {confirm.type === 'clear-data' ? (
+          {confirm.type === 'clear-data' || confirm.type === 'clear-rentals' ? (
             <div className="clear-data-auth">
               <p className="clear-data-auth-note">
-                Wait for the countdown, then enter admin username and password to unlock Clear data.
+                Wait for the countdown, then enter admin username and password to unlock
+                {confirm.type === 'clear-rentals' ? ' Clear rentals & revenue' : ' Clear data'}.
               </p>
               <label className="clear-data-auth-field">
                 <span>Admin username</span>

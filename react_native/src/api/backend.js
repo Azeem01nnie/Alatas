@@ -1,16 +1,57 @@
+import Constants from 'expo-constants'
 import { isSupabaseConfigured, requireSupabase } from './supabaseClient'
 import { collectPhotographerCredits, mergePhotographerCredits } from '../utils/photoCredits'
 import { assertSafeDbId } from '../utils/security'
 
+/** Parse gallery URLs from legacy `image` text (single URL or JSON array). */
+function unpackImageField(raw) {
+  const s = String(raw || '').trim()
+  if (!s) return []
+  if (s.startsWith('[')) {
+    try {
+      const arr = JSON.parse(s)
+      if (Array.isArray(arr)) {
+        return arr.map((u) => String(u || '').trim()).filter(Boolean)
+      }
+    } catch {
+      /* not JSON — treat as plain URL */
+    }
+  }
+  return [s]
+}
+
+/** Persist multi photos in `image` text when jsonb `images` column is unavailable. */
+function packImageField(gallery, fallbackPrimary = null) {
+  const urls = (Array.isArray(gallery) ? gallery : [])
+    .map((u) => String(u || '').trim())
+    .filter(Boolean)
+  if (urls.length > 1) return JSON.stringify(urls)
+  return urls[0] || fallbackPrimary || null
+}
+
+function supabaseProjectHost() {
+  const extra = Constants.expoConfig?.extra || {}
+  const raw = String(process.env.EXPO_PUBLIC_SUPABASE_URL || extra.supabaseUrl || '')
+    .trim()
+    .replace(/\/$/, '')
+  try {
+    return raw ? new URL(raw).host : ''
+  } catch {
+    return ''
+  }
+}
+
 function mapVehicle(row) {
   if (!row) return null
-  const images = Array.isArray(row.images)
+  const fromCol = Array.isArray(row.images)
     ? row.images.map((u) => String(u || '').trim()).filter(Boolean)
     : []
+  const fromImage = unpackImageField(row.image)
+  const images = fromCol.length ? fromCol : fromImage
   const insuranceImages = Array.isArray(row.insurance_images)
     ? row.insurance_images.map((u) => String(u || '').trim()).filter(Boolean)
     : []
-  const image = images[0] || row.image || ''
+  const image = images[0] || ''
   return {
     id: row.id,
     make: row.make,
@@ -23,7 +64,7 @@ function mapVehicle(row) {
     chassisNo: row.chassis_no,
     status: row.status,
     image,
-    images: images.length ? images : image ? [image] : [],
+    images,
     insuranceImages,
     insuranceImage: insuranceImages[0] || '',
     ownerId: row.owner_id || '',
@@ -46,8 +87,8 @@ function mapVehicle(row) {
 function toVehicleRow(vehicle) {
   const images = Array.isArray(vehicle?.images)
     ? vehicle.images.map((u) => String(u || '').trim()).filter(Boolean)
-    : []
-  const primary = images[0] || vehicle?.image || null
+    : unpackImageField(vehicle?.image)
+  const primary = images[0] || null
   const insuranceImages = Array.isArray(vehicle?.insuranceImages)
     ? vehicle.insuranceImages.map((u) => String(u || '').trim()).filter(Boolean)
     : []
@@ -77,6 +118,96 @@ function toVehicleRow(vehicle) {
     report_entries: Array.isArray(vehicle.reportEntries) ? vehicle.reportEntries : [],
     created_at: vehicle.createdAt || new Date().toISOString(),
     updated_at: new Date().toISOString(),
+  }
+}
+
+/**
+ * Upload a data-URL / file / foreign Storage URL into this project's `vehicles` bucket.
+ * Keeps URLs already hosted on the current Supabase project.
+ */
+async function uploadVehicleImage(vehicleId, fileKey, dataUrl) {
+  if (!dataUrl || typeof dataUrl !== 'string') return ''
+
+  const sb = requireSupabase()
+  const currentHost = supabaseProjectHost()
+
+  let blob = null
+  if (dataUrl.startsWith('data:') || dataUrl.startsWith('file:')) {
+    try {
+      const res = await fetch(dataUrl)
+      blob = await res.blob()
+    } catch (err) {
+      console.warn('Could not read local vehicle image for upload', err)
+      return dataUrl
+    }
+  } else if (/^https?:\/\//i.test(dataUrl)) {
+    try {
+      const host = new URL(dataUrl).host
+      if (currentHost && host === currentHost) return dataUrl
+      if (/logonobg/i.test(dataUrl)) return ''
+      const res = await fetch(dataUrl)
+      if (!res.ok) return dataUrl
+      blob = await res.blob()
+      if (!blob || !blob.size) return dataUrl
+    } catch (err) {
+      console.warn('Could not fetch remote vehicle image for re-host', err)
+      return dataUrl
+    }
+  } else {
+    return /logonobg/i.test(dataUrl) ? '' : dataUrl
+  }
+
+  const ext = (blob.type || '').includes('png')
+    ? 'png'
+    : (blob.type || '').includes('webp')
+      ? 'webp'
+      : 'jpg'
+  const safeKey = String(fileKey || 'photo').replace(/[^\w\-]+/g, '_').slice(0, 40)
+  const path = `${String(vehicleId)}/${safeKey}-${Date.now()}.${ext}`
+
+  const { error } = await sb.storage.from('vehicles').upload(path, blob, {
+    contentType: blob.type || 'image/jpeg',
+    upsert: true,
+  })
+  if (error) throwSb(error)
+
+  const { data } = sb.storage.from('vehicles').getPublicUrl(path)
+  return data?.publicUrl || ''
+}
+
+/** Convert embedded / foreign vehicle images to this project's Storage. */
+async function materializeVehicleRow(row) {
+  if (!row?.id) return row
+
+  const safeUpload = async (fileKey, dataUrl) => {
+    if (typeof dataUrl !== 'string' || !dataUrl.trim()) return ''
+    try {
+      return await uploadVehicleImage(row.id, fileKey, dataUrl)
+    } catch (err) {
+      console.warn(`Vehicle photo upload failed for ${fileKey}; keeping local image`, err)
+      return dataUrl
+    }
+  }
+
+  const galleryIn = Array.isArray(row.images) ? row.images : unpackImageField(row.image)
+  const images = await Promise.all(
+    galleryIn.map((url, index) => safeUpload(`gallery-${index}`, url)),
+  )
+  const insuranceIn = Array.isArray(row.insurance_images) ? row.insurance_images : []
+  const insurance_images = await Promise.all(
+    insuranceIn.map((url, index) => safeUpload(`insurance-${index}`, url)),
+  )
+  const orcr_image = await safeUpload('orcr', row.orcr_image)
+  const or_image = await safeUpload('or', row.or_image)
+  const primary = images.filter(Boolean)[0] || (await safeUpload('primary', row.image))
+
+  return {
+    ...row,
+    images: images.filter(Boolean),
+    insurance_images: insurance_images.filter(Boolean),
+    image: images.filter(Boolean)[0] || primary || null,
+    orcr_image: orcr_image || null,
+    or_image: or_image || null,
   }
 }
 
@@ -198,9 +329,15 @@ export function fetchVehicles() {
 export async function replaceVehicles(vehicles, options = {}) {
   const prune = Boolean(options.prune)
   const sb = requireSupabase()
-  const items = (Array.isArray(vehicles) ? vehicles : [])
-    .map(toVehicleRow)
-    .filter((v) => v.id)
+  const items = (
+    await Promise.all(
+      (Array.isArray(vehicles) ? vehicles : []).map(async (v) => {
+        const row = toVehicleRow(v)
+        if (!row.id) return null
+        return materializeVehicleRow(row)
+      }),
+    )
+  ).filter(Boolean)
 
   // Only delete missing rows for explicit full replaces (import / clear sync).
   // Autosave must never delete fleet rows — a partial client list was wiping vehicles
@@ -219,7 +356,28 @@ export async function replaceVehicles(vehicles, options = {}) {
   }
 
   if (items.length) {
-    const { error } = await sb.from('vehicles').upsert(items, { onConflict: 'id' })
+    let { error } = await sb.from('vehicles').upsert(items, { onConflict: 'id' })
+    // Gallery/insurance columns may be missing until migration 008 is applied.
+    if (
+      error &&
+      /images|insurance_images|schema cache|column/i.test(String(error.message || error.code || ''))
+    ) {
+      const stripped = items.map(({ images, insurance_images, ...rest }) => {
+        const gallery = Array.isArray(images)
+          ? images.map((u) => String(u || '').trim()).filter(Boolean)
+          : unpackImageField(rest.image)
+        return {
+          ...rest,
+          image: packImageField(gallery, rest.image),
+        }
+      })
+      ;({ error } = await sb.from('vehicles').upsert(stripped, { onConflict: 'id' }))
+      if (!error) {
+        console.warn(
+          'vehicles.images column missing — multi photos saved in image text. Run migration 008 for proper gallery + insurance columns.',
+        )
+      }
+    }
     if (error) throwSb(error)
   }
 

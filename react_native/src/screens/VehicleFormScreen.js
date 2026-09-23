@@ -18,8 +18,7 @@ import { Screen } from '../components/Screen'
 import { useFleet } from '../context/FleetContext'
 import { useTheme } from '../context/ThemeContext'
 import { ACCENT } from '../theme/colors'
-
-const logoFallback = require('../../assets/logo.jpg')
+import { vehicleImageSource } from '../utils/vehicleImages'
 
 const BODY_TYPES = ['Hatchback', 'Sedan', 'MPV', 'SUV', 'Pick-up', 'Van', 'Motorcycle']
 const TRANSMISSIONS = ['Automatic', 'Manual', 'Manual / Automatic']
@@ -91,11 +90,7 @@ function vehicleToForm(vehicle) {
 }
 
 function previewSource(image) {
-  const uri = String(image || '').trim()
-  if (uri && (uri.startsWith('http') || uri.startsWith('data:') || uri.startsWith('file:'))) {
-    return { uri }
-  }
-  return logoFallback
+  return vehicleImageSource({ image })
 }
 
 function parseAmount(value) {

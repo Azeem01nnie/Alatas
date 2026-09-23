@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { jsPDF } from 'jspdf'
 import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
+import {
   buildXZReading,
   formatPesoXZ,
   getOpenPeriodBounds,
@@ -10,9 +20,61 @@ import {
   resetXZHistory,
 } from '../utils/xzReadings'
 
+const CHART_BRAND = '#b32025'
+const CHART_GREEN = '#1f6b3a'
+const CHART_MUTED = '#9a9a9a'
+
 function formatRange(from, to) {
   if (!from || !to) return '—'
   return `${from.toLocaleString()} → ${to.toLocaleString()}`
+}
+
+function buildHourlyChartData(lines = []) {
+  const buckets = new Map()
+  for (const row of lines) {
+    const d = new Date(row.stamp)
+    if (Number.isNaN(d.getTime())) continue
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:00`
+    const label = d.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+    })
+    const prev = buckets.get(key) || { key, label, sales: 0, count: 0 }
+    prev.sales += Number(row.amount) || 0
+    prev.count += 1
+    buckets.set(key, prev)
+  }
+  return [...buckets.values()].sort((a, b) => a.key.localeCompare(b.key))
+}
+
+function buildZHistoryChartData(closes = []) {
+  return [...closes]
+    .slice(0, 12)
+    .reverse()
+    .map((z, i) => {
+      const d = new Date(z.closedAt)
+      return {
+        key: z.id || String(i),
+        label: Number.isNaN(d.getTime())
+          ? `Z${i + 1}`
+          : d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric' }),
+        sales: Number(z.revenue) || 0,
+        count: Number(z.count) || 0,
+      }
+    })
+}
+
+function ChartTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null
+  const row = payload[0]?.payload || {}
+  return (
+    <div className="xz-chart-tooltip">
+      <strong>{label}</strong>
+      <span>{formatPesoXZ(row.sales)}</span>
+      {row.count != null ? <span>{row.count} rental{row.count === 1 ? '' : 's'}</span> : null}
+    </div>
+  )
 }
 
 function downloadReadingPdf(kind, reading, closedBy = '') {
@@ -84,6 +146,8 @@ export default function XZReadings({ rentals = [], vehicles = [], adminName = 'A
     return buildXZReading(rentals, bounds, store, vehicles)
   }, [rentals, store, vehicles, storeVersion, tick])
   const zHistory = useMemo(() => listZCloses(store), [store])
+  const hourlyChart = useMemo(() => buildHourlyChartData(reading.lines), [reading.lines])
+  const zChart = useMemo(() => buildZHistoryChartData(zHistory), [zHistory])
 
   const refresh = () => setStoreVersion((n) => n + 1)
 
@@ -177,6 +241,80 @@ export default function XZReadings({ rentals = [], vehicles = [], adminName = 'A
         <button type="button" className="btn-ghost" onClick={() => setConfirmReset(true)}>
           Reset Z history
         </button>
+      </div>
+
+      <div className="xz-charts">
+        <div className="xz-chart-card">
+          <div className="xz-table-head">
+            <h3>Open period sales by hour</h3>
+            <span>{hourlyChart.length} bucket{hourlyChart.length === 1 ? '' : 's'}</span>
+          </div>
+          <div className="xz-chart-body">
+            {hourlyChart.length === 0 ? (
+              <p className="xz-chart-empty">No sales in this period yet.</p>
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={hourlyChart} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.08)" vertical={false} />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fontSize: 11, fill: '#666' }}
+                    axisLine={false}
+                    tickLine={false}
+                    interval="preserveStartEnd"
+                  />
+                  <YAxis
+                    tick={{ fontSize: 11, fill: '#666' }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={56}
+                    tickFormatter={(v) => `₱${Number(v).toLocaleString('en-PH')}`}
+                  />
+                  <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(179,32,37,0.06)' }} />
+                  <Bar dataKey="sales" radius={[4, 4, 0, 0]} maxBarSize={42}>
+                    {hourlyChart.map((entry) => (
+                      <Cell key={entry.key} fill={entry.sales > 0 ? CHART_BRAND : CHART_MUTED} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+
+        <div className="xz-chart-card">
+          <div className="xz-table-head">
+            <h3>Recent Z-close totals</h3>
+            <span>{zChart.length} close{zChart.length === 1 ? '' : 's'}</span>
+          </div>
+          <div className="xz-chart-body">
+            {zChart.length === 0 ? (
+              <p className="xz-chart-empty">No Z-closes yet. Take a Z-reading to see history here.</p>
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={zChart} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.08)" vertical={false} />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fontSize: 11, fill: '#666' }}
+                    axisLine={false}
+                    tickLine={false}
+                    interval="preserveStartEnd"
+                  />
+                  <YAxis
+                    tick={{ fontSize: 11, fill: '#666' }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={56}
+                    tickFormatter={(v) => `₱${Number(v).toLocaleString('en-PH')}`}
+                  />
+                  <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(31,107,58,0.06)' }} />
+                  <Bar dataKey="sales" fill={CHART_GREEN} radius={[4, 4, 0, 0]} maxBarSize={42} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="xz-table-wrap">

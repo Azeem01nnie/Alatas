@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -26,6 +26,7 @@ import {
   getRevenueRange,
 } from '../utils/dashboardHelpers'
 import { getDisplayStatus } from '../utils/vehicleDisplayStatus'
+import { getVehicleGallery, vehicleImageSource } from '../utils/vehicleImages'
 
 const ATTENTION_FILTERS = [
   { id: 'upcoming', label: 'Upcoming' },
@@ -58,8 +59,9 @@ function resolveVehicle(rental, vehicles) {
 }
 
 function Thumb({ vehicle }) {
-  if (vehicle?.image) {
-    return <Image source={{ uri: vehicle.image }} style={styles.thumbImage} />
+  const gallery = getVehicleGallery(vehicle)
+  if (gallery[0]) {
+    return <Image source={vehicleImageSource(vehicle)} style={styles.thumbImage} />
   }
   const initials = `${(vehicle?.make || '?').slice(0, 1)}${(vehicle?.series || '').slice(0, 1)}`
   return (
@@ -122,6 +124,12 @@ export default function DashboardScreen({ navigation }) {
   const [busyId, setBusyId] = useState(null)
   const [attentionFilter, setAttentionFilter] = useState('upcoming')
   const [revenuePreset, setRevenuePreset] = useState('week')
+  const [tick, setTick] = useState(0)
+
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 1_000)
+    return () => clearInterval(id)
+  }, [])
 
   const stats = useMemo(() => {
     let available = 0
@@ -170,7 +178,7 @@ export default function DashboardScreen({ navigation }) {
         const tb = new Date(b.rental.rental?.periodFrom || 0).getTime()
         return ta - tb
       })
-  }, [rentals, vehicles])
+  }, [rentals, vehicles, tick])
 
   const onRentQueue = useMemo(() => {
     const rows = rentals

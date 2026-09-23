@@ -7,16 +7,7 @@ import { useFleet } from '../context/FleetContext'
 import { useTheme } from '../context/ThemeContext'
 import { ACCENT } from '../theme/colors'
 import { displayStatusLabel, getDisplayStatus } from '../utils/vehicleDisplayStatus'
-
-const logoFallback = require('../../assets/logo.jpg')
-
-function vehicleImageSource(vehicle) {
-  const uri = String(vehicle?.image || '').trim()
-  if (uri && (uri.startsWith('http') || uri.startsWith('data:') || uri.startsWith('file:'))) {
-    return { uri }
-  }
-  return logoFallback
-}
+import { vehicleImageSource } from '../utils/vehicleImages'
 
 function formatMoney(value) {
   const n = Number(value)

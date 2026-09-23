@@ -574,6 +574,29 @@ export default function TransactionPage({
               <dt>Rental Type</dt>
               <dd>{rental.rentalType || '—'}</dd>
             </div>
+            {rental.rentalType === 'With-driver' ? (
+              <div>
+                <dt>Driver wage</dt>
+                <dd>
+                  {rental.driverFee || '—'}
+                  {rental.driverBillableHours
+                    ? ` · ${rental.driverBillableHours} hrs`
+                    : ''}
+                </dd>
+              </div>
+            ) : null}
+            <div>
+              <dt>Coverage</dt>
+              <dd>
+                {rental.coverage === 'outside_city'
+                  ? `Outside city${
+                      rental.outsideCityDestinationName
+                        ? ` · ${rental.outsideCityDestinationName}`
+                        : ''
+                    }`
+                  : 'Within city'}
+              </dd>
+            </div>
             <div>
               <dt>From</dt>
               <dd>{rental.periodFromLabel || formatDateTime(rental.periodFrom)}</dd>
@@ -583,9 +606,15 @@ export default function TransactionPage({
               <dd>{rental.periodToLabel || formatDateTime(rental.periodTo)}</dd>
             </div>
             <div>
-              <dt>Rental Fee</dt>
+              <dt>City package</dt>
               <dd>{rental.rentalFee || '—'}</dd>
             </div>
+            {rental.coverage === 'outside_city' && rental.outsideCityFee ? (
+              <div>
+                <dt>Outside-city fee</dt>
+                <dd>{rental.outsideCityFee}</dd>
+              </div>
+            ) : null}
           </dl>
         </article>
       </div>

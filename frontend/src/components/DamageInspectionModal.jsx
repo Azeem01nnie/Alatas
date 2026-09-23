@@ -25,17 +25,6 @@ const ASSESSMENT_OPTIONS = [
   { value: 'final', label: 'Final quotation/assessment attached.' },
 ]
 
-const SETTLEMENT_OPTIONS = [
-  { value: 'for_assessment', label: 'For assessment — amount to be determined' },
-  {
-    value: 'agrees_final',
-    label: 'Renter agrees to pay based on final repair quotation/actual cost',
-  },
-  { value: 'paid', label: 'Paid' },
-  { value: 'partial', label: 'Partial payment' },
-  { value: 'other', label: 'Other arrangement' },
-]
-
 const ACKNOWLEDGMENT_COPY = `I, the undersigned RENTER/LESSEE, acknowledge that I was present during, or was informed of, the return inspection and that the damage/condition described in this document was observed and documented upon return of the vehicle.
 
 My signature below confirms receipt and acknowledgment of this inspection report and the stated condition of the vehicle. Any determination of responsibility and the amount chargeable shall be governed by the Vehicle Rental Agreement and supported, where applicable, by inspection findings, photographs/videos, quotations, receipts, or other relevant records.`
@@ -92,7 +81,7 @@ function emptyForm(seed = {}) {
     photosCount: '',
     assessment: 'undetermined',
     estimatedCost: '',
-    settlement: 'for_assessment',
+    settlement: '',
     paidAmount: '',
     paidDate: '',
     partialAmount: '',
@@ -610,32 +599,46 @@ export default function DamageInspectionModal({
 
               <section className="damage-section">
                 <h4>Damage Assessment</h4>
-                <div className="damage-radio-stack">
-                  {ASSESSMENT_OPTIONS.map((opt) => (
-                    <label key={opt.value} className="damage-check">
-                      <input
-                        type="radio"
-                        name="assessment"
-                        checked={form.assessment === opt.value}
-                        onChange={() => setField('assessment', opt.value, { upper: false })}
-                      />
-                      <span>{opt.label}</span>
-                    </label>
-                  ))}
+                <div className="damage-settle-stack">
+                  {ASSESSMENT_OPTIONS.map((opt) => {
+                    const checked = form.assessment === opt.value
+                    return (
+                      <div key={opt.value} className="damage-assess-row">
+                        <label className="damage-check">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() =>
+                              setField(
+                                'assessment',
+                                checked ? '' : opt.value,
+                                { upper: false },
+                              )
+                            }
+                          />
+                          <span>{opt.label}</span>
+                        </label>
+                        {opt.value === 'estimate' && checked ? (
+                          <div className="damage-assess-nested">
+                            <Field label="Estimated repair cost (₱)">
+                              <input
+                                type="text"
+                                value={form.estimatedCost}
+                                onChange={(e) =>
+                                  setField('estimatedCost', e.target.value, { upper: false })
+                                }
+                                className={errors.estimatedCost ? 'input-error' : ''}
+                              />
+                              {errors.estimatedCost ? (
+                                <span className="error-msg">{errors.estimatedCost}</span>
+                              ) : null}
+                            </Field>
+                          </div>
+                        ) : null}
+                      </div>
+                    )
+                  })}
                 </div>
-                {form.assessment === 'estimate' ? (
-                  <Field label="Estimated repair cost (₱)">
-                    <input
-                      type="text"
-                      value={form.estimatedCost}
-                      onChange={(e) => setField('estimatedCost', e.target.value, { upper: false })}
-                      className={errors.estimatedCost ? 'input-error' : ''}
-                    />
-                    {errors.estimatedCost ? (
-                      <span className="error-msg">{errors.estimatedCost}</span>
-                    ) : null}
-                  </Field>
-                ) : null}
                 <p className="damage-section-copy">{ASSESSMENT_DISCLAIMER}</p>
               </section>
 
@@ -646,68 +649,147 @@ export default function DamageInspectionModal({
 
               <section className="damage-section">
                 <h4>Payment / Settlement Status</h4>
-                <div className="damage-radio-stack">
-                  {SETTLEMENT_OPTIONS.map((opt) => (
-                    <label key={opt.value} className="damage-check">
-                      <input
-                        type="radio"
-                        name="settlement"
-                        checked={form.settlement === opt.value}
-                        onChange={() => setField('settlement', opt.value, { upper: false })}
-                      />
-                      <span>{opt.label}</span>
-                    </label>
-                  ))}
-                </div>
-                {form.settlement === 'paid' ? (
-                  <div className="form-grid">
-                    <Field label="Paid ₱">
+                <div className="damage-settle-stack">
+                  <label className="damage-settle-line">
+                    <input
+                      type="checkbox"
+                      checked={form.settlement === 'for_assessment'}
+                      onChange={() =>
+                        setField(
+                          'settlement',
+                          form.settlement === 'for_assessment' ? '' : 'for_assessment',
+                          { upper: false },
+                        )
+                      }
+                    />
+                    <span>For assessment — amount to be determined</span>
+                  </label>
+
+                  <label className="damage-settle-line">
+                    <input
+                      type="checkbox"
+                      checked={form.settlement === 'agrees_final'}
+                      onChange={() =>
+                        setField(
+                          'settlement',
+                          form.settlement === 'agrees_final' ? '' : 'agrees_final',
+                          { upper: false },
+                        )
+                      }
+                    />
+                    <span>Renter agrees to pay based on final repair quotation/actual cost</span>
+                  </label>
+
+                  <label className="damage-settle-line">
+                    <input
+                      type="checkbox"
+                      checked={form.settlement === 'paid'}
+                      onChange={() =>
+                        setField(
+                          'settlement',
+                          form.settlement === 'paid' ? '' : 'paid',
+                          { upper: false },
+                        )
+                      }
+                    />
+                    <span className="damage-settle-phrase">
+                      Paid ₱
                       <input
                         type="text"
+                        className="damage-settle-blank"
                         value={form.paidAmount}
-                        onChange={(e) => setField('paidAmount', e.target.value, { upper: false })}
+                        onChange={(e) => {
+                          e.stopPropagation()
+                          setField('paidAmount', e.target.value, { upper: false })
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label="Paid amount"
                       />
-                    </Field>
-                    <Field label="Paid on">
+                      {' '}
+                      on
                       <input
                         type="date"
+                        className="damage-settle-blank damage-settle-blank-date"
                         value={form.paidDate}
-                        onChange={(e) => setField('paidDate', e.target.value, { upper: false })}
+                        onChange={(e) => {
+                          e.stopPropagation()
+                          setField('paidDate', e.target.value, { upper: false })
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label="Paid on date"
                       />
-                    </Field>
-                  </div>
-                ) : null}
-                {form.settlement === 'partial' ? (
-                  <div className="form-grid">
-                    <Field label="Partial payment ₱">
-                      <input
-                        type="text"
-                        value={form.partialAmount}
-                        onChange={(e) =>
-                          setField('partialAmount', e.target.value, { upper: false })
-                        }
-                      />
-                    </Field>
-                    <Field label="Balance ₱">
-                      <input
-                        type="text"
-                        value={form.balanceAmount}
-                        onChange={(e) =>
-                          setField('balanceAmount', e.target.value, { upper: false })
-                        }
-                      />
-                    </Field>
-                  </div>
-                ) : null}
-                {form.settlement === 'other' ? (
-                  <Field label="Other arrangement" full>
-                    <textarea
-                      rows={2}
-                      value={form.otherArrangement}
-                      onChange={(e) => setField('otherArrangement', e.target.value)}
+                    </span>
+                  </label>
+
+                  <label className="damage-settle-line">
+                    <input
+                      type="checkbox"
+                      checked={form.settlement === 'partial'}
+                      onChange={() =>
+                        setField(
+                          'settlement',
+                          form.settlement === 'partial' ? '' : 'partial',
+                          { upper: false },
+                        )
+                      }
                     />
-                  </Field>
-                ) : null}
+                    <span className="damage-settle-phrase">
+                      Partial payment ₱
+                      <input
+                        type="text"
+                        className="damage-settle-blank"
+                        value={form.partialAmount}
+                        onChange={(e) => {
+                          e.stopPropagation()
+                          setField('partialAmount', e.target.value, { upper: false })
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label="Partial payment amount"
+                      />
+                      {' '}
+                      Balance ₱
+                      <input
+                        type="text"
+                        className="damage-settle-blank"
+                        value={form.balanceAmount}
+                        onChange={(e) => {
+                          e.stopPropagation()
+                          setField('balanceAmount', e.target.value, { upper: false })
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label="Balance amount"
+                      />
+                    </span>
+                  </label>
+
+                  <label className="damage-settle-line">
+                    <input
+                      type="checkbox"
+                      checked={form.settlement === 'other'}
+                      onChange={() =>
+                        setField(
+                          'settlement',
+                          form.settlement === 'other' ? '' : 'other',
+                          { upper: false },
+                        )
+                      }
+                    />
+                    <span className="damage-settle-phrase damage-settle-phrase-grow">
+                      Other arrangement:
+                      <input
+                        type="text"
+                        className="damage-settle-blank damage-settle-blank-wide"
+                        value={form.otherArrangement}
+                        onChange={(e) => {
+                          e.stopPropagation()
+                          setField('otherArrangement', e.target.value)
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label="Other arrangement"
+                      />
+                    </span>
+                  </label>
+                </div>
                 <p className="damage-section-copy">{SETTLEMENT_DISCLAIMER}</p>
               </section>
 

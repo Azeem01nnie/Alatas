@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
+  countCustomerRentals,
   customerDisplayName,
   deleteCustomer,
   loadCustomers,
@@ -19,7 +20,14 @@ export default function CustomersPanel({ rentals = [] }) {
     setVersion((n) => n + 1)
   }, [rentals])
 
-  const customers = useMemo(() => loadCustomers(), [version, rentals])
+  const customers = useMemo(() => {
+    const list = loadCustomers()
+    // Live recount so the table always matches rental history.
+    return list.map((c) => ({
+      ...c,
+      rentalCount: countCustomerRentals(rentals, c),
+    }))
+  }, [version, rentals])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()

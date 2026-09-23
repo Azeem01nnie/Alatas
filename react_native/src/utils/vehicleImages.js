@@ -1,5 +1,7 @@
 /** Normalize vehicle display gallery (multi-image) with legacy `image` fallback. */
 
+const logoFallback = require('../../assets/logo.jpg')
+
 /** Vite-hashed logo paths from old builds — not real vehicle photos. */
 function isPlaceholderLogoUrl(url) {
   const s = String(url || '')
@@ -44,12 +46,21 @@ export function getInsuranceImages(vehicle) {
   return single ? [single] : []
 }
 
-export function withSyncedPrimaryImage(vehicle, logoFallback = '') {
+export function withSyncedPrimaryImage(vehicle) {
   const images = getVehicleGallery(vehicle)
   return {
     ...vehicle,
     images,
-    image: images[0] || logoFallback || vehicle?.image || '',
+    image: images[0] || vehicle?.image || '',
     insuranceImages: getInsuranceImages(vehicle),
   }
+}
+
+/** React Native Image `source` — real gallery URI or brand logo. */
+export function vehicleImageSource(vehicle) {
+  const uri = getVehicleGallery(vehicle)[0] || ''
+  if (uri && (uri.startsWith('http') || uri.startsWith('data:') || uri.startsWith('file:'))) {
+    return { uri }
+  }
+  return logoFallback
 }

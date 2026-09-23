@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { AppState } from 'react-native'
 import {
   acceptPendingRental,
   addRental as addRentalApi,
@@ -7,6 +8,7 @@ import {
   fetchRentals,
   fetchVehicles,
   rejectPendingRental,
+  replaceRentals,
   replaceVehicles,
   submitPendingRental,
 } from '../api/backend'
@@ -46,6 +48,12 @@ function isActiveBooking(rental) {
     return false
   }
   return rental.rentalLifecycle === 'active' || rental.rentalLifecycle === 'scheduled'
+}
+
+function isDue(periodFrom) {
+  if (!periodFrom) return false
+  const start = new Date(periodFrom).getTime()
+  return !Number.isNaN(start) && start <= Date.now()
 }
 
 export function FleetProvider({ children }) {
@@ -172,7 +180,23 @@ export function FleetProvider({ children }) {
               changed = true
               continue
             }
+            const aTs = Date.parse(a.updatedAt || '') || 0
+            const bTs = Date.parse(b.updatedAt || '') || 0
+            // Local auto-start must win over a stale server "scheduled" row.
             if (
+              a.rentalLifecycle === 'active' &&
+              b.rentalLifecycle === 'scheduled' &&
+              isDue(a.rental?.periodFrom || b.rental?.periodFrom)
+            ) {
+              merged.push(a)
+              continue
+            }
+            if (aTs > bTs) {
+              merged.push(a)
+              continue
+            }
+            if (
+              aTs < bTs ||
               String(a.approvalStatus || '') !== String(b.approvalStatus || '') ||
               String(a.rentalLifecycle || '') !== String(b.rentalLifecycle || '')
             ) {
@@ -201,6 +225,66 @@ export function FleetProvider({ children }) {
     return () => {
       cancelled = true
       clearInterval(timer)
+    }
+  }, [ready, isLoggedIn])
+
+  useEffect(() => {
+    if (!ready || !isLoggedIn) return undefined
+
+    const activateDueRentals = () => {
+      if (!hasLoaded.current) return
+      const nowIso = new Date().toISOString()
+      const prev = rentalsRef.current
+      const due = prev.filter((r) => {
+        if (r.rentalLifecycle !== 'scheduled') return false
+        if (r.approvalStatus === 'pending' || r.approvalStatus === 'rejected') return false
+        return isDue(r.rental?.periodFrom)
+      })
+      if (!due.length) return
+
+      const dueIds = new Set(due.map((r) => r.id))
+      const vehicleIds = due
+        .map((r) => r.vehicleId || r.vehicle?.id)
+        .filter(Boolean)
+        .map((id) => String(id))
+
+      const next = prev.map((r) =>
+        dueIds.has(r.id)
+          ? {
+              ...r,
+              rentalLifecycle: 'active',
+              startedAt: r.startedAt || nowIso,
+              autoStarted: true,
+              updatedAt: nowIso,
+            }
+          : r,
+      )
+
+      rentalsRef.current = next
+      setRentals(next)
+
+      if (vehicleIds.length) {
+        const dueVehicleKeys = new Set(vehicleIds)
+        setVehicles((vehiclesPrev) =>
+          vehiclesPrev.map((v) =>
+            dueVehicleKeys.has(String(v.id)) ? { ...v, status: 'Rented' } : v,
+          ),
+        )
+      }
+
+      replaceRentals(next, { prune: false }).catch((err) => {
+        console.warn('Auto-activate rental save failed', err)
+      })
+    }
+
+    activateDueRentals()
+    const timer = setInterval(activateDueRentals, 1_000)
+    const appSub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') activateDueRentals()
+    })
+    return () => {
+      clearInterval(timer)
+      appSub?.remove?.()
     }
   }, [ready, isLoggedIn])
 
@@ -386,16 +470,22 @@ export function FleetProvider({ children }) {
     if (!rentalId) return
     const key = String(rentalId)
     const now = new Date().toISOString()
+    let freedVehicleId = null
+    let freedPlate = ''
+
     setRentals((prev) =>
       prev.map((r) => {
         if (String(r.id) !== key) return r
         if (
           r.rentalLifecycle !== 'scheduled' &&
+          r.rentalLifecycle !== 'active' &&
           r.rentalLifecycle !== 'pending_approval' &&
           r.approvalStatus !== 'pending'
         ) {
           return r
         }
+        freedVehicleId = r.vehicleId || r.vehicle?.id || null
+        freedPlate = String(r.vehicle?.plateNo || '').trim().toUpperCase()
         return {
           ...r,
           rentalLifecycle: 'cancelled',
@@ -406,6 +496,20 @@ export function FleetProvider({ children }) {
         }
       }),
     )
+
+    if (freedVehicleId || freedPlate) {
+      setVehicles((prev) =>
+        prev.map((v) => {
+          const matchId = freedVehicleId && String(v.id) === String(freedVehicleId)
+          const matchPlate =
+            freedPlate &&
+            String(v.plateNo || '')
+              .trim()
+              .toUpperCase() === freedPlate
+          return matchId || matchPlate ? { ...v, status: 'Available', updatedAt: now } : v
+        }),
+      )
+    }
   }, [])
 
   return (

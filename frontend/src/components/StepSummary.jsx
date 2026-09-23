@@ -169,6 +169,35 @@ export default function StepSummary({
                   <dt>Rental type</dt>
                   <dd>{rental.rentalType || '—'}</dd>
                 </div>
+                {rental.rentalType === 'With-driver' ? (
+                  <div>
+                    <dt>Driver wage</dt>
+                    <dd>
+                      {rental.driverFee || '—'}
+                      {rental.driverBillableHours
+                        ? ` · ${rental.driverBillableHours} hrs`
+                        : ''}
+                    </dd>
+                  </div>
+                ) : null}
+                <div>
+                  <dt>Coverage</dt>
+                  <dd>
+                    {rental.coverage === 'outside_city'
+                      ? `Outside city${
+                          rental.outsideCityDestinationName
+                            ? ` · ${rental.outsideCityDestinationName}`
+                            : ''
+                        }`
+                      : 'Within city'}
+                  </dd>
+                </div>
+                {rental.coverage === 'outside_city' && rental.outsideCityFee ? (
+                  <div>
+                    <dt>Outside-city fee</dt>
+                    <dd>{rental.outsideCityFee}</dd>
+                  </div>
+                ) : null}
                 <div>
                   <dt>From</dt>
                   <dd>{formatPeriod(rental, 'from')}</dd>
@@ -178,9 +207,36 @@ export default function StepSummary({
                   <dd>{formatPeriod(rental, 'to')}</dd>
                 </div>
                 <div className="summary-fee-row">
-                  <dt>Rental fee</dt>
+                  <dt>City package</dt>
                   <dd>{rental.rentalFee || '—'}</dd>
                 </div>
+                {rental.rentalType === 'With-driver' ||
+                (rental.coverage === 'outside_city' && rental.outsideCityFee) ? (
+                  <div className="summary-fee-row">
+                    <dt>Total</dt>
+                    <dd>
+                      {(() => {
+                        const city =
+                          Number(String(rental.rentalFee || '').replace(/[^\d.]/g, '')) || 0
+                        const outside =
+                          rental.coverage === 'outside_city'
+                            ? Number(
+                                String(rental.outsideCityFee || '').replace(/[^\d.]/g, ''),
+                              ) || 0
+                            : 0
+                        const driver =
+                          rental.rentalType === 'With-driver'
+                            ? Number(String(rental.driverFee || '').replace(/[^\d.]/g, '')) ||
+                              0
+                            : 0
+                        const sum = city + outside + driver
+                        return sum > 0
+                          ? `₱${sum.toLocaleString('en-PH')}`
+                          : rental.rentalFee || '—'
+                      })()}
+                    </dd>
+                  </div>
+                ) : null}
               </dl>
             </article>
           </section>
@@ -194,7 +250,11 @@ export default function StepSummary({
                 </div>
                 {vehicle ? (
                   <>
-                    <img src={vehicle.image} alt={vehicle.make} className="summary-vehicle-img" />
+                    {vehicle.image ? (
+                      <img src={vehicle.image} alt={vehicle.make} className="summary-vehicle-img" />
+                    ) : (
+                      <div className="summary-vehicle-img summary-vehicle-img--empty" aria-hidden />
+                    )}
                     <div className="summary-vehicle-copy">
                       <strong>
                         {vehicle.make} — {vehicle.series}

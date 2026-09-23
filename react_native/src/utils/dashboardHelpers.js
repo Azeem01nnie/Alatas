@@ -32,6 +32,20 @@ function parseFee(fee) {
   return Number.isFinite(n) ? n : 0
 }
 
+function isRevenueCountableRental(rental) {
+  const approval = String(rental?.approvalStatus || 'accepted').toLowerCase()
+  if (approval === 'pending' || approval === 'rejected') return false
+  const life = String(rental?.rentalLifecycle || '').toLowerCase()
+  if (life === 'pending_approval' || life === 'cancelled' || life === 'rejected') return false
+  return true
+}
+
+function resolveRentalAmount(rental) {
+  const saved = parseFee(rental?.rental?.rentalFee)
+  if (saved > 0) return saved
+  return 0
+}
+
 export function formatPeso(amount) {
   return `₱${Number(amount || 0).toLocaleString('en-PH', {
     minimumFractionDigits: 0,
@@ -88,11 +102,12 @@ export function buildDailyRevenueSeries(rentals, from, to) {
   const byDay = new Map()
 
   for (const r of rentals || []) {
+    if (!isRevenueCountableRental(r)) continue
     const encoded = new Date(r.encodedAt || r.createdAt || 0).getTime()
     if (!Number.isFinite(encoded) || encoded < fromMs || encoded > toMs) continue
     const key = toDateKey(encoded)
     const prev = byDay.get(key) || { revenue: 0, count: 0 }
-    prev.revenue += parseFee(r.rental?.rentalFee)
+    prev.revenue += resolveRentalAmount(r)
     prev.count += 1
     byDay.set(key, prev)
   }

@@ -16,8 +16,7 @@ import { useFleet } from '../context/FleetContext'
 import { useTheme } from '../context/ThemeContext'
 import { ACCENT } from '../theme/colors'
 import { getDisplayStatus } from '../utils/vehicleDisplayStatus'
-
-const logoFallback = require('../../assets/logo.jpg')
+import { vehicleImageSource } from '../utils/vehicleImages'
 
 const BODY_TYPE_ORDER = [
   'Hatchback',
@@ -34,14 +33,6 @@ const STATUS_OPTIONS = [
   { value: 'Available', label: 'Available', color: '#2e7d32' },
   { value: 'Maintenance', label: 'Maintenance', color: '#ed6c02' },
 ]
-
-function vehicleImageSource(vehicle) {
-  const uri = String(vehicle?.image || '').trim()
-  if (uri && (uri.startsWith('http') || uri.startsWith('data:') || uri.startsWith('file:'))) {
-    return { uri }
-  }
-  return logoFallback
-}
 
 function mapMaintenanceStatus(status) {
   if (status === 'Maintenance') return 'Under Maintenance'
