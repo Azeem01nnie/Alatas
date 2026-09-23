@@ -384,8 +384,9 @@ export default function AdminLogin({ onSuccess }) {
       setEnrollment(next)
       setEnrollPrompt(null)
       applyDeskSession(enrollPrompt.sessionUser)
-      setNotice(`${biometricLabel()} enabled on this device.`)
-      onSuccess(enrollPrompt.sessionUser)
+      onSuccess(enrollPrompt.sessionUser, {
+        toast: `${biometricLabel()} successfully added on this device.`,
+      })
     } catch (err) {
       setError(err?.message || 'Could not enable biometrics.')
     } finally {

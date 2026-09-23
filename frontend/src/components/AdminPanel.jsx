@@ -2341,6 +2341,16 @@ export default function AdminPanel() {
     })
   }
 
+  const requestRemoveBiometrics = () => {
+    setConfirm({
+      type: 'remove-biometrics',
+      title: `Remove ${biometricLabel()}?`,
+      message: `This turns off ${biometricLabel()} unlock on this device only. You can still sign in with your password, and you can enable ${biometricLabel()} again later.`,
+      confirmLabel: 'Remove',
+      danger: true,
+    })
+  }
+
   const handleConfirm = async () => {
     if (!confirm) return
     if (confirm.type === 'logout') {
@@ -2350,6 +2360,13 @@ export default function AdminPanel() {
       setTab('dashboard')
       setSelectedTransaction(null)
       setAuthed(false)
+    }
+    if (confirm.type === 'remove-biometrics') {
+      clearBiometricEnrollment()
+      setBioEnrollment(null)
+      setBioMessage('')
+      setProfileMessage(`${biometricLabel()} removed from this device.`)
+      window.setTimeout(() => setProfileMessage(''), 2800)
     }
     if (confirm.type === 'status') {
       updateVehicleStatus(confirm.vehicleId, confirm.status)
@@ -2495,12 +2512,17 @@ export default function AdminPanel() {
     return (
       <div className="app login-shell">
         <AdminLogin
-          onSuccess={(user) => {
+          onSuccess={(user, meta) => {
             setSessionRole(user?.role || getSessionRole())
             setSessionUser(user || getSessionUser())
             setTab('dashboard')
             setSelectedTransaction(null)
             setAuthed(true)
+            setBioEnrollment(loadBiometricEnrollment())
+            if (meta?.toast) {
+              setProfileMessage(meta.toast)
+              window.setTimeout(() => setProfileMessage(''), 3200)
+            }
             void reloadData().catch((err) => {
               console.warn('Post-login fleet reload failed', err)
             })
@@ -3879,12 +3901,7 @@ export default function AdminPanel() {
                               type="button"
                               className="btn-outline"
                               disabled={bioBusy}
-                              onClick={() => {
-                                clearBiometricEnrollment()
-                                setBioEnrollment(null)
-                                setBioMessage(`${biometricLabel()} removed from this device.`)
-                                window.setTimeout(() => setBioMessage(''), 2200)
-                              }}
+                              onClick={requestRemoveBiometrics}
                             >
                               Remove {biometricLabel()}
                             </button>
@@ -3911,12 +3928,16 @@ export default function AdminPanel() {
                                   })
                                   await vaultCurrentSupabaseSession(requireSupabase())
                                   setBioEnrollment(next)
-                                  setBioMessage(`${biometricLabel()} enabled on this device.`)
+                                  setBioMessage('')
+                                  setProfileMessage(
+                                    `${biometricLabel()} successfully added on this device.`,
+                                  )
+                                  window.setTimeout(() => setProfileMessage(''), 3200)
                                 } catch (err) {
                                   setBioMessage(err?.message || 'Could not enable biometrics.')
+                                  window.setTimeout(() => setBioMessage(''), 2800)
                                 } finally {
                                   setBioBusy(false)
-                                  window.setTimeout(() => setBioMessage(''), 2800)
                                 }
                               }}
                             >
@@ -3925,7 +3946,7 @@ export default function AdminPanel() {
                           </div>
                         )}
                         {bioMessage ? (
-                          <p className="settings-data-message" role="status">
+                          <p className="settings-data-message" role="alert">
                             {bioMessage}
                           </p>
                         ) : null}
