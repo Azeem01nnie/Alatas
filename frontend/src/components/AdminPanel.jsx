@@ -71,10 +71,19 @@ import {
   resolveRentalTotalCharges,
 } from '../utils/rentalFee'
 import { fetchSystemStatus, runCloudSync, saveAdminProfileRemote, clearAllAppData, clearRentalsData } from '../api/backend'
+import { requireSupabase } from '../api/supabaseClient'
 import { CLOUD_SYNC_ENABLED, isCloudConfigured } from '../api/cloudSync'
 import { describeCloudConnection } from '../config/cloudConnection'
 import { useConnectivity } from '../hooks/useConnectivity'
 import { clearLoginAudit, fetchLoginAudit, formatAuditRole, formatAuditStatus } from '../utils/loginAudit'
+import {
+  biometricLabel,
+  clearBiometricEnrollment,
+  enrollBiometrics,
+  isPlatformAuthenticatorAvailable,
+  loadBiometricEnrollment,
+  vaultCurrentSupabaseSession,
+} from '../utils/webauthnBiometrics'
 import {
   assertSameOriginRequest,
   ensureCsrfToken,
@@ -740,6 +749,10 @@ export default function AdminPanel() {
   const [profile, setProfile] = useState(() => loadAdminProfile())
   const [profileDraft, setProfileDraft] = useState(() => loadAdminProfile())
   const [profileMessage, setProfileMessage] = useState('')
+  const [bioAvailable, setBioAvailable] = useState(false)
+  const [bioEnrollment, setBioEnrollment] = useState(() => loadBiometricEnrollment())
+  const [bioBusy, setBioBusy] = useState(false)
+  const [bioMessage, setBioMessage] = useState('')
   const [systemSettings, setSystemSettings] = useState(() => {
     const loaded = loadSystemSettings()
     applyTheme(loaded.theme)
@@ -1216,7 +1229,7 @@ export default function AdminPanel() {
       setConfirm(null)
 
       // Sign out and return to login after wipe.
-      clearAdminSession()
+      clearAdminSession({ hard: true })
       setSessionRole('admin')
       setSessionUser(null)
       setTab('dashboard')
@@ -1303,6 +1316,20 @@ export default function AdminPanel() {
   useEffect(() => {
     setLoginAuditPage((page) => Math.min(Math.max(1, page), loginAuditPageCount))
   }, [loginAuditPageCount])
+
+  useEffect(() => {
+    if (!authed) return
+    let mounted = true
+    ;(async () => {
+      const ok = await isPlatformAuthenticatorAvailable()
+      if (!mounted) return
+      setBioAvailable(ok)
+      setBioEnrollment(loadBiometricEnrollment())
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [authed])
 
   useEffect(() => {
     if (!authed || tab !== 'settings') return
@@ -2302,10 +2329,13 @@ export default function AdminPanel() {
   }
 
   const requestLogout = () => {
+    const enrolled = Boolean(loadBiometricEnrollment()?.credentialId)
     setConfirm({
       type: 'logout',
       title: 'Log out?',
-      message: 'You will need to sign in again to access the admin panel.',
+      message: enrolled
+        ? `You will return to the sign-in screen. ${biometricLabel()} stays enabled on this device so you can unlock without typing your password (while the session is still valid).`
+        : 'You will need to sign in again to access the admin panel.',
       confirmLabel: 'Log out',
       danger: true,
     })
@@ -3827,6 +3857,80 @@ export default function AdminPanel() {
                         </div>
                       </div>
                     </article>
+
+                    {bioAvailable ? (
+                      <article className="settings-card settings-bio-card">
+                        <div className="settings-card-head">
+                          <h4 className="settings-card-title">{biometricLabel()}</h4>
+                          <p className="settings-card-copy">
+                            Unlock this desk with passkey autofill on the username field, or the
+                            biometric button on the login screen.
+                          </p>
+                        </div>
+                        {bioEnrollment?.credentialId ? (
+                          <div className="settings-bio-body">
+                            <p className="settings-bio-status">
+                              Enabled for <strong>{bioEnrollment.username}</strong>
+                              {bioEnrollment.enrolledAt
+                                ? ` · since ${new Date(bioEnrollment.enrolledAt).toLocaleDateString()}`
+                                : ''}
+                            </p>
+                            <button
+                              type="button"
+                              className="btn-outline"
+                              disabled={bioBusy}
+                              onClick={() => {
+                                clearBiometricEnrollment()
+                                setBioEnrollment(null)
+                                setBioMessage(`${biometricLabel()} removed from this device.`)
+                                window.setTimeout(() => setBioMessage(''), 2200)
+                              }}
+                            >
+                              Remove {biometricLabel()}
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="settings-bio-body">
+                            <button
+                              type="button"
+                              className="btn-primary"
+                              disabled={bioBusy}
+                              onClick={async () => {
+                                setBioBusy(true)
+                                setBioMessage('')
+                                try {
+                                  const next = await enrollBiometrics({
+                                    username: sessionUser?.username,
+                                    displayName: sessionUser?.displayName || sessionDisplayName,
+                                    role: sessionUser?.role || sessionRole,
+                                    sessionUser: sessionUser || {
+                                      username: sessionUser?.username,
+                                      displayName: sessionDisplayName,
+                                      role: sessionRole,
+                                    },
+                                  })
+                                  await vaultCurrentSupabaseSession(requireSupabase())
+                                  setBioEnrollment(next)
+                                  setBioMessage(`${biometricLabel()} enabled on this device.`)
+                                } catch (err) {
+                                  setBioMessage(err?.message || 'Could not enable biometrics.')
+                                } finally {
+                                  setBioBusy(false)
+                                  window.setTimeout(() => setBioMessage(''), 2800)
+                                }
+                              }}
+                            >
+                              {bioBusy ? 'Enabling…' : `Enable ${biometricLabel()}`}
+                            </button>
+                          </div>
+                        )}
+                        {bioMessage ? (
+                          <p className="settings-data-message" role="status">
+                            {bioMessage}
+                          </p>
+                        ) : null}
+                      </article>
+                    ) : null}
 
                     <article className="settings-card settings-appearance-card">
                       <div className="settings-card-head">

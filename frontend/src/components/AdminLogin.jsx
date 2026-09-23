@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import logoLight from '../assets/logo.jpg'
 import { requireSupabase } from '../api/supabaseClient'
 import { recordLoginAudit } from '../utils/loginAudit'
@@ -10,6 +10,19 @@ import {
   rememberFingerprint,
   sanitizeUsername,
 } from '../utils/security'
+import {
+  assertBiometrics,
+  assertBiometricsConditional,
+  biometricLabel,
+  clearBiometricEnrollment,
+  clearBiometricSessionVault,
+  enrollBiometrics,
+  isConditionalMediationAvailable,
+  isPlatformAuthenticatorAvailable,
+  loadBiometricEnrollment,
+  loadBiometricSessionVault,
+  vaultCurrentSupabaseSession,
+} from '../utils/webauthnBiometrics'
 
 const AUTH_KEY = 'customer-encoder-admin-auth'
 const ROLE_KEY = 'alatas-session-role'
@@ -39,22 +52,37 @@ export function getSessionUser() {
   }
 }
 
-export function clearAdminSession() {
+/**
+ * Soft lock when biometrics are enrolled: clear desk UI session but keep
+ * Supabase tokens in the vault so Conditional UI / fingerprint can unlock.
+ * Pass { hard: true } to fully sign out and wipe biometric vault.
+ */
+export function clearAdminSession(options = {}) {
+  const hard = Boolean(options?.hard)
+  const enrolled = Boolean(loadBiometricEnrollment()?.credentialId)
+
   sessionStorage.removeItem(AUTH_KEY)
   sessionStorage.removeItem(ROLE_KEY)
   sessionStorage.removeItem(USER_KEY)
   clearCsrfToken()
-  // Drop leftover PWA biometric keys if any remain from older builds.
-  try {
-    localStorage.removeItem('alatas-webauthn-biometrics')
-    localStorage.removeItem('alatas-webauthn-session-vault')
-  } catch {
-    /* ignore */
+
+  if (hard || !enrolled) {
+    clearBiometricSessionVault()
+    if (hard) clearBiometricEnrollment()
+    try {
+      requireSupabase().auth.signOut()
+    } catch {
+      // ignore if supabase not ready
+    }
+    return
   }
+
+  // Soft lock: refresh vault from live session, then drop only the desk flag.
   try {
-    requireSupabase().auth.signOut()
+    const sb = requireSupabase()
+    vaultCurrentSupabaseSession(sb).catch(() => {})
   } catch {
-    // ignore if supabase not ready
+    // ignore
   }
 }
 
@@ -199,6 +227,180 @@ export default function AdminLogin({ onSuccess }) {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [loading, setLoading] = useState(false)
+  const [bioAvailable, setBioAvailable] = useState(false)
+  const [conditionalOk, setConditionalOk] = useState(false)
+  const [enrollment, setEnrollment] = useState(() => loadBiometricEnrollment())
+  const [enrollPrompt, setEnrollPrompt] = useState(null)
+  const [bioLabel, setBioLabel] = useState('Biometrics')
+  const conditionalAbortRef = useRef(null)
+  const finishingBioRef = useRef(false)
+
+  useEffect(() => {
+    setBioLabel(biometricLabel())
+    let cancelled = false
+    ;(async () => {
+      const platform = await isPlatformAuthenticatorAvailable()
+      const conditional = await isConditionalMediationAvailable()
+      if (cancelled) return
+      setBioAvailable(platform)
+      setConditionalOk(conditional)
+      setEnrollment(loadBiometricEnrollment())
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const finishSuccessfulLogin = async (
+    sb,
+    sessionUser,
+    { viaBiometrics = false, enterDesk = true } = {},
+  ) => {
+    const fp = getDeviceFingerprint()
+    const suspicious = isSuspiciousLogin(fp)
+
+    if (suspicious) {
+      await recordLoginAudit({
+        username: sessionUser.username,
+        role: sessionUser.role,
+        status: 'suspicious',
+        detail: viaBiometrics
+          ? 'Biometric unlock from an unrecognized device/browser'
+          : 'Successful sign-in from an unrecognized device/browser',
+        suspicious: true,
+      })
+      setNotice(
+        'Suspicious login: this device was not recognized. If this was not you, change your password.',
+      )
+    } else {
+      await recordLoginAudit({
+        username: sessionUser.username,
+        role: sessionUser.role,
+        status: 'success',
+        detail: viaBiometrics
+          ? `Unlocked with ${biometricLabel()}`
+          : 'Signed in successfully over HTTPS',
+      })
+    }
+    rememberFingerprint(fp)
+    await vaultCurrentSupabaseSession(sb)
+    if (enterDesk) {
+      applyDeskSession(sessionUser)
+      onSuccess(sessionUser)
+    }
+  }
+
+  const unlockWithEnrollment = async (enrolled) => {
+    if (finishingBioRef.current) return
+    finishingBioRef.current = true
+    setLoading(true)
+    setError('')
+    try {
+      const sb = requireSupabase()
+      const vault = loadBiometricSessionVault()
+      if (vault?.access_token && vault?.refresh_token) {
+        const { error: setErr } = await sb.auth.setSession({
+          access_token: vault.access_token,
+          refresh_token: vault.refresh_token,
+        })
+        if (setErr) {
+          clearBiometricSessionVault()
+          throw new Error(
+            `Session expired. Sign in with password once, then use ${biometricLabel()} again.`,
+          )
+        }
+      } else {
+        const {
+          data: { session },
+        } = await sb.auth.getSession()
+        if (!session) {
+          throw new Error(
+            `Session expired. Sign in with password once, then use ${biometricLabel()} again.`,
+          )
+        }
+      }
+
+      const sessionUser =
+        enrolled.sessionUser ||
+        (await resolveSessionUser(sb, enrolled.username))
+      await finishSuccessfulLogin(sb, sessionUser, { viaBiometrics: true })
+      setEnrollPrompt(null)
+    } catch (err) {
+      setError(err?.message || `Could not unlock with ${biometricLabel()}.`)
+    } finally {
+      finishingBioRef.current = false
+      setLoading(false)
+    }
+  }
+
+  // Conditional UI: listen for passkey autofill on the username field after soft lock / logout.
+  useEffect(() => {
+    if (!enrollment?.credentialId || !conditionalOk || loading || enrollPrompt) return undefined
+
+    const abort = new AbortController()
+    conditionalAbortRef.current = abort
+
+    ;(async () => {
+      try {
+        const enrolled = await assertBiometricsConditional(abort.signal)
+        if (abort.signal.aborted) return
+        await unlockWithEnrollment(enrolled)
+      } catch (err) {
+        if (abort.signal.aborted) return
+        const name = err?.name || ''
+        if (name === 'AbortError' || name === 'NotAllowedError') return
+        // Stay quiet for autofill cancellations; password form remains available.
+      }
+    })()
+
+    return () => {
+      abort.abort()
+      conditionalAbortRef.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- restart only when enroll / capability changes
+  }, [enrollment?.credentialId, conditionalOk, enrollPrompt])
+
+  const handleBiometricClick = async () => {
+    if (loading) return
+    setError('')
+    setLoading(true)
+    try {
+      conditionalAbortRef.current?.abort()
+      const enrolled = await assertBiometrics()
+      await unlockWithEnrollment(enrolled)
+    } catch (err) {
+      setError(err?.message || `Could not unlock with ${biometricLabel()}.`)
+      setLoading(false)
+    }
+  }
+
+  const handleEnrollAccept = async () => {
+    if (!enrollPrompt || loading) return
+    setLoading(true)
+    setError('')
+    try {
+      const next = await enrollBiometrics(enrollPrompt)
+      await vaultCurrentSupabaseSession(requireSupabase())
+      setEnrollment(next)
+      setEnrollPrompt(null)
+      applyDeskSession(enrollPrompt.sessionUser)
+      setNotice(`${biometricLabel()} enabled on this device.`)
+      onSuccess(enrollPrompt.sessionUser)
+    } catch (err) {
+      setError(err?.message || 'Could not enable biometrics.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleEnrollSkip = () => {
+    const sessionUser = enrollPrompt?.sessionUser
+    setEnrollPrompt(null)
+    if (sessionUser) {
+      applyDeskSession(sessionUser)
+      onSuccess(sessionUser)
+    }
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -207,10 +409,9 @@ export default function AdminLogin({ onSuccess }) {
     setNotice('')
     setLoading(true)
     const safeUser = sanitizeUsername(username)
-    const fp = getDeviceFingerprint()
-    const suspicious = isSuspiciousLogin(fp)
 
     try {
+      conditionalAbortRef.current?.abort()
       const sb = requireSupabase()
       const email = toAuthEmail(safeUser)
       const { error: authError } = await sb.auth.signInWithPassword({
@@ -230,30 +431,24 @@ export default function AdminLogin({ onSuccess }) {
       }
 
       const sessionUser = await resolveSessionUser(sb, safeUser)
+      const shouldOfferEnroll =
+        bioAvailable && !loadBiometricEnrollment()?.credentialId
 
-      if (suspicious) {
-        await recordLoginAudit({
+      await finishSuccessfulLogin(sb, sessionUser, {
+        enterDesk: !shouldOfferEnroll,
+      })
+
+      if (shouldOfferEnroll) {
+        setEnrollPrompt({
           username: sessionUser.username,
+          displayName: sessionUser.displayName,
           role: sessionUser.role,
-          status: 'suspicious',
-          detail: 'Successful sign-in from an unrecognized device/browser',
-          suspicious: true,
+          sessionUser,
         })
-        setNotice(
-          'Suspicious login: this device was not recognized. If this was not you, change your password.',
-        )
-      } else {
-        await recordLoginAudit({
-          username: sessionUser.username,
-          role: sessionUser.role,
-          status: 'success',
-          detail: 'Signed in successfully over HTTPS',
-        })
+        setLoading(false)
+        return
       }
-      rememberFingerprint(fp)
 
-      applyDeskSession(sessionUser)
-      onSuccess(sessionUser)
       setLoading(false)
     } catch (err) {
       try {
@@ -271,6 +466,8 @@ export default function AdminLogin({ onSuccess }) {
       setLoading(false)
     }
   }
+
+  const showBioButton = Boolean(enrollment?.credentialId && bioAvailable)
 
   return (
     <main className="login-card">
@@ -290,23 +487,72 @@ export default function AdminLogin({ onSuccess }) {
         <p>Admin and employee access to the fleet desk.</p>
       </div>
 
-      {loading ? (
+      {loading && !enrollPrompt ? (
         <div className="login-loading" aria-live="polite" aria-busy="true">
           <div className="loader" aria-hidden="true" />
           <p>Signing you in…</p>
         </div>
+      ) : enrollPrompt ? (
+        <div className="login-enroll-panel">
+          <h2 className="login-enroll-title">Enable {bioLabel}?</h2>
+          <p className="login-enroll-copy">
+            Next time, tap the username field or use {bioLabel} to unlock this desk
+            after signing out — no password needed while your session is valid.
+          </p>
+          {error && <span className="error-msg">{error}</span>}
+          <div className="login-enroll-actions">
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={loading}
+              onClick={handleEnrollAccept}
+            >
+              {loading ? 'Enabling…' : `Enable ${bioLabel}`}
+            </button>
+            <button
+              type="button"
+              className="btn-outline"
+              disabled={loading}
+              onClick={handleEnrollSkip}
+            >
+              Not now
+            </button>
+          </div>
+        </div>
       ) : (
         <form className="login-form" onSubmit={handleSubmit} autoComplete="on">
+          {showBioButton ? (
+            <>
+              <button
+                type="button"
+                className="btn-primary login-bio-btn"
+                onClick={handleBiometricClick}
+                disabled={loading}
+              >
+                Sign in with {bioLabel}
+              </button>
+              <p className="login-bio-hint">
+                {conditionalOk
+                  ? `Or tap Username — your browser can offer ${bioLabel} autofill.`
+                  : 'Or sign in with password below.'}
+              </p>
+              <div className="login-divider" aria-hidden="true">
+                <span>or</span>
+              </div>
+            </>
+          ) : null}
+
           <label className="field">
             <span className="field-label">Username</span>
             <input
               type="text"
+              name="username"
               value={username}
               onChange={(e) => {
                 setUsername(sanitizeUsername(e.target.value))
                 setError('')
               }}
-              autoComplete="username"
+              autoComplete={conditionalOk ? 'username webauthn' : 'username'}
               disabled={loading}
               maxLength={64}
               spellCheck={false}
@@ -317,6 +563,7 @@ export default function AdminLogin({ onSuccess }) {
             <div className="login-password-wrap">
               <input
                 type={showPassword ? 'text' : 'password'}
+                name="password"
                 value={password}
                 onChange={(e) => {
                   setPassword(e.target.value)
