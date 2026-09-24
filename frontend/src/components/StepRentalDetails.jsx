@@ -245,199 +245,197 @@ export default function StepRentalDetails({ data, onChange, errors, vehicle }) {
   const durationHintHours = hours
   const durationHintDays = data.duration === 'Others' ? parsedDays : null
 
+  const periodHint = durationHintDays
+    ? `+${durationHintDays} day${durationHintDays === 1 ? '' : 's'}`
+    : durationHintHours
+      ? `+${durationHintHours}h`
+      : data.duration === 'Others'
+        ? 'Enter days'
+        : ''
+
+  const showFeeStack =
+    (coverage === 'outside_city' && outsideFee > 0) ||
+    (withDriver && (driverFee > 0 || data.driverFeeNote))
+
   return (
-    <section className="step-panel">
-      <h2 className="step-title">Rental Details</h2>
-      <p className="step-subtitle">
-        Set duration and schedule — fee calculates from the vehicle rate card.
-      </p>
-
-      {vehicle && (
-        <div className="rental-vehicle-chip">
-          {vehicle.image ? (
-            <img src={vehicle.image} alt="" className="rental-vehicle-chip-thumb" />
-          ) : (
-            <div className="rental-vehicle-chip-thumb rental-vehicle-chip-thumb--empty" aria-hidden />
-          )}
-          <div>
-            <strong>
-              {vehicle.make} — {vehicle.series}
-            </strong>
-            <span>
-              {vehicle.bodyType} · {vehicle.plateNo}
-            </span>
-          </div>
+    <section className="step-panel step-rental">
+      <header className="step-rental-head">
+        <div>
+          <h2 className="step-title">Rental Details</h2>
+          <p className="step-subtitle">Duration, schedule, and coverage.</p>
         </div>
-      )}
+        {vehicle ? (
+          <div className="rental-vehicle-chip">
+            {vehicle.image ? (
+              <img src={vehicle.image} alt="" className="rental-vehicle-chip-thumb" />
+            ) : (
+              <div className="rental-vehicle-chip-thumb rental-vehicle-chip-thumb--empty" aria-hidden />
+            )}
+            <div>
+              <strong>
+                {vehicle.make} — {vehicle.series}
+              </strong>
+              <span>
+                {vehicle.bodyType} · {vehicle.plateNo}
+              </span>
+            </div>
+          </div>
+        ) : null}
+      </header>
 
-      <fieldset className="field-group">
-        <legend className="sr-only">Duration</legend>
-        <div className="duration-row">
-          <div className="duration-presets">
-            <span className="field-label" id="duration-label">
+      <div className="step-rental-grid">
+        <div className="step-rental-col">
+          <fieldset className="field-group">
+            <legend className="field-label" id="duration-label">
               Duration
-            </span>
-            <div className="chip-group" role="group" aria-labelledby="duration-label">
-              {DURATIONS.map((d) => (
-                <label key={d} className={`chip${data.duration === d ? ' selected' : ''}`}>
+            </legend>
+            <div className="duration-row">
+              <div className="chip-group" role="group" aria-labelledby="duration-label">
+                {DURATIONS.map((d) => (
+                  <label key={d} className={`chip${data.duration === d ? ' selected' : ''}`}>
+                    <input
+                      type="radio"
+                      name="duration"
+                      value={d}
+                      checked={data.duration === d}
+                      onChange={() => applyField('duration', d)}
+                    />
+                    {d}
+                  </label>
+                ))}
+              </div>
+              {data.duration === 'Others' && (
+                <label className="field duration-other-field">
+                  <span className="field-label">Days</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={daysInputValue}
+                    onFocus={() => {
+                      setEditingDays(true)
+                      if (parsedDays) applyField('durationOther', String(parsedDays))
+                    }}
+                    onBlur={commitDays}
+                    onChange={(e) => onDaysChange(e.target.value)}
+                    placeholder="e.g. 3"
+                    className={errors.durationOther ? 'input-error' : ''}
+                  />
+                  {errors.durationOther && (
+                    <span className="error-msg">{errors.durationOther}</span>
+                  )}
+                </label>
+              )}
+            </div>
+            {errors.duration && <span className="error-msg">{errors.duration}</span>}
+          </fieldset>
+
+          <fieldset className="field-group">
+            <legend className="field-label">Rental Type</legend>
+            <div className="chip-group">
+              {['Self-drive', 'With-driver'].map((type) => (
+                <label key={type} className={`chip${data.rentalType === type ? ' selected' : ''}`}>
                   <input
                     type="radio"
-                    name="duration"
-                    value={d}
-                    checked={data.duration === d}
-                    onChange={() => applyField('duration', d)}
+                    name="rentalType"
+                    value={type}
+                    checked={data.rentalType === type}
+                    onChange={() => applyField('rentalType', type)}
                   />
-                  {d}
+                  {type}
                 </label>
               ))}
             </div>
-          </div>
-          {data.duration === 'Others' && (
-            <label className="field duration-other-field">
-              <span className="field-label">Specify</span>
-              <input
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                value={daysInputValue}
-                onFocus={() => {
-                  setEditingDays(true)
-                  if (parsedDays) applyField('durationOther', String(parsedDays))
-                }}
-                onBlur={commitDays}
-                onChange={(e) => onDaysChange(e.target.value)}
-                placeholder="e.g. 3"
-                className={errors.durationOther ? 'input-error' : ''}
+            {errors.rentalType && <span className="error-msg">{errors.rentalType}</span>}
+            {withDriver ? (
+              <p className="period-hint">Min {DRIVER_MIN_HOURS} hrs driver wage</p>
+            ) : null}
+            {errors.driverFee && <span className="error-msg">{errors.driverFee}</span>}
+          </fieldset>
+
+          <fieldset className="field-group">
+            <legend className="field-label">Coverage</legend>
+            <div className="chip-group">
+              {[
+                { id: 'within_city', label: 'Within city' },
+                { id: 'outside_city', label: 'Outside city' },
+              ].map((opt) => (
+                <label
+                  key={opt.id}
+                  className={`chip${coverage === opt.id ? ' selected' : ''}`}
+                >
+                  <input
+                    type="radio"
+                    name="coverage"
+                    value={opt.id}
+                    checked={coverage === opt.id}
+                    onChange={() => applyCoverage(opt.id)}
+                  />
+                  {opt.label}
+                </label>
+              ))}
+            </div>
+            {errors.coverage && <span className="error-msg">{errors.coverage}</span>}
+            {coverage === 'outside_city' ? (
+              <label className="field rental-destination-field">
+                <span className="field-label">Destination</span>
+                <select
+                  value={data.outsideCityDestinationId || ''}
+                  onChange={(e) => applyDestination(e.target.value)}
+                  className={errors.outsideCityDestinationId ? 'input-error' : ''}
+                >
+                  <option value="">Select destination</option>
+                  {destinations.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name} — {d.priceLabel}
+                    </option>
+                  ))}
+                </select>
+                {destinations.length === 0 ? (
+                  <span className="field-hint">Add destinations in Settings → Rates &amp; extras.</span>
+                ) : null}
+                {errors.outsideCityDestinationId && (
+                  <span className="error-msg">{errors.outsideCityDestinationId}</span>
+                )}
+              </label>
+            ) : null}
+          </fieldset>
+        </div>
+
+        <div className="step-rental-col">
+          <fieldset className="field-group">
+            <legend className="field-label">Rental Period</legend>
+            <div className="period-stack">
+              <PeriodFields
+                label="From"
+                dateKey="fromDate"
+                hourKey="fromHour"
+                minuteKey="fromMinute"
+                meridiemKey="fromMeridiem"
+                data={data}
+                onField={applyField}
+                onTime={applyFromTime}
+                errors={errors}
+                minDate={minDate}
               />
-              {errors.durationOther && (
-                <span className="error-msg">{errors.durationOther}</span>
-              )}
-            </label>
-          )}
-        </div>
-        {errors.duration && <span className="error-msg">{errors.duration}</span>}
-      </fieldset>
-
-      <fieldset className="field-group">
-        <legend className="field-label">Rental Type</legend>
-        <div className="chip-group">
-          {['Self-drive', 'With-driver'].map((type) => (
-            <label key={type} className={`chip${data.rentalType === type ? ' selected' : ''}`}>
-              <input
-                type="radio"
-                name="rentalType"
-                value={type}
-                checked={data.rentalType === type}
-                onChange={() => applyField('rentalType', type)}
+              <PeriodFields
+                label="To"
+                dateKey="toDate"
+                hourKey="toHour"
+                minuteKey="toMinute"
+                meridiemKey="toMeridiem"
+                data={data}
+                onField={applyField}
+                onTime={applyToTime}
+                errors={errors}
+                minDate={toMinDate}
+                readOnly={toLocked}
               />
-              {type}
-            </label>
-          ))}
+            </div>
+            {periodHint ? <p className="period-hint">{periodHint} from start</p> : null}
+          </fieldset>
         </div>
-        {errors.rentalType && <span className="error-msg">{errors.rentalType}</span>}
-        {withDriver ? (
-          <p className="period-hint">
-            Driver wage uses Settings rate · minimum {DRIVER_MIN_HOURS} hours billed
-            {data.driverFeeNote ? ` · ${data.driverFeeNote}` : ''}.
-          </p>
-        ) : null}
-        {errors.driverFee && <span className="error-msg">{errors.driverFee}</span>}
-      </fieldset>
-
-      <fieldset className="field-group">
-        <legend className="field-label">Rental Period</legend>
-        <div className="period-stack">
-          <PeriodFields
-            label="From"
-            dateKey="fromDate"
-            hourKey="fromHour"
-            minuteKey="fromMinute"
-            meridiemKey="fromMeridiem"
-            data={data}
-            onField={applyField}
-            onTime={applyFromTime}
-            errors={errors}
-            minDate={minDate}
-          />
-          <PeriodFields
-            label="To"
-            dateKey="toDate"
-            hourKey="toHour"
-            minuteKey="toMinute"
-            meridiemKey="toMeridiem"
-            data={data}
-            onField={applyField}
-            onTime={applyToTime}
-            errors={errors}
-            minDate={toMinDate}
-            readOnly={toLocked}
-          />
-        </div>
-        {durationHintDays ? (
-          <p className="period-hint">
-            End time is set from start + {durationHintDays} day
-            {durationHintDays === 1 ? '' : 's'}.
-          </p>
-        ) : durationHintHours ? (
-          <p className="period-hint">
-            End time is set from start + {durationHintHours} hour
-            {durationHintHours === 1 ? '' : 's'}.
-          </p>
-        ) : data.duration === 'Others' ? (
-          <p className="period-hint">Enter the number of days to auto-fill the end time.</p>
-        ) : null}
-      </fieldset>
-
-      <fieldset className="field-group">
-        <legend className="field-label">Coverage</legend>
-        <div className="chip-group">
-          {[
-            { id: 'within_city', label: 'Within city' },
-            { id: 'outside_city', label: 'Outside city' },
-          ].map((opt) => (
-            <label
-              key={opt.id}
-              className={`chip${coverage === opt.id ? ' selected' : ''}`}
-            >
-              <input
-                type="radio"
-                name="coverage"
-                value={opt.id}
-                checked={coverage === opt.id}
-                onChange={() => applyCoverage(opt.id)}
-              />
-              {opt.label}
-            </label>
-          ))}
-        </div>
-        {errors.coverage && <span className="error-msg">{errors.coverage}</span>}
-      </fieldset>
-
-      {coverage === 'outside_city' ? (
-        <label className="field">
-          <span className="field-label">Destination</span>
-          <select
-            value={data.outsideCityDestinationId || ''}
-            onChange={(e) => applyDestination(e.target.value)}
-            className={errors.outsideCityDestinationId ? 'input-error' : ''}
-          >
-            <option value="">Select destination</option>
-            {destinations.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name} — {d.priceLabel}
-              </option>
-            ))}
-          </select>
-          {destinations.length === 0 ? (
-            <span className="field-hint">
-              No destinations yet. Add places in Settings → Rates &amp; extras.
-            </span>
-          ) : null}
-          {errors.outsideCityDestinationId && (
-            <span className="error-msg">{errors.outsideCityDestinationId}</span>
-          )}
-        </label>
-      ) : null}
+      </div>
 
       <div className="rental-fee-panel">
         <div className="rental-fee-copy">
@@ -449,8 +447,7 @@ export default function StepRentalDetails({ data, onChange, errors, vehicle }) {
                 ? 'Select duration to calculate'
                 : 'Select a vehicle first'}
           </p>
-          {(coverage === 'outside_city' && outsideFee > 0) ||
-          (withDriver && (driverFee > 0 || data.driverFeeNote)) ? (
+          {showFeeStack ? (
             <ul className="rental-fee-stack">
               <li>
                 <span>City package</span>
@@ -469,12 +466,7 @@ export default function StepRentalDetails({ data, onChange, errors, vehicle }) {
               ) : null}
               {withDriver ? (
                 <li>
-                  <span>
-                    Driver wage
-                    {data.driverBillableHours
-                      ? ` · ${data.driverBillableHours} hrs`
-                      : ''}
-                  </span>
+                  <span>Driver wage</span>
                   <strong>{data.driverFee || '—'}</strong>
                 </li>
               ) : null}

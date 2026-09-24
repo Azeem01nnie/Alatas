@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Stepper from './Stepper'
 import StepPersonalInfo from './StepPersonalInfo'
 import StepVehicle from './StepVehicle'
@@ -77,6 +77,7 @@ function forceUppercase(value) {
 export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApprove = false }) {
   const { vehicles, addRental } = useVehicles()
   const [step, setStep] = useState(1)
+  const stepBodyRef = useRef(null)
   const [personal, setPersonal] = useState(initialPersonal)
   const [vehicleId, setVehicleId] = useState('')
   const [rental, setRental] = useState(initialRental)
@@ -517,6 +518,12 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
     if (step > 1) setStep((s) => s - 1)
   }
 
+  useEffect(() => {
+    const body = stepBodyRef.current
+    if (body) body.scrollTop = 0
+    body?.closest('.admin-main-panel')?.scrollTo?.(0, 0)
+  }, [step])
+
   if (phase === 'loading') {
     return <LoadingScreen onDone={handleReset} />
   }
@@ -527,7 +534,7 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
     <div className="encoder-card rent-car-panel">
       <Stepper currentStep={step} />
 
-      <div className="encoder-body">
+      <div className="encoder-body" ref={stepBodyRef}>
         {step === 1 && (
           <StepPersonalInfo data={personal} onChange={updatePersonal} errors={errors} />
         )}

@@ -1229,16 +1229,22 @@ body {
 .rental-fee-panel {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 0.85rem 1.25rem;
-  margin-top: 0.35rem;
+  margin-top: 0.85rem;
+  margin-bottom: 0.35rem;
   padding: 1.15rem 1.25rem;
   border: 1px solid var(--border);
   border-radius: 10px;
   background:
     linear-gradient(135deg, rgba(179, 32, 37, 0.05), transparent 55%),
     var(--surface);
+}
+
+.rental-fee-copy {
+  flex: 1 1 12rem;
+  min-width: 0;
 }
 
 .rental-fee-copy .field-label {
@@ -1285,6 +1291,101 @@ body {
 .rental-fee-stack strong {
   font-weight: 600;
   color: var(--metal);
+}
+
+.rental-destination-field {
+  margin-top: 0.15rem;
+  margin-bottom: 0.35rem;
+}
+
+.step-rental {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.step-rental .step-title {
+  margin-bottom: 0.15rem;
+}
+
+.step-rental .step-subtitle {
+  margin-bottom: 0;
+}
+
+.step-rental-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem 1.25rem;
+  flex-wrap: wrap;
+}
+
+.step-rental .rental-vehicle-chip {
+  margin: 0;
+  padding: 0.45rem 0.65rem;
+}
+
+.step-rental .rental-vehicle-chip-thumb {
+  width: 2.8rem;
+  height: 2rem;
+}
+
+.step-rental-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: 0.85rem 1.25rem;
+  align-items: start;
+}
+
+.step-rental-col {
+  min-width: 0;
+}
+
+.step-rental .field-group {
+  margin-bottom: 0.85rem;
+}
+
+.step-rental .field-group:last-child {
+  margin-bottom: 0;
+}
+
+.step-rental .period-stack {
+  max-width: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+}
+
+.step-rental .period-card {
+  padding: 0.7rem 0.75rem 0.8rem;
+}
+
+.step-rental .period-hint {
+  margin-top: 0.4rem;
+}
+
+.step-rental .rental-fee-panel {
+  margin: 0;
+  padding: 0.85rem 1rem;
+}
+
+.step-rental .rental-fee-stack {
+  margin-top: 0.45rem;
+}
+
+@media (max-width: 900px) {
+  .step-rental-grid,
+  .step-rental .period-stack {
+    grid-template-columns: 1fr;
+  }
+}
+
+.field-hint {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--muted);
 }
 
 .destinations-add-form,
@@ -1469,6 +1570,17 @@ body {
 
 select {
   appearance: none;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 2.75rem;
+  font: inherit;
+  font-size: 0.95rem;
+  color: var(--text);
+  background-color: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.7rem 2.4rem 0.7rem 0.85rem;
+  line-height: 1.3;
   background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
     linear-gradient(135deg, var(--muted) 50%, transparent 50%);
   background-position:
@@ -1479,6 +1591,13 @@ select {
     6px 6px;
   background-repeat: no-repeat;
   cursor: pointer;
+}
+
+.field select,
+.field-group select,
+.step-panel select {
+  display: block;
+  width: 100%;
 }
 
 select:focus {
@@ -2772,7 +2891,7 @@ input[type='number']:focus {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: auto;
+  margin-top: 0;
   padding-top: 1.5rem;
   border-top: 1px solid var(--border);
   flex-shrink: 0;
@@ -5234,8 +5353,9 @@ html[data-theme='dark'] .conn-status.is-offline {
 
 .dash-attn-row {
   display: flex;
-  align-items: center;
-  gap: 0.85rem;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.65rem 0.85rem;
   padding: 0.85rem 0.9rem;
   border-radius: 10px;
   border: 1px solid var(--border);
@@ -5245,7 +5365,9 @@ html[data-theme='dark'] .conn-status.is-offline {
 .dash-attn-actions {
   display: flex;
   flex-shrink: 0;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 0.4rem;
   margin-left: auto;
 }
@@ -5278,28 +5400,32 @@ html[data-theme='dark'] .conn-status.is-offline {
 }
 
 .dash-attn-meta {
-  flex: 1;
+  flex: 1 1 11rem;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.12rem;
+  gap: 0.2rem;
 }
 
 .dash-attn-meta strong {
   font-size: 0.88rem;
   font-weight: 650;
   color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.3;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+  word-break: break-word;
 }
 
 .dash-attn-meta span {
   font-size: 0.74rem;
   color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.35;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+  word-break: break-word;
 }
 
 .dash-attn-time {
@@ -7868,41 +7994,63 @@ html[data-theme='dark'] .conn-status.is-offline {
   overflow: visible;
 }
 
-.admin-main-panel:has(.rent-car-panel) {
+/* Rent Car: size to the step content. The main panel is the only scroller, so
+   BACK/NEXT sit under the fee with no empty stretch below. */
+.admin-content:has(.rent-car-panel) {
   overflow: hidden;
-  padding: 1.35rem 1.75rem 1.5rem;
-  display: flex;
-  flex-direction: column;
+  min-height: 0;
+}
+
+.admin-main-panel:has(.rent-car-panel) {
+  display: block !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  padding: 0.85rem 1.25rem 1.25rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+.admin-main-panel:has(.rent-car-panel) > .rent-car-panel {
+  flex: 0 0 auto !important;
+  align-self: auto !important;
+  width: 100%;
+  height: auto !important;
+  max-height: none !important;
+  min-height: 0 !important;
 }
 
 .admin-main-panel .rent-car-panel {
-  padding: 0.35rem 1.35rem 1rem;
-  flex: 1;
-  min-height: 0;
-  height: 100%;
+  padding: 0.15rem 0.35rem 0 !important;
+  margin: 0;
   background: transparent;
-  display: flex;
+  display: flex !important;
   flex-direction: column;
+  flex: 0 0 auto !important;
   box-sizing: border-box;
-}
-
-.admin-main-panel .rent-car-panel .encoder-body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 0.35rem 0.35rem 1.25rem;
+  overflow: visible !important;
 }
 
 .admin-main-panel .rent-car-panel .stepper {
-  padding-left: 0.35rem;
-  padding-right: 0.35rem;
-  margin-bottom: 1.5rem;
+  flex: 0 0 auto;
+  padding-left: 0.15rem;
+  padding-right: 0.15rem;
+  margin-bottom: 1rem;
+}
+
+.admin-main-panel .rent-car-panel .encoder-body {
+  flex: 0 0 auto !important;
+  min-height: 0 !important;
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+  padding: 0.15rem 0.15rem 0.35rem;
 }
 
 .admin-main-panel .rent-car-panel .step-nav {
-  margin-top: auto;
-  flex-shrink: 0;
-  padding: 1.25rem 0.35rem 0.15rem;
+  flex: 0 0 auto !important;
+  margin-top: 0.35rem !important;
+  padding: 0.7rem 0.15rem 0.35rem;
+  background: transparent;
+  border-top: 1px solid var(--border);
 }
 
 .admin-main-panel .rent-car-panel .step-title,
@@ -8599,6 +8747,29 @@ html[data-theme='dark'] .conn-status.is-offline {
   color: var(--brand-deep);
 }
 
+.history-fee-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  margin-top: 0.15rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.history-fee-breakdown strong {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.history-fee-total {
+  color: var(--brand-deep);
+}
+
+.history-fee-total strong {
+  color: var(--brand-deep);
+}
+
 .history-chip-overdue {
   background: rgba(181, 71, 8, 0.12);
   border-color: rgba(181, 71, 8, 0.3);
@@ -8984,6 +9155,11 @@ html[data-theme='dark'] .conn-status.is-offline {
     height: auto;
   }
 
+  .admin-content:has(.rent-car-panel) {
+    overflow: hidden;
+    min-height: 0;
+  }
+
   .admin-sidebar .sidebar-label,
   .admin-sidebar .sidebar-btn-label,
   .admin-sidebar .sidebar-profile-meta {
@@ -9010,6 +9186,39 @@ html[data-theme='dark'] .conn-status.is-offline {
 
   .sidebar-footer {
     flex-direction: column;
+  }
+}
+
+/* Tablet/phone drawer overrides the sticky top bar from the 900px rule */
+@media (max-width: 860px) {
+  .admin-shell {
+    height: 100%;
+    max-height: 100%;
+    overflow: hidden;
+  }
+
+  .admin-sidebar {
+    width: var(--sidebar-w) !important;
+    height: 100% !important;
+    max-height: 100dvh !important;
+    position: fixed !important;
+    top: 0 !important;
+    z-index: 100 !important;
+  }
+
+  .admin-sidebar .sidebar-nav {
+    flex-direction: column !important;
+    flex-wrap: nowrap !important;
+  }
+
+  .admin-content {
+    overflow: auto;
+    height: 100%;
+  }
+
+  .admin-content:has(.rent-car-panel) {
+    overflow: hidden;
+    min-height: 0;
   }
 }
 
@@ -11466,65 +11675,162 @@ html[data-theme='dark'] .employees-role-option.is-active {
   }
 }
 
-/* —— Phone / PWA layout: bottom tab bar —— */
+/* —— Phone / PWA layout: hamburger drawer sidebar —— */
+.mobile-nav-toggle,
+.mobile-nav-close,
+.mobile-nav-overlay {
+  display: none;
+}
+
 @media (max-width: 860px) {
   .admin-shell {
     flex-direction: column;
-    padding-bottom: calc(4.25rem + env(safe-area-inset-bottom, 0px));
+    padding-bottom: 0;
+  }
+
+  .admin-shell.mobile-nav-open {
+    overflow: hidden;
+  }
+
+  .mobile-nav-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    border: none;
+    padding: 0;
+    margin: 0;
+    background: rgba(10, 10, 10, 0.48);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.22s var(--ease-premium);
+  }
+
+  .mobile-nav-overlay.is-open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .mobile-nav-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 2.55rem;
+    height: 2.55rem;
+    margin: 0;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--metal);
+    cursor: pointer;
+  }
+
+  .mobile-nav-toggle-bars {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.28rem;
+    width: 1.05rem;
+  }
+
+  .mobile-nav-toggle-bars span {
+    display: block;
+    width: 100%;
+    height: 2px;
+    border-radius: 999px;
+    background: currentColor;
+  }
+
+  .mobile-nav-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    top: 0.65rem;
+    right: 0.65rem;
+    z-index: 2;
+    width: 2.2rem;
+    height: 2.2rem;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    font-size: 1.35rem;
+    line-height: 1;
+    cursor: pointer;
   }
 
   .admin-sidebar {
-    --sidebar-w: 100%;
+    --sidebar-w: min(300px, 86vw);
     position: fixed;
     left: 0;
-    right: 0;
+    top: 0;
     bottom: 0;
-    top: auto;
-    width: 100%;
-    height: auto;
-    max-height: none;
-    z-index: 80;
-    flex-direction: row;
+    width: var(--sidebar-w);
+    height: 100%;
+    max-height: 100dvh;
+    z-index: 100;
+    flex-direction: column;
     align-items: stretch;
-    border-right: none;
-    border-top: 1px solid rgba(179, 32, 37, 0.4);
-    background: #121212;
+    border-right: 1px solid rgba(179, 32, 37, 0.35);
+    border-top: none;
+    background: linear-gradient(180deg, #1c1c1c 0%, var(--metal) 55%, #0a0a0a 100%);
     padding-bottom: env(safe-area-inset-bottom, 0px);
-    overflow: visible;
+    overflow: hidden;
+    transform: translateX(-105%);
+    transition: transform 0.26s var(--ease-premium);
+    box-shadow: none;
+  }
+
+  .admin-sidebar.is-open {
+    transform: translateX(0);
+    box-shadow: 12px 0 40px rgba(0, 0, 0, 0.35);
   }
 
   .admin-sidebar .sidebar-brand {
-    display: none;
+    display: flex;
+    position: relative;
+    min-height: 4.5rem;
+    padding: 0.85rem 3rem 0.85rem 0.85rem;
+  }
+
+  .admin-sidebar .sidebar-logo {
+    width: 48px;
+    height: 48px;
   }
 
   .admin-sidebar .sidebar-nav {
-    flex: 1;
-    flex-direction: row;
+    flex: 1 1 auto;
+    flex-direction: column;
     flex-wrap: nowrap;
-    gap: 0;
-    padding: 0.2rem 0.15rem 0.35rem;
-    overflow-x: auto;
-    overflow-y: hidden;
+    gap: 0.2rem;
+    padding: 0.65rem 0.55rem;
+    overflow-x: hidden;
+    overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+    scrollbar-width: thin;
   }
 
   .admin-sidebar .sidebar-nav::-webkit-scrollbar {
-    display: none;
+    display: initial;
+    width: 6px;
   }
 
   .admin-sidebar .sidebar-link {
-    flex: 1 0 auto;
-    min-width: 4.4rem;
-    max-width: 5.5rem;
-    flex-direction: column;
-    justify-content: center;
-    gap: 0.2rem;
-    padding: 0.45rem 0.3rem;
-    font-size: 0.58rem;
-    letter-spacing: 0.02em;
+    flex: 0 0 auto;
+    min-width: 0;
+    max-width: none;
+    width: 100%;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 0.7rem;
+    padding: 0.7rem 0.75rem;
+    font-size: 0.82rem;
+    letter-spacing: 0.03em;
     border-radius: 10px;
-    text-align: center;
+    text-align: left;
   }
 
   .admin-sidebar .sidebar-link:hover {
@@ -11532,11 +11838,11 @@ html[data-theme='dark'] .employees-role-option.is-active {
   }
 
   .admin-sidebar .sidebar-link::before {
-    display: none;
+    display: block;
   }
 
   .admin-sidebar .sidebar-label {
-    max-width: 4.2rem;
+    max-width: none;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -11544,56 +11850,69 @@ html[data-theme='dark'] .employees-role-option.is-active {
   }
 
   .admin-sidebar .sidebar-label-full {
-    display: none;
-  }
-
-  .admin-sidebar .sidebar-label-short {
     display: block;
   }
 
+  .admin-sidebar .sidebar-label-short {
+    display: none;
+  }
+
   .admin-sidebar .sidebar-icon {
+    width: 22px;
+    height: 22px;
+  }
+
+  .admin-sidebar .sidebar-icon svg {
     width: 20px;
     height: 20px;
   }
 
-  .admin-sidebar .sidebar-icon svg {
-    width: 18px;
-    height: 18px;
-  }
-
   .admin-sidebar .sidebar-footer {
     display: flex;
-    flex-direction: row;
-    align-items: center;
-    margin: 0;
-    padding: 0.2rem 0.35rem 0.35rem;
-    border-top: none;
-    border-left: 1px solid rgba(255, 255, 255, 0.1);
-    background: transparent;
-    gap: 0;
+    flex-direction: column;
+    align-items: stretch;
+    margin-top: auto;
+    padding: 0.55rem 0.55rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-left: none;
+    background: linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.22) 100%);
+    gap: 0.35rem;
   }
 
   .admin-sidebar .sidebar-settings-link {
-    min-width: 3.2rem;
-    max-width: 3.2rem;
-    flex-direction: column;
-    gap: 0.15rem;
-    padding: 0.45rem 0.25rem;
-    font-size: 0.55rem;
+    min-width: 0;
+    max-width: none;
+    width: 100%;
+    flex-direction: row;
+    gap: 0.7rem;
+    padding: 0.7rem 0.75rem;
+    font-size: 0.82rem;
   }
 
   .admin-sidebar .sidebar-settings-link .sidebar-label {
-    max-width: 3rem;
+    max-width: none;
   }
 
   .admin-sidebar .sidebar-profile {
-    display: none;
+    display: flex;
   }
 
   .admin-content {
     width: 100%;
     min-height: 0;
     flex: 1;
+  }
+
+  .admin-content-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.55rem 0.75rem;
+  }
+
+  .admin-content-header h2 {
+    flex: 1 1 auto;
+    min-width: 0;
   }
 
   .login-shell {
@@ -11700,6 +12019,22 @@ html[data-theme='dark'] .employees-role-option.is-active {
     flex-wrap: wrap;
     gap: 0.65rem;
     padding: 0.75rem 0;
+  }
+
+  .dash-attn-meta {
+    flex: 1 1 calc(100% - 4rem);
+  }
+
+  .dash-attn-actions {
+    width: 100%;
+    margin-left: 0;
+    justify-content: stretch;
+  }
+
+  .dash-attn-actions .btn-outline,
+  .dash-attn-actions .btn-ghost {
+    flex: 1;
+    justify-content: center;
   }
 
   .pending-approvals-item {
@@ -12085,24 +12420,71 @@ html[data-theme='dark'] .employees-role-option.is-active {
 
   /* —— Rent Car form / photos —— */
   .admin-main-panel:has(.rent-car-panel) {
-    padding: 0.65rem 0.7rem 1rem;
+    padding: 0.55rem 0.65rem 1rem;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
   }
 
   .admin-main-panel .rent-car-panel {
-    padding: 0.15rem 0.15rem 0.5rem;
+    padding: 0.1rem 0.1rem 0 !important;
     min-width: 0;
     width: 100%;
-    overflow-x: hidden;
+    height: auto !important;
   }
 
   .admin-main-panel .rent-car-panel .encoder-body {
     min-width: 0;
-    overflow-x: hidden;
+    overflow: visible !important;
+    padding: 0.15rem 0.1rem 0.25rem;
+  }
+
+  .admin-main-panel .rent-car-panel .step-nav {
+    margin-top: 0.25rem !important;
+    padding: 0.65rem 0.1rem 0.25rem;
+  }
+
+  .rental-fee-copy {
+    flex: 0 0 auto;
+    width: 100%;
   }
 
   .step-panel {
     min-width: 0;
     max-width: 100%;
+    padding-bottom: 0;
+  }
+
+  .step-panel > .field,
+  .step-panel > .field-group {
+    margin-bottom: 1rem;
+  }
+
+  .step-panel select {
+    min-height: 2.85rem;
+    font-size: 1rem;
+    padding: 0.75rem 2.5rem 0.75rem 0.85rem;
+  }
+
+  .rental-fee-panel {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+    margin-top: 1rem;
+    margin-bottom: 0.25rem;
+    padding: 1rem 1rem 1.1rem;
+  }
+
+  .rental-fee-amount {
+    align-self: flex-end;
+    font-size: 1.45rem;
+  }
+
+  .rental-fee-stack {
+    width: 100%;
+  }
+
+  .rental-fee-stack li {
+    gap: 0.25rem 0.75rem;
   }
 
   .step-subtitle {
@@ -12382,45 +12764,7 @@ html[data-theme='dark'] .employees-role-option.is-active {
     min-height: 2.5rem;
   }
 
-  /* —— Bottom nav (many admin tabs) —— */
-  .admin-sidebar .sidebar-nav {
-    padding: 0.15rem 0.1rem 0.3rem;
-  }
-
-  .admin-sidebar .sidebar-link {
-    min-width: 3.35rem;
-    max-width: 4.1rem;
-    padding: 0.35rem 0.12rem;
-    font-size: 0.5rem;
-    gap: 0.12rem;
-  }
-
-  .admin-sidebar .sidebar-label {
-    max-width: 3.9rem;
-  }
-
-  .admin-sidebar .sidebar-label-full {
-    display: none;
-  }
-
-  .admin-sidebar .sidebar-label-short {
-    display: block;
-  }
-
-  .admin-sidebar .sidebar-icon {
-    width: 18px;
-    height: 18px;
-  }
-
-  .admin-sidebar .sidebar-icon svg {
-    width: 16px;
-    height: 16px;
-  }
-
-  .admin-sidebar .sidebar-settings-link {
-    min-width: 2.65rem;
-    max-width: 2.65rem;
-  }
+  /* Drawer nav keeps full labels on phone — no compact bottom-tab overrides */
 }
 
 /* ── Damage inspection modal (vehicle return) ───────────────── */

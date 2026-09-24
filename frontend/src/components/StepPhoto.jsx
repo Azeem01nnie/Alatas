@@ -32,6 +32,21 @@ async function readAndCompress(file) {
   return compressImageDataUrl(dataUrl, 960, 0.8)
 }
 
+/** Front/selfie cameras get a mirror preview; rear/document cameras stay unflipped. */
+function isFrontFacingCamera(stream, deviceId = '', devices = []) {
+  const track = stream?.getVideoTracks?.()?.[0]
+  const facing = String(track?.getSettings?.()?.facingMode || '').toLowerCase()
+  if (facing === 'user') return true
+  if (facing === 'environment') return false
+
+  const fromList = devices.find((d) => d.deviceId === deviceId)
+  const label = String(fromList?.label || track?.label || '').toLowerCase()
+  if (/back|rear|environment|world|ultra.?wide|telephoto/.test(label)) return false
+  if (/front|user|face|selfie/.test(label)) return true
+  // No device chosen yet and we asked for facingMode:'user'
+  return !deviceId
+}
+
 function PhotoSlot({
   title,
   hint,
@@ -152,6 +167,7 @@ export default function StepPhoto({
   const [cameraKey, setCameraKey] = useState('')
   const [videoDevices, setVideoDevices] = useState([])
   const [selectedDeviceId, setSelectedDeviceId] = useState('')
+  const [mirrored, setMirrored] = useState(true)
 
   const previews = {
     holding: holdingPreview,
@@ -214,17 +230,22 @@ export default function StepPhoto({
       const videoInputs = devices.filter((d) => d.kind === 'videoinput')
       setVideoDevices(videoInputs)
 
+      let activeId = deviceId || ''
       if (!deviceId && videoInputs.length > 0) {
         const track = stream.getVideoTracks()[0]
         const activeDevice = videoInputs.find((d) => d.label === track.label)
         if (activeDevice) {
+          activeId = activeDevice.deviceId
           setSelectedDeviceId(activeDevice.deviceId)
         } else {
+          activeId = videoInputs[0].deviceId
           setSelectedDeviceId(videoInputs[0].deviceId)
         }
       } else if (deviceId) {
         setSelectedDeviceId(deviceId)
       }
+
+      setMirrored(isFrontFacingCamera(stream, activeId, videoInputs))
     } catch {
       setLocalError((prev) => ({
         ...prev,
@@ -258,8 +279,11 @@ export default function StepPhoto({
       canvas.width = video.videoWidth
       canvas.height = video.videoHeight
       const ctx = canvas.getContext('2d')
-      ctx.translate(canvas.width, 0)
-      ctx.scale(-1, 1)
+      // Mirror capture only for front/selfie cameras so the saved photo matches the preview.
+      if (mirrored) {
+        ctx.translate(canvas.width, 0)
+        ctx.scale(-1, 1)
+      }
       ctx.drawImage(video, 0, 0)
       const raw = canvas.toDataURL('image/jpeg', 0.92)
       const compressed = await compressImageDataUrl(raw, 960, 0.8)
@@ -335,7 +359,7 @@ export default function StepPhoto({
             videoRef={(el) => {
               videoRefs.current[slot.key] = el
             }}
-            mirrored
+            mirrored={mirrored}
             videoDevices={videoDevices}
             selectedDeviceId={selectedDeviceId}
             onDeviceChange={handleDeviceChange}

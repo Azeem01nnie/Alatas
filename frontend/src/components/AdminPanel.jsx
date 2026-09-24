@@ -67,7 +67,9 @@ import {
 } from '../utils/driverWage'
 import { getVehicleGallery, getInsuranceImages } from '../utils/vehicleImages'
 import {
+  formatRentalFee,
   isRevenueCountableRental,
+  resolveRentalChargeBreakdown,
   resolveRentalTotalCharges,
 } from '../utils/rentalFee'
 import { fetchSystemStatus, runCloudSync, saveAdminProfileRemote, clearAllAppData, clearRentalsData } from '../api/backend'
@@ -753,6 +755,7 @@ export default function AdminPanel() {
   const [bioEnrollment, setBioEnrollment] = useState(() => loadBiometricEnrollment())
   const [bioBusy, setBioBusy] = useState(false)
   const [bioMessage, setBioMessage] = useState('')
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [systemSettings, setSystemSettings] = useState(() => {
     const loaded = loadSystemSettings()
     applyTheme(loaded.theme)
@@ -1388,10 +1391,14 @@ export default function AdminPanel() {
   }, [authed, isAdminUser, tab])
 
   const requestTabChange = (nextTab) => {
-    if (nextTab === tab) return
+    if (nextTab === tab) {
+      setMobileNavOpen(false)
+      return
+    }
     if (!isAdminUser && ADMIN_ONLY_TABS.has(nextTab)) return
     if (tab === 'rent' && nextTab !== 'rent' && rentDirty) {
       setPendingTab(nextTab)
+      setMobileNavOpen(false)
       setConfirm({
         type: 'leave-rent',
         title: 'Leave rent form?',
@@ -1405,6 +1412,7 @@ export default function AdminPanel() {
     }
     setTab(nextTab)
     setSelectedTransaction(null)
+    setMobileNavOpen(false)
   }
 
   const counts = useMemo(() => {
@@ -2533,10 +2541,25 @@ export default function AdminPanel() {
   }
 
   return (
-    <div className="app admin-shell">
-      <aside className="admin-sidebar">
+    <div className={`app admin-shell${mobileNavOpen ? ' mobile-nav-open' : ''}`}>
+      <button
+        type="button"
+        className={`mobile-nav-overlay${mobileNavOpen ? ' is-open' : ''}`}
+        aria-label="Close menu"
+        tabIndex={mobileNavOpen ? 0 : -1}
+        onClick={() => setMobileNavOpen(false)}
+      />
+      <aside className={`admin-sidebar${mobileNavOpen ? ' is-open' : ''}`} id="admin-mobile-sidebar">
         <div className="sidebar-brand">
           <img src={logo} alt="Alatas Car Rental Services" className="sidebar-logo" />
+          <button
+            type="button"
+            className="mobile-nav-close"
+            aria-label="Close menu"
+            onClick={() => setMobileNavOpen(false)}
+          >
+            ×
+          </button>
         </div>
 
         <nav className="sidebar-nav">
@@ -2591,6 +2614,20 @@ export default function AdminPanel() {
 
       <div className="admin-content">
         <header className="admin-content-header">
+          <button
+            type="button"
+            className="mobile-nav-toggle"
+            aria-label={mobileNavOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={mobileNavOpen}
+            aria-controls="admin-mobile-sidebar"
+            onClick={() => setMobileNavOpen((open) => !open)}
+          >
+            <span className="mobile-nav-toggle-bars" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </span>
+          </button>
           <h2>
             {selectedTransaction
               ? 'Transaction'
@@ -3648,6 +3685,26 @@ export default function AdminPanel() {
                     ).trim() || 'Customer'
                   const life = r.rentalLifecycle || 'completed'
                   const overdue = formatOverdueDuration(r)
+                  const fleet =
+                    vehicles.find((v) => String(v.id) === String(r.vehicleId || r.vehicle?.id || '')) ||
+                    null
+                  const charges = resolveRentalChargeBreakdown(r, fleet)
+                  const cityFee =
+                    charges.base > 0
+                      ? formatRentalFee(charges.base)
+                      : r.rental?.rentalFee || ''
+                  const outsideFee =
+                    charges.outsideCity > 0
+                      ? formatRentalFee(charges.outsideCity)
+                      : r.rental?.outsideCityFee || ''
+                  const driverFee =
+                    charges.driver > 0
+                      ? formatRentalFee(charges.driver)
+                      : r.rental?.driverFee || ''
+                  const totalFee =
+                    charges.total > 0
+                      ? formatRentalFee(charges.total)
+                      : cityFee || ''
                   return (
                   <button
                     key={r.id}
@@ -3681,8 +3738,15 @@ export default function AdminPanel() {
                         {r.rental?.duration && (
                           <span className="history-chip">{r.rental.duration}</span>
                         )}
-                        {r.rental?.rentalFee && (
-                          <span className="history-chip history-chip-fee">{r.rental.rentalFee}</span>
+                        {r.rental?.coverage === 'outside_city' ? (
+                          <span className="history-chip">
+                            Outside city
+                            {r.rental?.outsideCityDestinationName
+                              ? ` · ${r.rental.outsideCityDestinationName}`
+                              : ''}
+                          </span>
+                        ) : (
+                          <span className="history-chip">Within city</span>
                         )}
                         {overdue ? (
                           <span
@@ -3694,6 +3758,42 @@ export default function AdminPanel() {
                             }
                           >
                             {overdue.label}
+                          </span>
+                        ) : null}
+                      </div>
+
+                      <div className="history-fee-breakdown">
+                        {cityFee ? (
+                          <span>
+                            Rent <strong>{cityFee}</strong>
+                          </span>
+                        ) : null}
+                        {driverFee ? (
+                          <span>
+                            Driver <strong>{driverFee}</strong>
+                            {r.rental?.driverBillableHours
+                              ? ` · ${r.rental.driverBillableHours}h`
+                              : ''}
+                          </span>
+                        ) : null}
+                        {outsideFee ? (
+                          <span>
+                            Outside <strong>{outsideFee}</strong>
+                          </span>
+                        ) : null}
+                        {charges.overdue > 0 ? (
+                          <span>
+                            Overdue <strong>{formatRentalFee(charges.overdue)}</strong>
+                          </span>
+                        ) : null}
+                        {charges.damage > 0 ? (
+                          <span>
+                            Damage <strong>{formatRentalFee(charges.damage)}</strong>
+                          </span>
+                        ) : null}
+                        {totalFee ? (
+                          <span className="history-fee-total">
+                            Total <strong>{totalFee}</strong>
                           </span>
                         ) : null}
                       </div>
