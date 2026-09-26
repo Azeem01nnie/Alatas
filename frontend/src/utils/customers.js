@@ -33,7 +33,7 @@ function isCompleteContactKey(key = '') {
 }
 
 function normalizeNameParts(person = {}) {
-  return [person.firstName, person.middleName, person.lastName]
+  return [person.firstName, person.middleName, person.lastName, person.suffix]
     .map((p) => String(p || '').trim().toUpperCase().replace(/\s+/g, ' '))
     .filter(Boolean)
 }
@@ -43,14 +43,14 @@ export function normalizePersonName(person = {}) {
 }
 
 function normalizeShortName(person = {}) {
-  return [person.firstName, person.lastName]
+  return [person.firstName, person.lastName, person.suffix]
     .map((p) => String(p || '').trim().toUpperCase().replace(/\s+/g, ' '))
     .filter(Boolean)
     .join(' ')
 }
 
 export function customerDisplayName(c) {
-  return [c?.firstName, c?.middleName, c?.lastName].filter(Boolean).join(' ').trim() || 'Customer'
+  return [c?.firstName, c?.middleName, c?.lastName, c?.suffix].filter(Boolean).join(' ').trim() || 'Customer'
 }
 
 /** Stable owner key: complete phone wins, otherwise full/short name. */
@@ -160,6 +160,7 @@ export function upsertCustomerFromPersonal(personal = {}, photos = {}) {
     firstName: String(personal.firstName || '').trim(),
     middleName: String(personal.middleName || '').trim(),
     lastName: String(personal.lastName || '').trim(),
+    suffix: String(personal.suffix || '').trim(),
     address: String(personal.address || '').trim(),
     contactNo,
     emergencyName: String(personal.emergencyName || '').trim(),

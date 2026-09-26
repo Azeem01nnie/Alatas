@@ -75,6 +75,7 @@ const initialPersonal = {
   firstName: '',
   middleName: '',
   lastName: '',
+  suffix: '',
   address: '',
   contactNo: '',
   emergencyName: '',
@@ -104,6 +105,7 @@ const AUTO_CAPITALIZE_KEYS = new Set([
   'firstName',
   'middleName',
   'lastName',
+  'suffix',
   'address',
   'emergencyName',
   'emergencyRelationOther',
@@ -540,6 +542,7 @@ export default function RentCarScreen() {
           firstName: safe(personal.firstName),
           middleName: safe(personal.middleName),
           lastName: safe(personal.lastName),
+          suffix: safe(personal.suffix),
           address: safe(personal.address),
           contactNo: safe(personal.contactNo),
           emergencyContact: formatEmergencyContact(personal),
@@ -772,6 +775,12 @@ export default function RentCarScreen() {
               style={inputErrorStyle('lastName')}
             />
             <FieldError message={errors.lastName} />
+            <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Suffix</Text>
+            <TextInput
+              value={personal.suffix}
+              onChangeText={(v) => updatePersonal('suffix', v)}
+              style={inputStyle}
+            />
             <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Address *</Text>
             <TextInput
               value={personal.address}
