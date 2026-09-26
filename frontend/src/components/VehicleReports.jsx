@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { jsPDF } from 'jspdf'
 import * as XLSX from 'xlsx'
-import { loadOwners } from '../utils/owners'
+import { addOwner, loadOwners, normalizeInvestorSharePercent } from '../utils/owners'
 import {
   REPORT_CATEGORIES,
   REPORT_STATUSES,
@@ -275,6 +275,86 @@ function OwnerEditModal({ owner, onSave, onClose }) {
   )
 }
 
+// ── Manage investor share (third-party owners) ────────────────────
+function InvestorManageModal({ owner, onSave, onClose }) {
+  const [percent, setPercent] = useState(() =>
+    String(normalizeInvestorSharePercent(owner?.investorSharePercent)),
+  )
+  const [error, setError] = useState('')
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    const n = Number(percent)
+    if (!Number.isFinite(n) || n < 0 || n > 100) {
+      setError('Enter a percentage between 0 and 100')
+      return
+    }
+    onSave(normalizeInvestorSharePercent(n))
+  }
+
+  const previewPct = normalizeInvestorSharePercent(percent, { fallback: 0 })
+  const companyPct = Math.round((100 - previewPct) * 100) / 100
+
+  return (
+    <div
+      className="modal-overlay confirm-modal-overlay reports-owner-edit-overlay"
+      role="presentation"
+      onClick={onClose}
+    >
+      <div
+        className="modal-panel reports-owner-edit-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="investor-manage-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="reports-owner-edit-header">
+          <div>
+            <p className="reports-owner-edit-eyebrow">Third-party investor</p>
+            <h3 id="investor-manage-title" className="modal-title">Manage Investor</h3>
+          </div>
+          <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
+            ×
+          </button>
+        </header>
+        <form className="reports-owner-edit-form" onSubmit={handleSubmit}>
+          <p className="reports-investor-copy">
+            Set how much of <strong>net earnings</strong> goes to{' '}
+            <strong>{owner?.name || 'the investor'}</strong>. The rest stays with the company.
+          </p>
+          <label className="field field-full">
+            <span className="field-label">Investor share (%)</span>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={percent}
+              onChange={(e) => {
+                setPercent(e.target.value)
+                setError('')
+              }}
+              autoFocus
+            />
+          </label>
+          <p className="reports-investor-split-hint">
+            Investor {previewPct}% · Company {companyPct}%
+          </p>
+          {error && <span className="error-msg">{error}</span>}
+          <div className="modal-actions reports-owner-edit-actions">
+            <button type="button" className="btn-outline confirm-cancel-btn" onClick={onClose}>
+              Cancel
+            </button>
+            <button type="submit" className="btn-primary">
+              Save share
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 // ── Table row with collapsible attachment ─────────────────────────
 function ReportTableRow({ row, onEdit, onDelete, onOpenRental, formatPeso }) {
   const [open, setOpen] = useState(false)
@@ -481,7 +561,9 @@ export default function VehicleReports({
   const [addModal, setAddModal] = useState(false)
   const [editRow, setEditRow] = useState(null)    // entry object or null
   const [editOwner, setEditOwner] = useState(null) // owner object or null
+  const [investorModal, setInvestorModal] = useState(false)
   const [deleteRow, setDeleteRow] = useState(null) // entry object or null
+  const [entriesExpanded, setEntriesExpanded] = useState(false)
 
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false)
   const downloadMenuRef = useRef(null)
@@ -541,6 +623,10 @@ export default function VehicleReports({
         id,
         name: o.name || 'Unknown owner',
         ownershipType: o.ownershipType === 'thirdParty' ? 'thirdParty' : 'company',
+        investorSharePercent:
+          o.ownershipType === 'thirdParty'
+            ? normalizeInvestorSharePercent(o.investorSharePercent)
+            : undefined,
         vehicleCount: 0,
       })
     })
@@ -552,11 +638,16 @@ export default function VehicleReports({
       if (!ownerKey) return
       if (!map.has(ownerKey)) {
         const fromStore = v.ownerId ? owners.find((o) => o.id === v.ownerId) : null
+        const ownershipType =
+          fromStore?.ownershipType || (v.ownershipType === 'thirdParty' ? 'thirdParty' : 'company')
         map.set(ownerKey, {
           id: v.ownerId || ownerKey,
           name: fromStore?.name || v.ownerName || 'Unknown owner',
-          ownershipType:
-            fromStore?.ownershipType || (v.ownershipType === 'thirdParty' ? 'thirdParty' : 'company'),
+          ownershipType: ownershipType === 'thirdParty' ? 'thirdParty' : 'company',
+          investorSharePercent:
+            ownershipType === 'thirdParty'
+              ? normalizeInvestorSharePercent(fromStore?.investorSharePercent)
+              : undefined,
           vehicleCount: 0,
         })
       }
@@ -627,7 +718,23 @@ export default function VehicleReports({
   }, [store.entries, rentals, selectedVehicleId, selectedVehicle, dateBounds])
 
   const totals = useMemo(() => summarizeReportAmounts(entries), [entries])
+  const isThirdPartyOwner = selectedOwner?.ownershipType === 'thirdParty'
+  const investorSharePercent = isThirdPartyOwner
+    ? normalizeInvestorSharePercent(selectedOwner?.investorSharePercent)
+    : 0
+  const investorEarning = isThirdPartyOwner
+    ? Math.round(totals.net * (investorSharePercent / 100) * 100) / 100
+    : 0
+  const companyEarning = isThirdPartyOwner
+    ? Math.round((totals.net - investorEarning) * 100) / 100
+    : totals.net
+  const visibleEntries = entriesExpanded ? entries : entries.slice(0, 5)
+  const hiddenEntryCount = Math.max(0, entries.length - 5)
   const monthKey = (dateBounds.from || new Date()).toISOString().slice(0, 7)
+
+  useEffect(() => {
+    setEntriesExpanded(false)
+  }, [selectedVehicleId, rangePreset, customFrom, customTo])
 
   const refresh = () => setStoreVersion((n) => n + 1)
 
@@ -703,6 +810,37 @@ export default function VehicleReports({
     setEditOwner(null)
   }
 
+  const handleInvestorSave = (sharePercent) => {
+    if (!selectedOwner || selectedOwner.ownershipType !== 'thirdParty') return
+    let ownerId = String(selectedOwner.id || '').trim()
+    if (!ownerId || ownerId.startsWith('name:')) {
+      const byName = loadOwners().find(
+        (o) =>
+          String(o.name || '').trim().toLowerCase() ===
+          String(selectedOwner.name || '').trim().toLowerCase(),
+      )
+      if (byName) {
+        ownerId = byName.id
+      } else {
+        const created = addOwner({
+          name: selectedOwner.name,
+          ownershipType: 'thirdParty',
+          investorSharePercent: sharePercent,
+        })
+        setOwners(loadOwners())
+        if (created?.id) setSelectedOwnerId(created.id)
+        setInvestorModal(false)
+        return
+      }
+    }
+    onOwnerUpdate?.(ownerId, {
+      ownershipType: 'thirdParty',
+      investorSharePercent: sharePercent,
+    })
+    setOwners(loadOwners())
+    setInvestorModal(false)
+  }
+
   const exportPdf = () => {
     if (!selectedVehicle) return
     const doc = new jsPDF({ unit: 'pt', format: 'a4' })
@@ -773,6 +911,20 @@ export default function VehicleReports({
     doc.text(`Costs (repairs / expenses): ${formatPesoPdf(totals.costs)}`, margin, y)
     y += 14
     doc.text(`Net earnings: ${formatPesoPdf(totals.net)}`, margin, y)
+    if (isThirdPartyOwner) {
+      y += 14
+      doc.text(
+        `Investor earning (${investorSharePercent}%): ${formatPesoPdf(investorEarning)}`,
+        margin,
+        y,
+      )
+      y += 14
+      doc.text(
+        `Company earning (${Math.round((100 - investorSharePercent) * 100) / 100}%): ${formatPesoPdf(companyEarning)}`,
+        margin,
+        y,
+      )
+    }
     doc.save(`Vehicle_Report_${selectedVehicle.plateNo || selectedVehicle.id}_${monthKey}.pdf`)
   }
 
@@ -818,6 +970,26 @@ export default function VehicleReports({
       Status: '',
       'Recorded by': '',
     })
+    if (isThirdPartyOwner) {
+      rows.push({
+        Date: '',
+        Type: '',
+        Category: '',
+        Description: `INVESTOR EARNING (${investorSharePercent}%)`,
+        Amount: investorEarning,
+        Status: '',
+        'Recorded by': '',
+      })
+      rows.push({
+        Date: '',
+        Type: '',
+        Category: '',
+        Description: `COMPANY EARNING (${Math.round((100 - investorSharePercent) * 100) / 100}%)`,
+        Amount: companyEarning,
+        Status: '',
+        'Recorded by': '',
+      })
+    }
     const sheet = XLSX.utils.json_to_sheet(rows)
     const book = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(book, sheet, 'Report')
@@ -937,6 +1109,16 @@ export default function VehicleReports({
                 Add Entry
               </button>
 
+              {isThirdPartyOwner && (
+                <button
+                  type="button"
+                  className="btn-outline"
+                  onClick={() => setInvestorModal(true)}
+                >
+                  Manage Investor
+                </button>
+              )}
+
               {/* Downloadables dropdown */}
               <div className="reports-download-wrap" ref={downloadMenuRef}>
                 <button
@@ -1027,7 +1209,7 @@ export default function VehicleReports({
                     <td colSpan={7} className="empty-state">No entries for this filter.</td>
                   </tr>
                 )}
-                {entries.map((row) => (
+                {visibleEntries.map((row) => (
                   <ReportTableRow
                     key={row.id}
                     row={row}
@@ -1037,6 +1219,21 @@ export default function VehicleReports({
                     onOpenRental={handleOpenRentalRow}
                   />
                 ))}
+                {hiddenEntryCount > 0 && (
+                  <tr className="reports-see-more-row">
+                    <td colSpan={7}>
+                      <button
+                        type="button"
+                        className="btn-ghost reports-see-more-btn"
+                        onClick={() => setEntriesExpanded((v) => !v)}
+                      >
+                        {entriesExpanded
+                          ? 'See less'
+                          : `See more (${hiddenEntryCount} more)`}
+                      </button>
+                    </td>
+                  </tr>
+                )}
               </tbody>
               <tfoot>
                 <tr className="reports-total-row">
@@ -1061,6 +1258,34 @@ export default function VehicleReports({
                   <td className="col-status" />
                   <td className="col-actions" />
                 </tr>
+                {isThirdPartyOwner && (
+                  <>
+                    <tr className="reports-total-row reports-total-split">
+                      <td colSpan={4}>
+                        Investor earning ({investorSharePercent}%)
+                      </td>
+                      <td
+                        className={`col-amount${investorEarning < 0 ? ' is-cost' : ' is-income'}`}
+                      >
+                        {formatPeso(investorEarning)}
+                      </td>
+                      <td className="col-status" />
+                      <td className="col-actions" />
+                    </tr>
+                    <tr className="reports-total-row reports-total-split">
+                      <td colSpan={4}>
+                        Company earning ({Math.round((100 - investorSharePercent) * 100) / 100}%)
+                      </td>
+                      <td
+                        className={`col-amount${companyEarning < 0 ? ' is-cost' : ' is-income'}`}
+                      >
+                        {formatPeso(companyEarning)}
+                      </td>
+                      <td className="col-status" />
+                      <td className="col-actions" />
+                    </tr>
+                  </>
+                )}
               </tfoot>
             </table>
           </div>
@@ -1092,6 +1317,15 @@ export default function VehicleReports({
           owner={editOwner}
           onClose={() => setEditOwner(null)}
           onSave={handleOwnerSave}
+        />
+      )}
+
+      {/* ── Manage Investor Modal ── */}
+      {investorModal && selectedOwner && (
+        <InvestorManageModal
+          owner={selectedOwner}
+          onClose={() => setInvestorModal(false)}
+          onSave={handleInvestorSave}
         />
       )}
 

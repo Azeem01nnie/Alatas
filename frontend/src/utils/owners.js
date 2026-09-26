@@ -7,6 +7,27 @@ function autoCapitalizeWords(value) {
   return String(value ?? '').toUpperCase()
 }
 
+/** Investor cut of net earnings (0–100). Used for third-party owners only. */
+export function normalizeInvestorSharePercent(value, { fallback = 50 } = {}) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(100, Math.max(0, Math.round(n * 100) / 100))
+}
+
+function withOwnerFields(o) {
+  const ownershipType = o?.ownershipType === 'thirdParty' ? 'thirdParty' : 'company'
+  const next = {
+    id: String(o?.id || '').trim(),
+    name: autoCapitalizeWords(String(o?.name || '').trim()),
+    ownershipType,
+    createdAt: o?.createdAt || new Date().toISOString(),
+  }
+  if (ownershipType === 'thirdParty') {
+    next.investorSharePercent = normalizeInvestorSharePercent(o?.investorSharePercent)
+  }
+  return next
+}
+
 export function loadOwners() {
   try {
     const raw = localStorage.getItem(OWNERS_KEY)
@@ -35,22 +56,20 @@ export function mergeOwnerLists(localList = [], remoteList = []) {
 
   const upsert = (o) => {
     if (!o || typeof o !== 'object') return
-    const id = String(o.id || '').trim()
-    const name = autoCapitalizeWords(String(o.name || '').trim())
+    const next = withOwnerFields(o)
+    const id = next.id
+    const name = next.name
     if (!id || !name) return
-    const next = {
-      id,
-      name,
-      ownershipType: o.ownershipType === 'thirdParty' ? 'thirdParty' : 'company',
-      createdAt: o.createdAt || new Date().toISOString(),
-    }
     const existingByName = byName.get(name.toLowerCase())
     if (existingByName && existingByName.id !== id) {
-      // Prefer the first id we saw; keep latest name/type
+      // Prefer the first id we saw; keep latest name/type/share
       byId.set(existingByName.id, {
         ...existingByName,
         name,
         ownershipType: next.ownershipType,
+        ...(next.ownershipType === 'thirdParty'
+          ? { investorSharePercent: next.investorSharePercent }
+          : { investorSharePercent: undefined }),
       })
       return
     }
@@ -80,7 +99,7 @@ export async function pullOwnersFromCloud() {
   }
 }
 
-export function addOwner({ name, ownershipType = 'company' }) {
+export function addOwner({ name, ownershipType = 'company', investorSharePercent } = {}) {
   const trimmed = autoCapitalizeWords(String(name || '').trim())
   if (!trimmed) throw new Error('Owner name is required')
 
@@ -90,11 +109,15 @@ export function addOwner({ name, ownershipType = 'company' }) {
   )
   if (existing) return existing
 
+  const type = ownershipType === 'thirdParty' ? 'thirdParty' : 'company'
   const owner = {
     id: `own_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
     name: trimmed,
-    ownershipType: ownershipType === 'thirdParty' ? 'thirdParty' : 'company',
+    ownershipType: type,
     createdAt: new Date().toISOString(),
+  }
+  if (type === 'thirdParty') {
+    owner.investorSharePercent = normalizeInvestorSharePercent(investorSharePercent)
   }
   const next = [...owners, owner]
   saveOwners(next)
@@ -105,17 +128,28 @@ export function updateOwner(id, patch) {
   const owners = loadOwners()
   const next = owners.map((o) => {
     if (o.id !== id) return o
-    return {
+    const ownershipType =
+      patch.ownershipType === 'thirdParty'
+        ? 'thirdParty'
+        : patch.ownershipType === 'company'
+          ? 'company'
+          : o.ownershipType
+    const merged = {
       ...o,
       ...patch,
       name: patch.name != null ? autoCapitalizeWords(String(patch.name).trim()) : o.name,
-      ownershipType:
-        patch.ownershipType === 'thirdParty'
-          ? 'thirdParty'
-          : patch.ownershipType === 'company'
-            ? 'company'
-            : o.ownershipType,
+      ownershipType,
     }
+    if (ownershipType === 'thirdParty') {
+      merged.investorSharePercent = normalizeInvestorSharePercent(
+        patch.investorSharePercent != null
+          ? patch.investorSharePercent
+          : o.investorSharePercent,
+      )
+    } else {
+      delete merged.investorSharePercent
+    }
+    return merged
   })
   saveOwners(next)
   return next.find((o) => o.id === id) || null
@@ -153,7 +187,20 @@ export function syncOwnersFromVehicles(vehicles = []) {
           byId.ownershipType !== ownershipType
         ) {
           owners = owners.map((o) =>
-            o.id === id ? { ...o, name, ownershipType } : o,
+            o.id === id
+              ? {
+                  ...o,
+                  name,
+                  ownershipType,
+                  ...(ownershipType === 'thirdParty'
+                    ? {
+                        investorSharePercent: normalizeInvestorSharePercent(
+                          o.investorSharePercent,
+                        ),
+                      }
+                    : { investorSharePercent: undefined }),
+                }
+              : o,
           )
           changed = true
         }
@@ -163,7 +210,21 @@ export function syncOwnersFromVehicles(vehicles = []) {
       if (byName) {
         // Prefer the vehicle's ownerId so dropdown value matches saved vehicles.
         owners = owners.map((o) =>
-          o.id === byName.id ? { ...o, id, name, ownershipType } : o,
+          o.id === byName.id
+            ? {
+                ...o,
+                id,
+                name,
+                ownershipType,
+                ...(ownershipType === 'thirdParty'
+                  ? {
+                      investorSharePercent: normalizeInvestorSharePercent(
+                        o.investorSharePercent,
+                      ),
+                    }
+                  : { investorSharePercent: undefined }),
+              }
+            : o,
         )
         changed = true
         continue
@@ -175,6 +236,9 @@ export function syncOwnersFromVehicles(vehicles = []) {
           name,
           ownershipType,
           createdAt: new Date().toISOString(),
+          ...(ownershipType === 'thirdParty'
+            ? { investorSharePercent: normalizeInvestorSharePercent(undefined) }
+            : {}),
         },
       ]
       changed = true
@@ -189,6 +253,9 @@ export function syncOwnersFromVehicles(vehicles = []) {
           name,
           ownershipType,
           createdAt: new Date().toISOString(),
+          ...(ownershipType === 'thirdParty'
+            ? { investorSharePercent: normalizeInvestorSharePercent(undefined) }
+            : {}),
         },
       ]
       changed = true

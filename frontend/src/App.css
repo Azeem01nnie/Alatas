@@ -11930,6 +11930,40 @@ html[data-theme='dark'] .transaction-collapse-toggle {
   font-size: 0.95rem;
 }
 
+.reports-table tfoot tr.reports-total-split td {
+  font-weight: 600;
+  background: var(--bg);
+}
+
+.reports-see-more-row td {
+  text-align: center;
+  padding: 0.45rem 0.65rem !important;
+  border-bottom: none;
+  background: transparent;
+}
+
+.reports-see-more-btn {
+  width: 100%;
+  justify-content: center;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--brand);
+}
+
+.reports-investor-copy {
+  margin: 0 0 0.85rem;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: var(--muted, #5b6472);
+}
+
+.reports-investor-split-hint {
+  margin: -0.25rem 0 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
 .reports-table .col-amount.is-income {
   color: #1f6b3a;
 }
