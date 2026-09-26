@@ -378,8 +378,11 @@ export default function EmployeesPanel() {
                       {emp.active ? 'Active' : 'Inactive'}
                     </span>
                   </div>
-                  <span>@{emp.username}</span>
-                  <span>{emp.phone || 'No phone'}</span>
+                  <span className="employees-meta-line">
+                    @{emp.username}
+                    <span aria-hidden="true"> · </span>
+                    {emp.phone || 'No phone'}
+                  </span>
                 </div>
               </div>
               <div className="employees-row-actions">
@@ -522,25 +525,62 @@ export default function EmployeesPanel() {
       )}
 
       {selected && (
-        <div className="employees-modal-backdrop" role="presentation" onClick={() => setSelected(null)}>
-          <div className="employees-modal" onClick={(e) => e.stopPropagation()}>
-            <header className="employees-modal-head">
-              <h4>Manage {selected.name}</h4>
-              <button type="button" className="btn-ghost btn-sm" onClick={() => setSelected(null)}>
-                Close
+        <div
+          className="employees-modal-backdrop"
+          role="presentation"
+          onClick={() => setSelected(null)}
+        >
+          <div
+            className="employees-modal employees-manage-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="employees-manage-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <header className="employees-manage-hero">
+              <div className="employees-manage-hero-main">
+                <div className="employees-manage-avatar" aria-hidden="true">
+                  {(selected.name || '?').slice(0, 1).toUpperCase()}
+                </div>
+                <div className="employees-manage-identity">
+                  <div className="employees-manage-title-row">
+                    <h4 id="employees-manage-title">{selected.name}</h4>
+                    <span
+                      className={`employees-status${selected.active ? ' is-active' : ''}`}
+                    >
+                      {selected.active ? 'Active' : 'Inactive'}
+                    </span>
+                  </div>
+                  <p className="employees-manage-sub">
+                    @{selected.username}
+                    <span aria-hidden="true"> · </span>
+                    {selected.phone || 'No phone'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setSelected(null)}
+                aria-label="Close"
+              >
+                ×
               </button>
             </header>
 
-            <p className="employees-manage-sub">@{selected.username} · {selected.phone || 'No phone'}</p>
-
-            <div className="employees-manage-block">
-              <h5>Role</h5>
-              <div className="employees-role-options">
+            <section className="employees-manage-section">
+              <div className="employees-manage-section-head">
+                <h5>Role</h5>
+                <p>Controls what this person can do on the desk.</p>
+              </div>
+              <div className="employees-role-segment" role="group" aria-label="Employee role">
                 {ROLES.map((role) => (
                   <button
                     key={role}
                     type="button"
-                    className={`employees-role-option${roleDraft === role ? ' is-active' : ''}`}
+                    className={`employees-role-segment-btn${
+                      roleDraft === role ? ' is-active' : ''
+                    }`}
                     onClick={() => setRoleDraft(role)}
                   >
                     {role}
@@ -549,56 +589,70 @@ export default function EmployeesPanel() {
               </div>
               <button
                 type="button"
-                className="btn-outline btn-sm"
+                className="btn-primary btn-sm employees-manage-action"
                 disabled={busyId === selected.id || roleDraft === selected.role}
                 onClick={handleRoleSave}
               >
-                Save role
+                {busyId === selected.id ? 'Saving…' : 'Save role'}
               </button>
-            </div>
+            </section>
 
-            <div className="employees-manage-block">
-              <h5>Reset password</h5>
-              <PasswordField
-                label="New password"
-                value={passwordDraft.password}
-                onChange={(e) =>
-                  setPasswordDraft((prev) => ({ ...prev, password: e.target.value }))
-                }
-                visible={showResetPassword}
-                onToggleVisible={() => setShowResetPassword((v) => !v)}
-                showStrength
-              />
-              <PasswordField
-                label="Confirm"
-                value={passwordDraft.confirm}
-                onChange={(e) =>
-                  setPasswordDraft((prev) => ({ ...prev, confirm: e.target.value }))
-                }
-                visible={showResetConfirm}
-                onToggleVisible={() => setShowResetConfirm((v) => !v)}
-              />
+            <section className="employees-manage-section">
+              <div className="employees-manage-section-head">
+                <h5>Password</h5>
+                <p>Set a new login password for mobile and desk access.</p>
+              </div>
+              <div className="employees-manage-password-grid">
+                <PasswordField
+                  label="New password"
+                  value={passwordDraft.password}
+                  onChange={(e) =>
+                    setPasswordDraft((prev) => ({ ...prev, password: e.target.value }))
+                  }
+                  visible={showResetPassword}
+                  onToggleVisible={() => setShowResetPassword((v) => !v)}
+                  showStrength
+                />
+                <PasswordField
+                  label="Confirm password"
+                  value={passwordDraft.confirm}
+                  onChange={(e) =>
+                    setPasswordDraft((prev) => ({ ...prev, confirm: e.target.value }))
+                  }
+                  visible={showResetConfirm}
+                  onToggleVisible={() => setShowResetConfirm((v) => !v)}
+                />
+              </div>
               <button
                 type="button"
-                className="btn-outline btn-sm"
+                className="btn-outline btn-sm employees-manage-action"
                 disabled={busyId === selected.id}
                 onClick={handlePasswordSave}
               >
                 Update password
               </button>
-            </div>
+            </section>
 
-            <div className="employees-manage-block">
-              <h5>Access</h5>
+            <section className="employees-manage-section employees-manage-danger">
+              <div className="employees-manage-section-head">
+                <h5>Account access</h5>
+                <p>
+                  {selected.active
+                    ? 'Deactivating blocks sign-in but keeps their record.'
+                    : 'This account is inactive and cannot sign in.'}
+                </p>
+              </div>
               <button
                 type="button"
-                className="btn-outline btn-sm"
+                className={`btn-sm employees-manage-action${
+                  selected.active ? ' btn-danger-outline' : ' btn-outline'
+                }`}
                 disabled={busyId === selected.id}
                 onClick={() => handleToggleActive(selected)}
               >
                 {selected.active ? 'Deactivate account' : 'Activate account'}
               </button>
-            </div>
+            </section>
           </div>
         </div>
       )}

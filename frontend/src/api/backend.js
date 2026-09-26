@@ -1544,6 +1544,136 @@ export async function clearRentalsData() {
   }
 }
 
+/**
+ * Wipe only the selected desk data categories on Supabase.
+ * @param {string[]} scopes — vehicles | rentals | owners | reports | employees | rates | settings
+ */
+export async function clearAppDataSelective(scopes = []) {
+  const selected = new Set((scopes || []).map(String))
+  if (!selected.size) {
+    throw new Error('Select at least one data category to clear.')
+  }
+
+  // Vehicles imply rentals for referential consistency.
+  if (selected.has('vehicles')) selected.add('rentals')
+
+  const sb = requireSupabase()
+  const {
+    data: { session },
+  } = await sb.auth.getSession()
+  if (!session?.access_token) {
+    throw new Error('Not signed in to Supabase. Sign in as admin and try Clear data again.')
+  }
+
+  const result = {
+    ok: true,
+    rentalsDeleted: 0,
+    vehiclesDeleted: 0,
+    employeesDeleted: 0,
+    storageObjectsDeleted: 0,
+  }
+
+  if (selected.has('rentals')) {
+    result.rentalsDeleted = await deleteAllRowsById(sb, 'rentals')
+    result.storageObjectsDeleted += await clearStorageBucket(sb, 'rentals')
+    if (!selected.has('vehicles')) {
+      const { error: statusErr } = await sb
+        .from('vehicles')
+        .update({ status: 'Available', updated_at: new Date().toISOString() })
+        .neq('id', '')
+      if (statusErr) {
+        console.warn('Could not reset vehicle statuses after rental clear', statusErr)
+      }
+    }
+  }
+
+  if (selected.has('vehicles')) {
+    result.vehiclesDeleted = await deleteAllRowsById(sb, 'vehicles')
+    result.storageObjectsDeleted += await clearStorageBucket(sb, 'vehicles')
+  }
+
+  if (selected.has('employees')) {
+    const {
+      data: { user },
+    } = await sb.auth.getUser()
+    const currentUserId = user?.id || null
+    const { data: employees, error: empListErr } = await sb
+      .from('employees')
+      .select('id, username, auth_user_id, role')
+    if (empListErr) throwSb(empListErr)
+    const toDelete = (employees || []).filter((row) => !isPreservedAdminEmployee(row, currentUserId))
+    if (toDelete.length) {
+      const { error: empDelErr } = await sb
+        .from('employees')
+        .delete()
+        .in(
+          'id',
+          toDelete.map((row) => row.id),
+        )
+      if (empDelErr) throwSb(empDelErr)
+      result.employeesDeleted = toDelete.length
+    }
+  }
+
+  if (selected.has('reports')) {
+    const { error: reportsErr } = await sb.from('app_settings').upsert({
+      key: 'vehicle_reports',
+      value: { entries: [], submissions: [] },
+      updated_at: new Date().toISOString(),
+    })
+    if (reportsErr) throwSb(reportsErr)
+    const { error: deskExpErr } = await sb.from('app_settings').upsert({
+      key: 'desk_expenses',
+      value: { entries: [] },
+      updated_at: new Date().toISOString(),
+    })
+    if (deskExpErr) throwSb(deskExpErr)
+    result.storageObjectsDeleted += await clearStorageBucket(sb, 'reports')
+  }
+
+  if (selected.has('owners')) {
+    const { error } = await sb.from('app_settings').upsert({
+      key: 'owners',
+      value: { owners: [] },
+      updated_at: new Date().toISOString(),
+    })
+    if (error) throwSb(error)
+  }
+
+  if (selected.has('rates')) {
+    const stamp = new Date().toISOString()
+    const { error: destErr } = await sb.from('app_settings').upsert({
+      key: 'outside_city_destinations',
+      value: { destinations: [] },
+      updated_at: stamp,
+    })
+    if (destErr) console.warn('Could not clear outside_city_destinations', destErr)
+    const { error: wageErr } = await sb.from('app_settings').upsert({
+      key: 'driver_wage',
+      value: {},
+      updated_at: stamp,
+    })
+    if (wageErr) console.warn('Could not clear driver_wage', wageErr)
+  }
+
+  if (selected.has('settings')) {
+    // Keep structure; wipe profile photo/name to defaults on the client.
+    // Do not wipe system_settings entirely — client resets local theme/profile.
+  }
+
+  if (selected.has('vehicles') || selected.has('rentals')) {
+    const rentalsLeft = selected.has('rentals') ? await countRows(sb, 'rentals') : 0
+    const vehiclesLeft = selected.has('vehicles') ? await countRows(sb, 'vehicles') : 0
+    if (rentalsLeft > 0 || vehiclesLeft > 0) {
+      throw new Error(
+        `Clear incomplete on Supabase (${vehiclesLeft} vehicles, ${rentalsLeft} rentals still remain).`,
+      )
+    }
+  }
+
+  return result
+}
+
 export function fetchEmployees() {
   const sb = requireSupabase()
   return sb
@@ -1573,7 +1703,15 @@ export async function createEmployee(employee) {
     p_role: employee.role || 'Staff',
     p_password: password,
   })
-  if (error) throwSb(error)
+  if (error) {
+    const msg = String(error?.message || '')
+    if (/login email already exists/i.test(msg) || /username already exists/i.test(msg)) {
+      throw new Error(
+        'That username is already taken. Pick a different username, or remove the old employee first.',
+      )
+    }
+    throwSb(error)
+  }
   return mapEmployee(data)
 }
 
@@ -1614,8 +1752,14 @@ export async function updateEmployee(id, patch) {
 
 export async function deleteEmployee(id) {
   const sb = requireSupabase()
-  const { error } = await sb.from('employees').delete().eq('id', String(id))
-  if (error) throwSb(error)
+  const { error } = await sb.rpc('delete_employee_with_auth', {
+    p_employee_id: String(id),
+  })
+  if (error) {
+    // Fallback for projects that have not applied migration 010 yet
+    const { error: delError } = await sb.from('employees').delete().eq('id', String(id))
+    if (delError) throwSb(error)
+  }
   return { ok: true }
 }
 

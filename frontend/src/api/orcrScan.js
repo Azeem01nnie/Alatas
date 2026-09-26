@@ -27,16 +27,23 @@ function hasAnyField(fields) {
 }
 
 /**
- * Prefer Gemini via Supabase Edge Function; fall back to local Tesseract OCR.
+ * Scan OR/CR with Document AI / Gemini (cloud) or Tesseract (local).
  * @param {string} dataUrl
  * @param {(n: number) => void} [onProgress]
  * @param {'cr'|'or'|'auto'} [hint]
- * @returns {Promise<{ rawText?: string, fields: object, source: 'gemini'|'tesseract' }>}
+ * @param {'document-ai'|'gemini'|'tesseract'} [engine]
  */
-export async function scanOrcrDocument(dataUrl, onProgress, hint = 'auto') {
+export async function scanOrcrDocument(
+  dataUrl,
+  onProgress,
+  hint = 'auto',
+  engine = 'document-ai',
+) {
   const progress = typeof onProgress === 'function' ? onProgress : () => {}
+  const useTesseract = engine === 'tesseract'
+  const cloudEngine = engine === 'gemini' ? 'gemini' : 'document-ai'
 
-  if (isSupabaseConfigured) {
+  if (!useTesseract && isSupabaseConfigured) {
     try {
       progress(8)
       const { mimeType, imageBase64 } = parseDataUrl(dataUrl)
@@ -49,6 +56,7 @@ export async function scanOrcrDocument(dataUrl, onProgress, hint = 'auto') {
           imageBase64,
           mimeType,
           hint: hint === 'or' || hint === 'cr' ? hint : 'auto',
+          engine: cloudEngine,
         },
       })
       progress(70)
@@ -56,23 +64,45 @@ export async function scanOrcrDocument(dataUrl, onProgress, hint = 'auto') {
       if (error) throw error
       if (data?.error) throw new Error(String(data.error))
 
-      const fields = data?.fields || {}
-      if (hasAnyField(fields)) {
-        progress(100)
-        return { fields, source: 'gemini', rawText: '' }
+      let fields = data?.fields || {}
+      const rawText = String(data?.rawText || '')
+      const cloudSource =
+        data?.source === 'document-ai'
+          ? 'document-ai'
+          : data?.source === 'gemini'
+            ? 'gemini'
+            : 'document-ai'
+
+      const { parseOrCrText, mergeScanFields, sanitizeScanFields } = await import(
+        '../utils/orcrOcr'
+      )
+      fields = sanitizeScanFields(fields)
+      if (rawText) {
+        const mined = parseOrCrText(rawText, hint)
+        fields = mergeScanFields(fields, mined)
       }
-      console.warn('[orcrScan] Gemini returned no fields; falling back to Tesseract')
+      fields = sanitizeScanFields(fields)
+
+      if (hasAnyField(fields) || rawText) {
+        progress(100)
+        return {
+          fields: fields || {},
+          source: cloudSource,
+          rawText,
+        }
+      }
+      console.warn('[orcrScan] Cloud scan returned no fields; falling back to Tesseract')
     } catch (err) {
-      console.warn('[orcrScan] Gemini scan unavailable, using Tesseract', err)
+      console.warn('[orcrScan] Cloud scan unavailable, using Tesseract', err)
     }
   }
 
   progress(20)
-  const { scanOrcrImage } = await import('../utils/orcrOcr')
+  const { scanOrcrImage, sanitizeScanFields } = await import('../utils/orcrOcr')
   const local = await scanOrcrImage(dataUrl, progress, hint)
   return {
     ...local,
-    fields: local?.fields || {},
+    fields: sanitizeScanFields(local?.fields || {}),
     source: 'tesseract',
   }
 }

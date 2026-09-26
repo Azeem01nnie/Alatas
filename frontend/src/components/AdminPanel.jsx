@@ -84,7 +84,7 @@ import {
   resolveRentalTotalCharges,
 } from '../utils/rentalFee'
 import { buildDeskDashboardMetrics } from '../utils/deskMetrics'
-import { fetchSystemStatus, runCloudSync, saveAdminProfileRemote, clearAllAppData, clearRentalsData } from '../api/backend'
+import { fetchSystemStatus, runCloudSync, saveAdminProfileRemote, clearAllAppData, clearAppDataSelective, clearRentalsData } from '../api/backend'
 import { requireSupabase } from '../api/supabaseClient'
 import { CLOUD_SYNC_ENABLED, isCloudConfigured } from '../api/cloudSync'
 import { clearVehicleReportsEverywhere } from '../api/vehicleReportsApi'
@@ -108,6 +108,7 @@ import {
   sanitizeUserText,
   SECURITY_FEATURES,
 } from '../utils/security'
+import DataScopeModal, { ALL_DOWNLOAD_SCOPE_IDS } from './DataScopeModal'
 
 const PROFILE_KEY = 'alatas-admin-profile'
 const SYSTEM_SETTINGS_KEY = 'alatas-admin-system-settings'
@@ -117,6 +118,8 @@ function sanitizePlateNo(value) {
   return String(value || '')
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, '')
+    // Common OCR: leading S for 5 on plates like 519WLL
+    .replace(/^S(?=\d{2}[A-Z]{2,3}$)/, '5')
     .slice(0, PLATE_MAX)
 }
 
@@ -757,6 +760,28 @@ export default function AdminPanel() {
   const [orcrProgress, setOrcrProgress] = useState(0)
   const [orcrTarget, setOrcrTarget] = useState(null) // 'add' | 'edit' | null
   const [orcrDocHint, setOrcrDocHint] = useState(null) // 'cr' | 'or' | null
+  const [orcrEngine, setOrcrEngine] = useState(() => {
+    try {
+      const saved = localStorage.getItem('alatas_orcr_engine')
+      if (saved === 'tesseract' || saved === 'gemini' || saved === 'document-ai') {
+        return saved
+      }
+      // Migrate old default
+      return 'document-ai'
+    } catch {
+      return 'document-ai'
+    }
+  })
+  const setOrcrEnginePersist = (engine) => {
+    const next =
+      engine === 'tesseract' || engine === 'gemini' ? engine : 'document-ai'
+    setOrcrEngine(next)
+    try {
+      localStorage.setItem('alatas_orcr_engine', next)
+    } catch {
+      /* ignore */
+    }
+  }
   const crFileRef = useRef(null)
   const orFileRef = useRef(null)
   const crEditFileRef = useRef(null)
@@ -815,6 +840,8 @@ export default function AdminPanel() {
   const importDataRef = useRef(null)
   const [dataMessage, setDataMessage] = useState('')
   const [dataBusy, setDataBusy] = useState(false)
+  const [dataScopeModal, setDataScopeModal] = useState(null) // 'download' | 'clear' | null
+  const [pendingClearScopes, setPendingClearScopes] = useState([])
   const [syncBusy, setSyncBusy] = useState(false)
   const [syncMessage, setSyncMessage] = useState('')
 
@@ -997,21 +1024,45 @@ export default function AdminPanel() {
     window.setTimeout(() => setProfileMessage(''), 2200)
   }
 
-  const downloadAppData = () => {
+  const downloadAppData = (scopes = ALL_DOWNLOAD_SCOPE_IDS) => {
     try {
+      const selected = new Set(scopes || [])
+      if (!selected.size) {
+        setDataMessage('Select at least one category to download.')
+        return
+      }
       const payload = {
         version: 2,
         app: 'alatas-car-rental',
         exportedAt: new Date().toISOString(),
-        vehicles,
-        rentals,
-        owners: loadOwners(),
-        archivedVehicles: loadArchivedVehicles(),
-        vehicleReports: loadReportStore(),
-        outsideCityDestinations: loadOutsideCityDestinations(),
-        driverWage: loadDriverWageSettings(),
-        systemSettings,
-        adminProfile: profile,
+        scopes: [...selected],
+      }
+      if (selected.has('vehicles')) {
+        payload.vehicles = vehicles
+        payload.archivedVehicles = loadArchivedVehicles()
+      }
+      if (selected.has('rentals')) {
+        payload.rentals = rentals
+      }
+      if (selected.has('owners')) {
+        payload.owners = loadOwners()
+      }
+      if (selected.has('reports')) {
+        payload.vehicleReports = loadReportStore()
+        try {
+          const deskRaw = localStorage.getItem('alatas-desk-expenses-v1')
+          payload.deskExpenses = deskRaw ? JSON.parse(deskRaw) : { entries: [] }
+        } catch {
+          payload.deskExpenses = { entries: [] }
+        }
+      }
+      if (selected.has('rates')) {
+        payload.outsideCityDestinations = loadOutsideCityDestinations()
+        payload.driverWage = loadDriverWageSettings()
+      }
+      if (selected.has('settings')) {
+        payload.systemSettings = systemSettings
+        payload.adminProfile = profile
       }
       const blob = new Blob([JSON.stringify(payload, null, 2)], {
         type: 'application/json',
@@ -1019,17 +1070,30 @@ export default function AdminPanel() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       const stamp = new Date().toISOString().slice(0, 10)
+      const partial = selected.size < ALL_DOWNLOAD_SCOPE_IDS.length
       a.href = url
-      a.download = `alatas-backup-${stamp}.json`
+      a.download = partial
+        ? `alatas-backup-partial-${stamp}.json`
+        : `alatas-backup-${stamp}.json`
       document.body.appendChild(a)
       a.click()
       a.remove()
       URL.revokeObjectURL(url)
-      setDataMessage('Backup downloaded.')
+      setDataScopeModal(null)
+      setDataMessage(
+        partial
+          ? `Backup downloaded (${selected.size} categor${selected.size === 1 ? 'y' : 'ies'}).`
+          : 'Backup downloaded.',
+      )
       window.setTimeout(() => setDataMessage(''), 2500)
     } catch {
       setDataMessage('Could not download backup.')
     }
+  }
+
+  const requestDownloadData = () => {
+    if (!isAdminUser) return
+    setDataScopeModal('download')
   }
 
   const importAppData = async (file) => {
@@ -1042,47 +1106,95 @@ export default function AdminPanel() {
       if (!parsed || typeof parsed !== 'object') {
         throw new Error('Invalid backup file')
       }
-      if (!Array.isArray(parsed.vehicles) || !Array.isArray(parsed.rentals)) {
-        throw new Error('Backup must include vehicles and rentals arrays')
-      }
 
-      await replaceAllData({
-        vehicles: parsed.vehicles,
-        rentals: parsed.rentals,
-      })
-
-      const nextOwners = Array.isArray(parsed.owners) ? parsed.owners : []
-      try {
-        localStorage.setItem('alatas-owners', JSON.stringify(nextOwners))
-      } catch {
-        /* ignore quota */
-      }
-      setOwners(nextOwners)
-
-      const nextArchived = Array.isArray(parsed.archivedVehicles)
-        ? parsed.archivedVehicles
-        : []
-      saveArchivedVehicles(nextArchived)
-      setArchivedVehicles(nextArchived)
-
-      const nextReports =
+      const hasVehicles = Array.isArray(parsed.vehicles)
+      const hasRentals = Array.isArray(parsed.rentals)
+      const hasOwners = Array.isArray(parsed.owners)
+      const hasArchived = Array.isArray(parsed.archivedVehicles)
+      const hasReports =
         parsed.vehicleReports && typeof parsed.vehicleReports === 'object'
-          ? {
-              entries: Array.isArray(parsed.vehicleReports.entries)
-                ? parsed.vehicleReports.entries
-                : [],
-              submissions: Array.isArray(parsed.vehicleReports.submissions)
-                ? parsed.vehicleReports.submissions
-                : [],
-            }
-          : { entries: [], submissions: [] }
-      try {
-        localStorage.setItem('alatas-vehicle-reports', JSON.stringify(nextReports))
-      } catch {
-        /* ignore quota */
+      const hasDeskExpenses =
+        parsed.deskExpenses && typeof parsed.deskExpenses === 'object'
+      const hasSettings =
+        parsed.systemSettings && typeof parsed.systemSettings === 'object'
+      const hasProfile =
+        parsed.adminProfile && typeof parsed.adminProfile === 'object'
+      const hasDestinations = Array.isArray(parsed.outsideCityDestinations)
+      const hasDriverWage =
+        parsed.driverWage && typeof parsed.driverWage === 'object'
+
+      const importedParts = []
+
+      if (
+        !hasVehicles &&
+        !hasRentals &&
+        !hasOwners &&
+        !hasArchived &&
+        !hasReports &&
+        !hasDeskExpenses &&
+        !hasSettings &&
+        !hasProfile &&
+        !hasDestinations &&
+        !hasDriverWage
+      ) {
+        throw new Error('Backup file has no recognized data to import.')
       }
 
-      if (parsed.systemSettings && typeof parsed.systemSettings === 'object') {
+      if (hasVehicles || hasRentals) {
+        await replaceAllData({
+          vehicles: hasVehicles ? parsed.vehicles : vehicles,
+          rentals: hasRentals ? parsed.rentals : rentals,
+        })
+        if (hasVehicles) importedParts.push(`${parsed.vehicles.length} vehicles`)
+        if (hasRentals) importedParts.push(`${parsed.rentals.length} rentals`)
+      }
+
+      if (hasOwners) {
+        try {
+          localStorage.setItem('alatas-owners', JSON.stringify(parsed.owners))
+        } catch {
+          /* ignore quota */
+        }
+        setOwners(parsed.owners)
+        importedParts.push('owners')
+      }
+
+      if (hasArchived) {
+        saveArchivedVehicles(parsed.archivedVehicles)
+        setArchivedVehicles(parsed.archivedVehicles)
+        if (!hasVehicles) importedParts.push('archived vehicles')
+      }
+
+      if (hasReports) {
+        const nextReports = {
+          entries: Array.isArray(parsed.vehicleReports.entries)
+            ? parsed.vehicleReports.entries
+            : [],
+          submissions: Array.isArray(parsed.vehicleReports.submissions)
+            ? parsed.vehicleReports.submissions
+            : [],
+        }
+        try {
+          localStorage.setItem('alatas-vehicle-reports', JSON.stringify(nextReports))
+        } catch {
+          /* ignore quota */
+        }
+        importedParts.push('reports')
+      }
+
+      if (hasDeskExpenses) {
+        try {
+          localStorage.setItem(
+            'alatas-desk-expenses-v1',
+            JSON.stringify(parsed.deskExpenses),
+          )
+        } catch {
+          /* ignore */
+        }
+        importedParts.push('desk expenses')
+      }
+
+      if (hasSettings) {
         const nextSettings = {
           ...DEFAULT_SYSTEM_SETTINGS,
           ...parsed.systemSettings,
@@ -1090,9 +1202,10 @@ export default function AdminPanel() {
         saveSystemSettings(nextSettings)
         applyTheme(nextSettings.theme)
         setSystemSettings(nextSettings)
+        importedParts.push('settings')
       }
 
-      if (parsed.adminProfile && typeof parsed.adminProfile === 'object') {
+      if (hasProfile) {
         const nextProfile = {
           displayName:
             String(parsed.adminProfile.displayName || '').trim() ||
@@ -1105,19 +1218,20 @@ export default function AdminPanel() {
         saveAdminProfile(nextProfile)
         setProfile(nextProfile)
         setProfileDraft(nextProfile)
+        importedParts.push('admin profile')
       }
 
-      if (Array.isArray(parsed.outsideCityDestinations)) {
+      if (hasDestinations) {
         replaceOutsideCityDestinations(parsed.outsideCityDestinations)
+        importedParts.push('destinations')
       }
 
-      if (parsed.driverWage && typeof parsed.driverWage === 'object') {
+      if (hasDriverWage) {
         replaceDriverWageSettings(parsed.driverWage)
+        importedParts.push('driver wage')
       }
 
-      setDataMessage(
-        `Imported ${parsed.vehicles.length} vehicles and ${parsed.rentals.length} rentals.`,
-      )
+      setDataMessage(`Imported ${importedParts.join(', ')}.`)
       setMessage('Data import completed.')
       window.setTimeout(() => setMessage(''), 2500)
     } catch (err) {
@@ -1150,21 +1264,170 @@ export default function AdminPanel() {
 
   const requestClearData = () => {
     if (!isAdminUser) return
+    setDataScopeModal('clear')
+  }
+
+  const beginClearDataConfirm = (scopes = []) => {
+    if (!isAdminUser) return
+    const selected = [...new Set(scopes || [])]
+    if (!selected.length) {
+      setDataMessage('Select at least one category to clear.')
+      return
+    }
+    if (selected.includes('vehicles') && !selected.includes('rentals')) {
+      selected.push('rentals')
+    }
+    setPendingClearScopes(selected)
+    setDataScopeModal(null)
     setClearDataCreds({
       username: sessionUser?.username || 'alatas',
       password: '',
       error: '',
     })
     setClearDataBusy(false)
+    const labels = selected.join(', ')
     setConfirm({
       type: 'clear-data',
-      title: 'Clear all app data?',
-      message:
-        'This permanently deletes vehicles, rentals, employees (except admin), owners, archives, and reports. Your admin login credentials are kept. Re-enter admin credentials to confirm. This cannot be undone.',
-      confirmLabel: 'Yes, clear all data',
+      title: 'Clear selected data?',
+      message: `This permanently deletes: ${labels}. Admin login credentials are kept. Re-enter admin credentials to confirm. This cannot be undone.`,
+      confirmLabel: 'Yes, clear selected',
       danger: true,
       countdownSeconds: 5,
     })
+  }
+
+  const clearSelectedData = async (scopes = []) => {
+    if (!isAdminUser) return
+    const selected = new Set(scopes || [])
+    if (selected.has('vehicles')) selected.add('rentals')
+    if (!selected.size) return
+
+    setDataBusy(true)
+    setDataMessage('')
+    try {
+      if (selected.has('vehicles')) {
+        wipeLocalFleet()
+        localStorage.removeItem('alatas-vehicles-v6')
+        localStorage.removeItem('alatas-manage-layout')
+        saveArchivedVehicles([])
+        setArchivedVehicles([])
+      }
+      if (selected.has('rentals')) {
+        wipeLocalRentals()
+        localStorage.removeItem('alatas-xz-readings')
+        localStorage.removeItem('alatas-customers')
+        try {
+          const raw = localStorage.getItem('alatas-offline-queue')
+          if (raw) {
+            const queue = JSON.parse(raw)
+            const next = Array.isArray(queue)
+              ? queue.filter((item) => {
+                  const t = String(item?.type || '')
+                  return !t.startsWith('rental') && t !== 'rentals' && t !== 'pending-rental'
+                })
+              : []
+            localStorage.setItem('alatas-offline-queue', JSON.stringify(next))
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      if (selected.has('vehicles') && selected.has('rentals')) {
+        localStorage.removeItem('alatas-offline-queue')
+      }
+      if (selected.has('owners')) {
+        localStorage.removeItem('alatas-owners')
+        setOwners([])
+      }
+      if (selected.has('reports')) {
+        localStorage.removeItem('alatas-vehicle-reports')
+        localStorage.removeItem('alatas-desk-expenses-v1')
+        clearLocalReportStore()
+        clearDeskExpenses()
+        setDeskExpenseEntries([])
+      }
+      if (selected.has('rates')) {
+        localStorage.removeItem('alatas-outside-city-destinations')
+        localStorage.removeItem('alatas-driver-wage')
+        replaceOutsideCityDestinations([])
+        replaceDriverWageSettings({})
+      }
+      if (selected.has('settings')) {
+        const nextSettings = { ...DEFAULT_SYSTEM_SETTINGS }
+        saveSystemSettings(nextSettings)
+        applyTheme(nextSettings.theme)
+        setSystemSettings(nextSettings)
+        const nextProfile = { ...DEFAULT_PROFILE }
+        saveAdminProfile(nextProfile)
+        setProfile(nextProfile)
+        setProfileDraft(nextProfile)
+      }
+
+      const sessionKeys = []
+      for (let i = 0; i < sessionStorage.length; i += 1) {
+        const key = sessionStorage.key(i)
+        if (key) sessionKeys.push(key)
+      }
+      sessionKeys.forEach((key) => {
+        if (key.startsWith('alatas-browser-notif:')) sessionStorage.removeItem(key)
+      })
+
+      await clearAppDataSelective([...selected])
+      if (selected.has('reports')) {
+        await clearVehicleReportsEverywhere()
+        clearLocalReportStore()
+      }
+
+      const refreshed = await reloadData()
+      unlockFleetWrites()
+      if (selected.has('vehicles') || selected.has('rentals')) {
+        const vehiclesLeft = selected.has('vehicles') ? refreshed?.vehicles?.length || 0 : 0
+        const rentalsLeft = selected.has('rentals') ? refreshed?.rentals?.length || 0 : 0
+        if (vehiclesLeft > 0 || rentalsLeft > 0) {
+          throw new Error(
+            `Supabase still has ${vehiclesLeft} vehicle(s) and ${rentalsLeft} rental(s). Clear did not finish — check your connection and try again.`,
+          )
+        }
+      }
+
+      setDismissedAlerts(new Set())
+      setSelectedTransaction(null)
+      setClearDataCreds({ username: '', password: '', error: '' })
+      setPendingClearScopes([])
+      setConfirm(null)
+
+      const wipedEverything =
+        selected.has('vehicles') &&
+        selected.has('rentals') &&
+        selected.has('employees') &&
+        selected.has('owners') &&
+        selected.has('reports')
+
+      if (wipedEverything) {
+        clearAdminSession({ hard: true })
+        setSessionRole('admin')
+        setSessionUser(null)
+        setTab('dashboard')
+        setAuthed(false)
+        return
+      }
+
+      setDataMessage(
+        `Cleared ${[...selected].length} categor${[...selected].length === 1 ? 'y' : 'ies'}.`,
+      )
+      window.setTimeout(() => setDataMessage(''), 4000)
+    } catch (err) {
+      try {
+        unlockFleetWrites()
+        await reloadData()
+      } catch {
+        /* ignore */
+      }
+      setDataMessage(err?.message || 'Could not clear data.')
+      throw err
+    } finally {
+      setDataBusy(false)
+    }
   }
 
   const requestClearRentals = () => {
@@ -1921,7 +2184,7 @@ export default function AdminPanel() {
           const reader = new FileReader()
           reader.onload = () => resolve(String(reader.result || ''))
           reader.onerror = () => reject(new Error('Could not read file'))
-          reader.readAsDataURL(file)
+    reader.readAsDataURL(file)
         })
       }
       if (!raw) {
@@ -1948,15 +2211,18 @@ export default function AdminPanel() {
       else setForm((prev) => attachImage(prev))
 
       let fields = {}
-      let mergeScanFields = (existing, incoming) => ({ ...(existing || {}), ...(incoming || {}) })
       try {
-        const [{ scanOrcrDocument }, orcrMod] = await Promise.all([
+        const [{ scanOrcrDocument }, { sanitizeScanFields }] = await Promise.all([
           import('../api/orcrScan'),
           import('../utils/orcrOcr'),
         ])
-        mergeScanFields = orcrMod.mergeScanFields
-        const scanned = await scanOrcrDocument(compressed, setOrcrProgress, docHint)
-        fields = scanned?.fields || {}
+        const scanned = await scanOrcrDocument(
+          compressed,
+          setOrcrProgress,
+          docHint,
+          orcrEngine,
+        )
+        fields = sanitizeScanFields(scanned?.fields || {})
       } catch (scanErr) {
         console.error(scanErr)
         const detail = String(scanErr?.message || scanErr || '').trim()
@@ -2027,42 +2293,45 @@ export default function AdminPanel() {
       }
 
       const apply = (prev) => {
-        const merged = mergeScanFields(
-          {
-            make: prev.make,
-            series: prev.series,
-            plateNo: prev.plateNo,
-            engineNo: prev.engineNo,
-            chassisNo: prev.chassisNo,
-            ownerName: prev.ownerName,
-            bodyType: prev.bodyType,
-            seats: prev.seats,
-          },
-          fields,
-        )
-
+        // Apply scan results directly — do not merge with form defaults (Sedan/5),
+        // which would stick when a field is missing from OCR.
+        const scanned = fields || {}
         const next = { ...prev }
-        if (docHint === 'cr' || fields.docType === 'cr' || fields.docType === 'both') {
+        if (docHint === 'cr' || scanned.docType === 'cr' || scanned.docType === 'both') {
           next.orcrImage = compressed
         }
-        if (docHint === 'or' || fields.docType === 'or') {
+        if (docHint === 'or' || scanned.docType === 'or') {
           next.orImage = compressed
         }
         if (docHint === 'or') next.orImage = compressed
         else if (docHint === 'cr') next.orcrImage = compressed
         if (!next.orcrImage && !next.orImage) next.orcrImage = compressed
 
-        if (merged.make) next.make = autoCapitalizeWords(merged.make)
-        if (merged.series) next.series = autoCapitalizeWords(merged.series)
-        if (merged.plateNo) next.plateNo = sanitizePlateNo(merged.plateNo)
-        if (merged.engineNo) next.engineNo = String(merged.engineNo).toUpperCase()
-        if (merged.chassisNo) next.chassisNo = String(merged.chassisNo).toUpperCase()
-        if (merged.bodyType) next.bodyType = merged.bodyType
-        if (merged.seats) next.seats = String(merged.seats)
+        if (scanned.make) next.make = autoCapitalizeWords(scanned.make)
+        if (scanned.series) next.series = String(scanned.series).toUpperCase()
+        if (scanned.plateNo) next.plateNo = sanitizePlateNo(scanned.plateNo)
+        if (scanned.engineNo) next.engineNo = String(scanned.engineNo).toUpperCase()
+        if (scanned.chassisNo) {
+          const chassis = String(scanned.chassisNo).toUpperCase()
+          const engine = String(scanned.engineNo || next.engineNo || '').toUpperCase()
+          if (!engine || chassis.replace(/[^A-Z0-9]/g, '') !== engine.replace(/[^A-Z0-9]/g, '')) {
+            next.chassisNo = chassis
+          }
+        }
+        if (scanned.bodyType) next.bodyType = scanned.bodyType
+        if (scanned.seats) next.seats = String(scanned.seats)
+        else if (
+          scanned.bodyType === 'Motorcycle' &&
+          String(prev.seats || '') === '5' &&
+          !prev.plateNo
+        ) {
+          // Fresh form default seats=5 — don't keep it for bikes when OCR missed capacity
+          next.seats = ''
+        }
 
-        if (merged.ownerName && !prev.ownerId) {
-          applyOwnerFromName(next, merged.ownerName)
-        } else if (merged.ownerName && fields.ownerName) {
+        if (scanned.ownerName && !prev.ownerId) {
+          applyOwnerFromName(next, scanned.ownerName)
+        } else if (scanned.ownerName && fields.ownerName) {
           applyOwnerFromName(next, fields.ownerName)
         }
 
@@ -2608,7 +2877,7 @@ export default function AdminPanel() {
         assertSameOriginRequest()
         requireCsrfToken(getCsrfToken())
         await verifyAdminCredentials(clearDataCreds.username, clearDataCreds.password)
-        await clearAllData()
+        await clearSelectedData(pendingClearScopes)
       } catch (err) {
         setClearDataCreds((prev) => ({
           ...prev,
@@ -3083,17 +3352,17 @@ export default function AdminPanel() {
                         { id: 'year', label: 'Year' },
                         { id: 'custom', label: 'Custom' },
                       ].map((opt) => (
-                        <button
+                    <button
                           key={opt.id}
-                          type="button"
+                      type="button"
                           className={`dash-rev-preset${revenuePreset === opt.id ? ' is-active' : ''}`}
                           aria-pressed={revenuePreset === opt.id}
                           onClick={() => applyRevenuePreset(opt.id)}
-                        >
+                    >
                           {opt.label}
-                        </button>
-                      ))}
-                    </div>
+                    </button>
+                  ))}
+              </div>
 
                     {revenuePreset === 'custom' && (
                       <div className="dash-rev-custom-dates">
@@ -3130,7 +3399,7 @@ export default function AdminPanel() {
                         <span className="stat-label">Est. revenue</span>
                         <strong className="dash-week-value">
                           {formatPesoDash(revenueSnapshot.revenue)}
-                        </strong>
+                      </strong>
                       </div>
                     </div>
 
@@ -3235,10 +3504,10 @@ export default function AdminPanel() {
                           >
                             <span className="dash-recent-main">
                               <strong>{customerName(r)}</strong>
-                              <span>
+                      <span>
                                 {r.vehicle?.make} {r.vehicle?.series}
-                              </span>
-                            </span>
+                      </span>
+                        </span>
                             <span className="dash-recent-meta">
                               <span>{r.rental?.rentalFee || '—'}</span>
                     <span
@@ -3349,6 +3618,8 @@ export default function AdminPanel() {
                     orcrBusy={orcrBusy && orcrTarget === 'add'}
                     orcrDocHint={orcrTarget === 'add' ? orcrDocHint : null}
                     orcrProgress={orcrProgress}
+                    orcrEngine={orcrEngine}
+                    onOrcrEngineChange={setOrcrEnginePersist}
                     locked={fieldsLocked}
                     onToggleLock={() => setFieldsLocked(false)}
                 />
@@ -3777,7 +4048,7 @@ export default function AdminPanel() {
 
                       <div className="history-fee-breakdown">
                         {cityFee ? (
-                          <span>
+                      <span>
                             Rent <strong>{cityFee}</strong>
                           </span>
                         ) : null}
@@ -4098,12 +4369,12 @@ export default function AdminPanel() {
                               <strong>{opt.label}</strong>
                               <span>{opt.hint}</span>
                             </span>
-                          </button>
-                        ))}
+                  </button>
+                ))}
                       </div>
                     </article>
-                  </div>
-                </section>
+              </div>
+            </section>
 
                 {/* 2. Preferences */}
                 <section className="settings-section" aria-labelledby="settings-prefs-heading">
@@ -4434,8 +4705,9 @@ export default function AdminPanel() {
                       <div className="settings-card-head">
                         <h4 className="settings-card-title">Data &amp; cache</h4>
                         <p className="settings-card-copy">
-                          Back up or migrate fleet data, clear temporary cache, clear rentals &amp;
-                          revenue only, or permanently wipe all app data (admin login is kept).
+                          Choose what to include when downloading a backup, or what to permanently
+                          clear. You can also clear temporary cache, or wipe rentals &amp; revenue
+                          only. Admin login is always kept.
                         </p>
                       </div>
 
@@ -4444,7 +4716,7 @@ export default function AdminPanel() {
                           type="button"
                           className="btn-primary"
                           disabled={dataBusy}
-                          onClick={downloadAppData}
+                          onClick={requestDownloadData}
                         >
                           Download data
                         </button>
@@ -4687,6 +4959,8 @@ export default function AdminPanel() {
                     orcrBusy={orcrBusy && orcrTarget === 'edit'}
                     orcrDocHint={orcrTarget === 'edit' ? orcrDocHint : null}
                     orcrProgress={orcrProgress}
+                    orcrEngine={orcrEngine}
+                    onOrcrEngineChange={setOrcrEnginePersist}
               />
             </div>
               </div>
@@ -4786,6 +5060,21 @@ export default function AdminPanel() {
         </div>
       ) : null}
 
+      {dataScopeModal ? (
+        <DataScopeModal
+          mode={dataScopeModal}
+          busy={dataBusy}
+          onCancel={() => setDataScopeModal(null)}
+          onConfirm={(scopes) => {
+            if (dataScopeModal === 'download') {
+              downloadAppData(scopes)
+              return
+            }
+            beginClearDataConfirm(scopes)
+          }}
+        />
+      ) : null}
+
       {confirm && (
         <ConfirmModal
           title={confirm.title}
@@ -4813,6 +5102,7 @@ export default function AdminPanel() {
           onCancel={() => {
             if (clearDataBusy) return
             setPendingTab(null)
+            setPendingClearScopes([])
             setClearDataCreds({ username: '', password: '', error: '' })
             setConfirm(null)
           }}
@@ -4837,7 +5127,10 @@ export default function AdminPanel() {
             <div className="clear-data-auth">
               <p className="clear-data-auth-note">
                 Wait for the countdown, then enter admin username and password to unlock
-                {confirm.type === 'clear-rentals' ? ' Clear rentals & revenue' : ' Clear data'}.
+                {confirm.type === 'clear-rentals'
+                  ? ' Clear rentals & revenue'
+                  : ' Clear selected data'}
+                .
               </p>
               <label className="clear-data-auth-field">
                 <span>Admin username</span>
@@ -5018,6 +5311,8 @@ function VehicleFields({
   orcrBusy = false,
   orcrDocHint = null, // 'cr' | 'or' | null
   orcrProgress = 0,
+  orcrEngine = 'document-ai', // 'document-ai' | 'gemini' | 'tesseract'
+  onOrcrEngineChange,
 }) {
   const disabled = locked || orcrBusy
   const crScanning = orcrBusy && orcrDocHint === 'cr'
@@ -5047,10 +5342,36 @@ function VehicleFields({
           <span className="field-label">LTO OR &amp; CR scan</span>
           <p className="edit-section-copy">
             Upload the Certificate of Registration (CR) and Official Receipt (OR) as PNG, JPEG,
-            WebP, or PDF (first page). Word files are not supported. Fields are filled by AI when
-            online (Gemini via Supabase), with local OCR as fallback. After a successful scan,
-            fields become read-only — use Edit only to correct mistakes.
+            WebP, or PDF (first page). Choose Document AI (Google forms), Gemini, or Tesseract
+            (local), then upload. After a successful scan, fields become read-only — use Edit only
+            to correct mistakes.
           </p>
+          <div className="orcr-engine-toggle" role="group" aria-label="OR/CR scan engine">
+            <button
+              type="button"
+              className={`orcr-engine-btn${orcrEngine === 'document-ai' ? ' is-active' : ''}`}
+              disabled={orcrBusy}
+              onClick={() => onOrcrEngineChange?.('document-ai')}
+            >
+              Document AI
+            </button>
+            <button
+              type="button"
+              className={`orcr-engine-btn${orcrEngine === 'gemini' ? ' is-active' : ''}`}
+              disabled={orcrBusy}
+              onClick={() => onOrcrEngineChange?.('gemini')}
+            >
+              Gemini
+            </button>
+            <button
+              type="button"
+              className={`orcr-engine-btn${orcrEngine === 'tesseract' ? ' is-active' : ''}`}
+              disabled={orcrBusy}
+              onClick={() => onOrcrEngineChange?.('tesseract')}
+            >
+              Tesseract
+            </button>
+          </div>
         </div>
         <div className="vehicle-form-toolbar-actions">
           <input
@@ -5413,14 +5734,14 @@ function VehicleFields({
               : 'No photo selected yet — add one when ready.'}
           </p>
           <label className="edit-upload-btn">
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
               multiple
-              onChange={onFile}
-              className="file-input"
-            />
+          onChange={onFile}
+          className="file-input"
+        />
             <span>Choose Image(s)</span>
           </label>
           {gallery.length ? (
@@ -5437,7 +5758,7 @@ function VehicleFields({
                     ×
                   </button>
                   {index === 0 ? <span className="vehicle-thumb-badge">Main</span> : null}
-                </div>
+          </div>
               ))}
             </div>
           ) : null}

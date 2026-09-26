@@ -44,34 +44,19 @@ If the RPC is missing or fails, the app still clears vehicles/rentals via a clie
 This adds `record_login_audit` so wrong-password attempts (no session) still appear in Settings → Login audit trail.
 Optional earlier file [`006_audit_logs.sql`](migrations/006_audit_logs.sql) is covered by 007.
 
-## 2d. OR/CR AI scan (Gemini Edge Function)
+## 2d. OR/CR scan (Google Cloud Vision — primary AI)
 
-Manage Vehicle → Upload CR/OR prefers Gemini vision via Edge Function `scan-orcr`, then falls back to local Tesseract if AI is unavailable.
+Manage Vehicle → Upload CR/OR uses **Google Cloud Vision** via Edge Function `scan-orcr`. Local Tesseract is only a fallback if Vision fails.
 
-1. Get a Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey)
-2. Deploy the function and set the secret (CLI, from repo root):
+1. In [Google Cloud Console](https://console.cloud.google.com/): enable **Cloud Vision API** → create an **API key**
+2. Deploy and set the secret:
 
 ```bash
-npx supabase login
-npx supabase link --project-ref lspqhbbgvnpygiohcskg
 npx supabase functions deploy scan-orcr
-npx supabase secrets set GEMINI_API_KEY=YOUR_KEY_HERE
+npx supabase secrets set GOOGLE_CLOUD_VISION_API_KEY=YOUR_VISION_API_KEY
 ```
 
-Or in the Dashboard (no CLI):
-
-1. Open [Edge Functions](https://supabase.com/dashboard/project/lspqhbbgvnpygiohcskg/functions) → deploy/create `scan-orcr` from `supabase/functions/scan-orcr`
-2. Open [Function secrets](https://supabase.com/dashboard/project/lspqhbbgvnpygiohcskg/settings/functions) → add:
-   - Name: `GEMINI_API_KEY`
-   - Value: your Gemini key
-
-Optional model override (default `gemini-2.0-flash`):
-
-```bash
-npx supabase secrets set GEMINI_MODEL=gemini-2.0-flash
-```
-
-Do **not** put `GEMINI_API_KEY` in `frontend/.env` — the browser only calls `supabase.functions.invoke('scan-orcr')`.
+Do **not** put the Vision key in `frontend/.env`.
 
 ## 2e. Vehicle gallery + insurance columns
 

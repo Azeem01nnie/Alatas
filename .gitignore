@@ -14,6 +14,12 @@ release/
 _ocr_out.txt
 _parse_check.mjs
 
+# Google Cloud service account keys — never commit
+alatas-*-*.json
+*-firebase-adminsdk-*.json
+*service-account*.json
+**/serviceAccount*.json
+
 # Local SQLite data (can exceed GitHub 100MB limit)
 backend/sqlite/*.db
 backend/sqlite/*.db-shm

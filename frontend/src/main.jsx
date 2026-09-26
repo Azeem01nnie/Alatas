@@ -5,7 +5,16 @@ import './index.css'
 import App from './App.jsx'
 import { VehicleProvider } from './context/VehicleContext.jsx'
 
-registerSW({ immediate: true })
+// Force new SW so OR/CR parser fixes are not stuck behind a stale precache
+registerSW({
+  immediate: true,
+  onNeedRefresh() {
+    window.location.reload()
+  },
+  onRegisteredSW(_url, registration) {
+    registration?.update?.()
+  },
+})
 
 try {
   const raw = localStorage.getItem('alatas-admin-system-settings')
