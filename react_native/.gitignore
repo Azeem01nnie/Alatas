@@ -11,4 +11,5 @@ npm-debug.*
 *.orig.*
 web-build/
 .env
+.env.example
 .env.local
