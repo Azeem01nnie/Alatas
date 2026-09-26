@@ -1,4 +1,7 @@
 import { createWorker } from 'tesseract.js'
+// Same-origin Vite assets — CDN workers are blocked on Vercel (cross-origin Worker).
+import tesseractWorkerUrl from 'tesseract.js/dist/worker.min.js?url'
+import tesseractCoreUrl from 'tesseract.js-core/tesseract-core-simd-lstm.wasm.js?url'
 import { autoCapitalizeWords } from './owners'
 
 const STOP_NAME = new Set(
@@ -1235,24 +1238,14 @@ async function createOrcrWorker(onProgress) {
     }
   }
 
-  const options = {
+  return createWorker('eng', 1, {
     logger,
-    corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@7.0.0',
+    workerPath: tesseractWorkerUrl,
+    corePath: tesseractCoreUrl,
     langPath: 'https://tessdata.projectnaptha.com/4.0.0',
-    workerBlobURL: false,
+    workerBlobURL: true,
     errorHandler: (err) => console.error('Tesseract worker error', err),
-  }
-
-  try {
-    const workerPath = (await import('tesseract.js/dist/worker.min.js?url')).default
-    return await createWorker('eng', 1, { ...options, workerPath })
-  } catch (localErr) {
-    console.warn('Bundled Tesseract worker failed, using CDN worker', localErr)
-    return createWorker('eng', 1, {
-      ...options,
-      workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/worker.min.js',
-    })
-  }
+  })
 }
 
 /**

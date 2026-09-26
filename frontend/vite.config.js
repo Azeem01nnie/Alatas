@@ -38,7 +38,7 @@ export default defineConfig({
       },
       workbox: {
         // App shell + assets; API goes to Supabase (network only)
-        globPatterns: ['**/*.{js,css,html,ico,png,jpg,jpeg,svg,woff2}'],
+        globPatterns: ['**/*.{js,css,html,ico,png,jpg,jpeg,svg,woff2,wasm}'],
         navigateFallback: '/index.html',
         runtimeCaching: [
           {
