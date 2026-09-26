@@ -85,6 +85,7 @@ export default function StepPersonalInfo({ data, onChange, errors, embedded = fa
     { key: 'firstName', label: 'First Name', required: true },
     { key: 'middleName', label: 'Middle Name', required: false },
     { key: 'lastName', label: 'Last Name', required: true },
+    { key: 'suffix', label: 'Suffix', required: false },
   ]
 
   const applyCustomer = (customer) => {
@@ -93,6 +94,7 @@ export default function StepPersonalInfo({ data, onChange, errors, embedded = fa
       onChange('firstName', '')
       onChange('middleName', '')
       onChange('lastName', '')
+      onChange('suffix', '')
       onChange('address', '')
       onChange('contactNo', customer.contactNo || '')
       onChange('emergencyName', '')
@@ -105,6 +107,7 @@ export default function StepPersonalInfo({ data, onChange, errors, embedded = fa
     onChange('firstName', customer.firstName || '')
     onChange('middleName', customer.middleName || '')
     onChange('lastName', customer.lastName || '')
+    onChange('suffix', customer.suffix || '')
     onChange('address', customer.address || '')
     onChange('contactNo', customer.contactNo || '')
     onChange('emergencyName', customer.emergencyName || '')

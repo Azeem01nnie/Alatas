@@ -656,18 +656,20 @@ export default function CustomersPanel({ rentals = [] }) {
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="modal-title">Blacklist customer?</h3>
-            <p className="confirm-copy">
+            <p className="confirm-message">
               {customerDisplayName(blacklistRow)} will be blocked from new rentals.
             </p>
-            <label className="field">
-              <span className="field-label">Reason (optional)</span>
-              <input
-                value={blacklistReason}
-                onChange={(e) => setBlacklistReason(e.target.value)}
-                placeholder="e.g. unpaid damage, abuse…"
-                maxLength={160}
-              />
-            </label>
+            <div className="confirm-modal-body">
+              <label className="field">
+                <span className="field-label">Reason (optional)</span>
+                <input
+                  value={blacklistReason}
+                  onChange={(e) => setBlacklistReason(e.target.value)}
+                  placeholder="e.g. unpaid damage, abuse…"
+                  maxLength={160}
+                />
+              </label>
+            </div>
             <div className="modal-actions">
               <button
                 type="button"
@@ -700,7 +702,7 @@ export default function CustomersPanel({ rentals = [] }) {
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="modal-title">Delete customer?</h3>
-            <p className="confirm-copy">
+            <p className="confirm-message">
               Remove {customerDisplayName(deleteRow)} from the saved customers list. Past rentals
               stay in history.
             </p>
