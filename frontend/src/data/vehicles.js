@@ -297,6 +297,21 @@ export const DEFAULT_VEHICLES = [
   }),
 ]
 
+/** Match uploaded fleet units to bundled catalog photos by make + series. */
+export function findCatalogImage(make = '', series = '') {
+  const m = String(make || '').trim().toLowerCase()
+  const s = String(series || '').trim().toLowerCase()
+  if (!m && !s) return ''
+  const hit = DEFAULT_VEHICLES.find((v) => {
+    const vm = String(v.make || '').toLowerCase()
+    const vs = String(v.series || '').toLowerCase()
+    if (m && vm !== m) return false
+    if (!s) return true
+    return s.includes(vs) || vs.includes(s)
+  })
+  return hit?.image || ''
+}
+
 export function formatPeso(amount) {
   if (amount === '' || amount == null || Number.isNaN(Number(amount))) return '₱0'
   return `₱${Number(amount).toLocaleString('en-PH', {

@@ -10,10 +10,11 @@ import {
   buildVehicleReportRows,
   deleteReportEntry,
   loadReportStore,
+  replaceLocalReportStore,
   summarizeReportAmounts,
   updateReportEntry,
 } from '../utils/vehicleReports'
-import { fetchVehicleReportsFromCloud, pushVehicleReportsToCloud } from '../api/vehicleReportsApi'
+import { fetchVehicleReportsFromCloud } from '../api/vehicleReportsApi'
 
 const EMPTY_ENTRY = {
   date: new Date().toISOString().slice(0, 10),
@@ -280,7 +281,7 @@ function ReportTableRow({ row, onEdit, onDelete, onOpenRental, formatPeso }) {
   const attachment = row.attachment
   const isImage = typeof attachment === 'string' && attachment.startsWith('data:image')
   const readOnly = Boolean(row.readOnly || row.source === 'rental')
-  const isIncome = row.source === 'rental' || row.type === 'Rental'
+  const isIncome = row.source === 'rental' || row.type === 'Rental' || row.type === 'Overdue'
   const isCost = row.type === 'Expense' || row.type === 'Repair'
   const clickable = isIncome && typeof onOpenRental === 'function'
 
@@ -506,31 +507,14 @@ export default function VehicleReports({
     if (!dataReady) return
     let mounted = true
     ;(async () => {
-      let local = loadReportStore()
-      if (local.entries.length) {
-        try {
-          await pushVehicleReportsToCloud(local)
-        } catch {
-          /* offline or cloud unavailable */
-        }
-      }
       const remote = await fetchVehicleReportsFromCloud()
-      if (!mounted || !remote?.entries?.length) return
-      local = loadReportStore()
-      const byId = new Map(local.entries.map((entry) => [entry.id, entry]))
-      remote.entries.forEach((entry) => byId.set(entry.id, entry))
-      const merged = {
-        entries: [...byId.values()],
-        submissions: remote.submissions?.length ? remote.submissions : local.submissions,
-      }
-      if (merged.entries.length !== local.entries.length) {
-        try {
-          localStorage.setItem('alatas-vehicle-reports', JSON.stringify(merged))
-          setStoreVersion((n) => n + 1)
-        } catch {
-          /* ignore quota */
-        }
-      }
+      if (!mounted || !remote) return
+      // Replace local entirely with remote (empty remote clears leftover expenses).
+      replaceLocalReportStore({
+        entries: Array.isArray(remote.entries) ? remote.entries : [],
+        submissions: Array.isArray(remote.submissions) ? remote.submissions : [],
+      })
+      setStoreVersion((n) => n + 1)
     })()
     return () => {
       mounted = false

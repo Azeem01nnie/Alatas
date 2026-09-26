@@ -77,18 +77,31 @@ function PhoneInput({ name, value, onChange, error, autoComplete = 'tel' }) {
   )
 }
 
-export default function StepPersonalInfo({ data, onChange, errors }) {
+export default function StepPersonalInfo({ data, onChange, errors, embedded = false, onCustomerLoaded }) {
   const customers = loadCustomers()
   const matched = findCustomerByContact(data.contactNo)
 
   const nameFields = [
     { key: 'firstName', label: 'First Name', required: true },
-    { key: 'middleName', label: 'Middle Name (optional)', required: false },
+    { key: 'middleName', label: 'Middle Name', required: false },
     { key: 'lastName', label: 'Last Name', required: true },
   ]
 
   const applyCustomer = (customer) => {
     if (!customer) return
+    if (customer.blacklisted) {
+      onChange('firstName', '')
+      onChange('middleName', '')
+      onChange('lastName', '')
+      onChange('address', '')
+      onChange('contactNo', customer.contactNo || '')
+      onChange('emergencyName', '')
+      onChange('emergencyRelation', '')
+      onChange('emergencyRelationOther', '')
+      onChange('emergencyPhone', '')
+      onCustomerLoaded?.(customer)
+      return
+    }
     onChange('firstName', customer.firstName || '')
     onChange('middleName', customer.middleName || '')
     onChange('lastName', customer.lastName || '')
@@ -98,12 +111,17 @@ export default function StepPersonalInfo({ data, onChange, errors }) {
     onChange('emergencyRelation', customer.emergencyRelation || '')
     onChange('emergencyRelationOther', customer.emergencyRelationOther || '')
     onChange('emergencyPhone', customer.emergencyPhone || '')
+    onCustomerLoaded?.(customer)
   }
 
   return (
-    <section className="step-panel">
-      <h2 className="step-title">Lessee / Renter Information</h2>
-      <p className="step-subtitle">Enter the customer&apos;s personal details.</p>
+    <section className={`step-panel${embedded ? ' step-personal-embedded' : ''}`}>
+      {!embedded ? (
+        <>
+          <h2 className="step-title">Lessee / Renter Information</h2>
+          <p className="step-subtitle">Enter the customer&apos;s personal details.</p>
+        </>
+      ) : null}
 
       {customers.length > 0 ? (
         <label className="field field-full returning-customer-field">
@@ -119,12 +137,18 @@ export default function StepPersonalInfo({ data, onChange, errors }) {
           >
             <option value="">Select saved customer to autofill…</option>
             {customers.map((c) => (
-              <option key={c.id} value={c.id}>
+              <option key={c.id} value={c.id} disabled={Boolean(c.blacklisted)}>
                 {customerDisplayName(c)} · {c.contactNo}
+                {c.blacklisted ? ' · BLACKLISTED' : ''}
               </option>
             ))}
           </select>
-          {matched ? (
+          {matched?.blacklisted ? (
+            <span className="error-msg">
+              This contact is blacklisted
+              {matched.blacklistReason ? ` — ${matched.blacklistReason}` : ''}. Rentals are blocked.
+            </span>
+          ) : matched ? (
             <span className="returning-customer-hint">
               Returning customer matched by contact — form autofilled.
             </span>
@@ -169,7 +193,8 @@ export default function StepPersonalInfo({ data, onChange, errors }) {
             onChange={(val) => {
               onChange('contactNo', val)
               const found = findCustomerByContact(val)
-              if (found) applyCustomer(found)
+              if (found && !found.blacklisted) applyCustomer(found)
+              else if (found?.blacklisted) applyCustomer(found)
             }}
             error={errors.contactNo}
           />

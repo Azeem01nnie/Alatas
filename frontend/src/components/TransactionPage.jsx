@@ -4,6 +4,12 @@ import { formatEmergencyContact } from '../utils/phone'
 import { compressImageDataUrl } from '../utils/storage'
 import { collectPhotographerCredits, formatTakenByLabel, mergePhotographerCredits } from '../utils/photoCredits'
 import { downloadRentalAgreementPdf } from '../utils/rentalAgreementPdf'
+import {
+  formatRentalFee,
+  resolveOverdueCharge,
+  resolveOverdueHours,
+  resolveRentalChargeBreakdown,
+} from '../utils/rentalFee'
 import ConfirmModal from './ConfirmModal'
 
 const CAR_SLOTS = [
@@ -44,8 +50,8 @@ function fullName(personal = {}) {
     .join(' ')
 }
 
-async function downloadContractPdf(transaction) {
-  await downloadRentalAgreementPdf(transaction)
+async function downloadContractPdf(transaction, lessorName = '') {
+  await downloadRentalAgreementPdf(transaction, { lessorName })
 }
 
 export default function TransactionPage({
@@ -64,6 +70,24 @@ export default function TransactionPage({
     licensePhoto,
     signature,
   } = transaction
+
+  const charges = resolveRentalChargeBreakdown(transaction, vehicle)
+  const overdueHours =
+    Number(rental.overdueHours) > 0
+      ? Number(rental.overdueHours)
+      : resolveOverdueHours(transaction)
+  const overdueAmount =
+    charges.overdue > 0 ? charges.overdue : resolveOverdueCharge(transaction, vehicle)
+  const overallTotal =
+    charges.total > 0
+      ? charges.total
+      : Math.max(
+          0,
+          (charges.base || 0) +
+            (charges.outsideCity || 0) +
+            (charges.driver || 0) +
+            overdueAmount,
+        )
 
   const [carPhotos, setCarPhotos] = useState(() => normalizeCarPhotos(transaction.carPhotos))
   const [photoBusy, setPhotoBusy] = useState('')
@@ -264,7 +288,7 @@ export default function TransactionPage({
             type="button"
             className="btn-primary"
             onClick={() => {
-              void downloadContractPdf({ ...transaction, carPhotos })
+              void downloadContractPdf({ ...transaction, carPhotos }, sessionPhotographer)
             }}
           >
             Download Contract PDF
@@ -615,6 +639,24 @@ export default function TransactionPage({
                 <dd>{rental.outsideCityFee}</dd>
               </div>
             ) : null}
+            <div>
+              <dt>Overdue</dt>
+              <dd>
+                {overdueAmount > 0
+                  ? `${formatRentalFee(overdueAmount)}${
+                      overdueHours > 0
+                        ? ` · ${overdueHours} hr${overdueHours === 1 ? '' : 's'}`
+                        : ''
+                    }`
+                  : formatRentalFee(0)}
+              </dd>
+            </div>
+            <div>
+              <dt>Overall total</dt>
+              <dd>
+                <strong>{formatRentalFee(overallTotal)}</strong>
+              </dd>
+            </div>
           </dl>
         </article>
       </div>
@@ -626,7 +668,7 @@ export default function TransactionPage({
             type="button"
             className="btn-outline btn-sm"
             onClick={() => {
-              void downloadContractPdf({ ...transaction, carPhotos })
+              void downloadContractPdf({ ...transaction, carPhotos }, sessionPhotographer)
             }}
           >
             Download PDF

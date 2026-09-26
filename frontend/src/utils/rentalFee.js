@@ -108,14 +108,9 @@ export function isRevenueCountableRental(rental) {
 }
 
 /**
- * Overdue / exceed charge from periodTo → completedAt (or now if still active).
- * Uses vehicle exceedHour rate × whole overdue hours (ceil).
+ * Whole overdue hours from periodTo → completedAt (or now if still active).
  */
-export function resolveOverdueCharge(rental, fleetVehicle = null, now = Date.now()) {
-  const rates = fleetVehicle?.rates || rental?.vehicle?.rates || null
-  const exceed = Number(rates?.exceedHour) || 0
-  if (exceed <= 0) return 0
-
+export function resolveOverdueHours(rental, now = Date.now()) {
   const due = new Date(rental?.rental?.periodTo || 0).getTime()
   if (!due || Number.isNaN(due)) return 0
 
@@ -131,8 +126,25 @@ export function resolveOverdueCharge(rental, fleetVehicle = null, now = Date.now
 
   const overdueMs = endMs - due
   if (overdueMs < 60_000) return 0
-  const hours = Math.ceil(overdueMs / 3_600_000)
-  return hours * exceed
+  return Math.ceil(overdueMs / 3_600_000)
+}
+
+/**
+ * Overdue / exceed charge from periodTo → completedAt (or now if still active).
+ * Prefers a recorded overdueFee after collection; otherwise rate × overdue hours.
+ */
+export function resolveOverdueCharge(rental, fleetVehicle = null, now = Date.now()) {
+  const recorded = parseRentalFeeAmount(
+    rental?.rental?.overdueFeeValue ?? rental?.rental?.overdueFee ?? '',
+  )
+  if (recorded > 0) return recorded
+
+  const rates = fleetVehicle?.rates || rental?.vehicle?.rates || null
+  const exceed = Number(rates?.exceedHour) || 0
+  if (exceed <= 0) return 0
+
+  const hours = resolveOverdueHours(rental, now)
+  return hours > 0 ? hours * exceed : 0
 }
 
 /** Damage settlement / estimate amounts from return inspection. */
@@ -193,6 +205,53 @@ export function resolveRentalChargeBreakdown(rental, fleetVehicle = null, now = 
     total: base + outsideCity + driver + overdue + damage,
     countable: true,
   }
+}
+
+/** City + outside-city + driver from the live rent form (or saved rental blob). */
+export function resolveRentalQuoteTotal(rentalLike = {}) {
+  const r = rentalLike?.rental && typeof rentalLike.rental === 'object' ? rentalLike.rental : rentalLike
+  const city = parseRentalFeeAmount(r?.rentalFee)
+  const coverage = String(r?.coverage || 'within_city').toLowerCase()
+  const outside =
+    coverage === 'outside_city' ? parseRentalFeeAmount(r?.outsideCityFee) : 0
+  const type = String(r?.rentalType || '').toLowerCase()
+  const driver = type === 'with-driver' ? parseRentalFeeAmount(r?.driverFee) : 0
+  return Math.max(0, city + outside + driver)
+}
+
+/** Amount already received toward the quote. */
+export function resolveAmountPaid(rentalLike = {}) {
+  const r = rentalLike?.rental && typeof rentalLike.rental === 'object' ? rentalLike.rental : rentalLike
+  const paid = parseRentalFeeAmount(
+    r?.amountPaidValue ?? r?.amountPaid ?? rentalLike?.amountPaidValue ?? rentalLike?.amountPaid ?? 0,
+  )
+  return Math.max(0, paid)
+}
+
+/** First payment recorded at encoding (does not change when vehicle fees are added later). */
+export function resolveInitialPayment(rentalLike = {}) {
+  const r = rentalLike?.rental && typeof rentalLike.rental === 'object' ? rentalLike.rental : rentalLike
+  const initial = parseRentalFeeAmount(
+    r?.initialPaymentValue ??
+      r?.initialPayment ??
+      rentalLike?.initialPaymentValue ??
+      rentalLike?.initialPayment ??
+      '',
+  )
+  if (initial > 0) return initial
+  // Older rentals: treat current amount paid as the first payment snapshot.
+  return resolveAmountPaid(rentalLike)
+}
+
+/** Remaining balance = quote total − paid (never negative). */
+export function resolveBalanceDue(rentalLike = {}) {
+  const r = rentalLike?.rental && typeof rentalLike.rental === 'object' ? rentalLike.rental : rentalLike
+  const storedTotal = parseRentalFeeAmount(
+    r?.totalAmountValue ?? r?.totalAmount ?? rentalLike?.totalAmountValue ?? rentalLike?.totalAmount ?? 0,
+  )
+  const quote = storedTotal > 0 ? storedTotal : resolveRentalQuoteTotal(rentalLike)
+  const paid = resolveAmountPaid(rentalLike)
+  return Math.max(0, quote - paid)
 }
 
 export function resolveRentalTotalCharges(rental, fleetVehicle = null, now = Date.now()) {

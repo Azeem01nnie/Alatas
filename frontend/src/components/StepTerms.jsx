@@ -3,6 +3,7 @@ import SignatureCanvas from 'react-signature-canvas'
 import { CONTRACT_TERMS, LIABILITY_CLAUSE, CONTRACT_DOCUMENT_TITLE, getContractClauseNumber } from '../data/contract'
 
 const PAD_HEIGHT = 180
+const PAD_HEIGHT_COMPACT = 120
 
 export default function StepTerms({
   accepted,
@@ -11,13 +12,15 @@ export default function StepTerms({
   onSignatureChange,
   error,
   signatureError,
+  compact = false,
 }) {
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(true)
   const [scrolledToEnd, setScrolledToEnd] = useState(false)
   const boxRef = useRef(null)
   const frameRef = useRef(null)
   const sigRef = useRef(null)
   const [isEmpty, setIsEmpty] = useState(!signature)
+  const padHeight = compact ? PAD_HEIGHT_COMPACT : PAD_HEIGHT
 
   const checkScrollEnd = () => {
     const el = boxRef.current
@@ -50,8 +53,8 @@ export default function StepTerms({
     const canvas = pad.getCanvas()
     const width = Math.max(1, Math.floor(frame.clientWidth))
     const height = Math.min(
-      PAD_HEIGHT,
-      Math.max(1, Math.floor(frame.clientHeight || PAD_HEIGHT)),
+      padHeight,
+      Math.max(1, Math.floor(frame.clientHeight || padHeight)),
     )
     const ratio = Math.min(Math.max(window.devicePixelRatio || 1, 1), 2)
 
@@ -80,7 +83,7 @@ export default function StepTerms({
     } else {
       pad.clear()
     }
-  }, [])
+  }, [padHeight])
 
   useEffect(() => {
     const frame = frameRef.current
@@ -98,7 +101,7 @@ export default function StepTerms({
       ro?.disconnect()
       window.removeEventListener('resize', run)
     }
-  }, [syncCanvasSize])
+  }, [padHeight, syncCanvasSize])
 
   useEffect(() => {
     const canvas = sigRef.current
@@ -107,14 +110,14 @@ export default function StepTerms({
       if (canvas.isEmpty()) {
         const frame = frameRef.current
         const width = frame?.clientWidth || 640
-        const height = frame?.clientHeight || PAD_HEIGHT
+        const height = frame?.clientHeight || padHeight
         canvas.fromDataURL(signature, { width, height })
         setIsEmpty(false)
       }
     } catch {
       /* ignore restore errors */
     }
-  }, [signature])
+  }, [signature, padHeight])
 
   const canAccept = scrolledToEnd || !expanded
 
@@ -124,7 +127,7 @@ export default function StepTerms({
     const source = pad.getCanvas()
     const out = document.createElement('canvas')
     out.width = 640
-    out.height = PAD_HEIGHT
+    out.height = padHeight
     const ctx = out.getContext('2d')
     ctx.fillStyle = '#ffffff'
     ctx.fillRect(0, 0, out.width, out.height)
@@ -143,12 +146,16 @@ export default function StepTerms({
   }
 
   return (
-    <section className="step-panel">
-      <h2 className="step-title">Terms &amp; Conditions</h2>
-      <p className="step-subtitle">
-        A printed copy is available at the counter. Open this only when the customer wants to read
-        the full terms on screen, then sign below to accept.
-      </p>
+    <section className={`step-panel${compact ? ' step-terms-compact' : ''}`}>
+      {!compact ? (
+        <>
+          <h2 className="step-title">Terms &amp; Conditions</h2>
+          <p className="step-subtitle">
+            A printed copy is available at the counter. Open this only when the customer wants to read
+            the full terms on screen, then sign below to accept.
+          </p>
+        </>
+      ) : null}
 
       <div className={`terms-accordion${expanded ? ' is-open' : ' is-collapsed'}`}>
         <button
@@ -224,11 +231,13 @@ export default function StepTerms({
             <span className="signature-pending-pill">Pending</span>
           )}
         </div>
-        <p className="signature-block-note">
-          Click and drag on the pad to sign (touchpad, mouse, or touchscreen). Signing
-          automatically accepts the terms
-          {canAccept ? '' : ' (finish reading or collapse the terms first)'}.
-        </p>
+        {!compact ? (
+          <p className="signature-block-note">
+            Click and drag on the pad to sign (touchpad, mouse, or touchscreen). Signing
+            automatically accepts the terms
+            {canAccept ? '' : ' (finish reading or collapse the terms first)'}.
+          </p>
+        ) : null}
 
         <div
           className={`signature-pad${signatureError ? ' has-error' : ''}${!canAccept ? ' is-disabled' : ''}`}
@@ -236,7 +245,7 @@ export default function StepTerms({
           <div
             className="signature-pad-frame"
             ref={frameRef}
-            style={{ height: PAD_HEIGHT }}
+            style={{ height: padHeight }}
             onWheel={(e) => e.preventDefault()}
           >
             <SignatureCanvas

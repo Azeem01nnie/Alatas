@@ -1,12 +1,4 @@
-const STEPS = [
-  'Personal Info',
-  'Vehicle',
-  'Rental',
-  'Photos',
-  'Terms',
-  'Car Photos',
-  'Summary',
-]
+const STEPS = ['Customer', 'Vehicle', 'Payment', 'Car Photos', 'Summary']
 
 function CheckIcon() {
   return (

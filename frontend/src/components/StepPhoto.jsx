@@ -65,6 +65,7 @@ function PhotoSlot({
   onPick,
   onClear,
   onUploadClick,
+  onPreview,
   inputRef,
 }) {
   return (
@@ -87,7 +88,14 @@ function PhotoSlot({
             className={`photo-video${mirrored ? ' mirrored' : ''}`}
           />
         ) : preview ? (
-          <img src={preview} alt={title} className="photo-upload-preview" />
+          <button
+            type="button"
+            className="photo-upload-preview-btn"
+            onClick={onPreview}
+            aria-label={`View full size: ${title}`}
+          >
+            <img src={preview} alt={title} className="photo-upload-preview" />
+          </button>
         ) : (
           <div className="photo-upload-placeholder">
             <span>No image yet</span>
@@ -157,6 +165,7 @@ export default function StepPhoto({
   onLicenseChange,
   onOptionalChange,
   errors = {},
+  compact = false,
 }) {
   const inputRefs = useRef({})
   const videoRefs = useRef({})
@@ -168,6 +177,7 @@ export default function StepPhoto({
   const [videoDevices, setVideoDevices] = useState([])
   const [selectedDeviceId, setSelectedDeviceId] = useState('')
   const [mirrored, setMirrored] = useState(true)
+  const [viewer, setViewer] = useState(null)
 
   const previews = {
     holding: holdingPreview,
@@ -338,19 +348,23 @@ export default function StepPhoto({
   }
 
   return (
-    <section className="step-panel">
-      <h2 className="step-title">Customer Photos</h2>
-      <p className="step-subtitle">
-        Upload or take the two required photos — holding license and customer photo. You can also
-        add one optional photo.
-      </p>
+    <section className={`step-panel${compact ? ' step-photo-compact' : ''}`}>
+      {!compact ? (
+        <>
+          <h2 className="step-title">Customer Photos</h2>
+          <p className="step-subtitle">
+            Upload or take the two required photos — holding license and customer photo. You can also
+            add one optional photo.
+          </p>
+        </>
+      ) : null}
 
-      <div className="photo-upload-grid photo-upload-grid-customer">
+      <div className={`photo-upload-grid photo-upload-grid-customer${compact ? ' is-compact' : ''}`}>
         {SLOTS.map((slot) => (
           <PhotoSlot
             key={slot.key}
             title={slot.title}
-            hint={slot.hint}
+            hint={compact ? (slot.required ? 'Required' : 'Optional') : slot.hint}
             optional={!slot.required}
             preview={previews[slot.key]}
             error={localError[slot.key] || fieldErrors[slot.key]}
@@ -372,6 +386,11 @@ export default function StepPhoto({
             onCapture={() => captureFromCamera(slot.key)}
             onPick={(e) => handleFile(slot.key, e.target.files?.[0], e.target)}
             onUploadClick={() => inputRefs.current[slot.key]?.click()}
+            onPreview={() => {
+              const src = previews[slot.key]
+              if (!src) return
+              setViewer({ src, title: slot.title })
+            }}
             onClear={() => {
               setters[slot.key]('')
               setLocalError((prev) => ({ ...prev, [slot.key]: '' }))
@@ -379,6 +398,36 @@ export default function StepPhoto({
           />
         ))}
       </div>
+
+      {viewer ? (
+        <div
+          className="modal-overlay photo-viewer-overlay"
+          role="presentation"
+          onClick={() => setViewer(null)}
+        >
+          <div
+            className="photo-viewer-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-label={viewer.title}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="photo-viewer-toolbar">
+              <p className="photo-viewer-title">{viewer.title}</p>
+              <button
+                type="button"
+                className="btn-ghost photo-viewer-close"
+                onClick={() => setViewer(null)}
+              >
+                Close
+              </button>
+            </div>
+            <div className="photo-viewer-body">
+              <img src={viewer.src} alt={viewer.title} className="photo-viewer-image" />
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   )
 }

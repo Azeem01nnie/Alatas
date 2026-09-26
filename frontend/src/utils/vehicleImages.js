@@ -1,4 +1,6 @@
 /** Normalize vehicle display gallery (multi-image) with legacy `image` fallback. */
+import { findCatalogImage } from '../data/vehicles'
+import logoFallback from '../assets/logo.jpg'
 
 /** Vite-hashed logo paths from old builds — not real vehicle photos. */
 function isPlaceholderLogoUrl(url) {
@@ -33,6 +35,18 @@ export function getVehicleGallery(vehicle) {
     return [single]
   }
   return []
+}
+
+/**
+ * Best display image: uploaded gallery → catalog stock match → Alatas logo.
+ * Use this in lists/cards so units without a photo still show something.
+ */
+export function resolveVehicleDisplayImage(vehicle) {
+  const gallery = getVehicleGallery(vehicle)
+  if (gallery[0]) return gallery[0]
+  const catalog = findCatalogImage(vehicle?.make, vehicle?.series)
+  if (catalog) return catalog
+  return logoFallback
 }
 
 /** Insurance photo list (no OCR). */

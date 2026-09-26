@@ -210,31 +210,31 @@ export default function StepSummary({
                   <dt>City package</dt>
                   <dd>{rental.rentalFee || '—'}</dd>
                 </div>
+                {rental.discountAmount ? (
+                  <div className="summary-fee-row">
+                    <dt>Discount</dt>
+                    <dd>−{rental.discountAmount}</dd>
+                  </div>
+                ) : null}
                 {rental.rentalType === 'With-driver' ||
-                (rental.coverage === 'outside_city' && rental.outsideCityFee) ? (
+                (rental.coverage === 'outside_city' && rental.outsideCityFee) ||
+                rental.discountAmount ||
+                rental.totalAmount ? (
                   <div className="summary-fee-row">
                     <dt>Total</dt>
-                    <dd>
-                      {(() => {
-                        const city =
-                          Number(String(rental.rentalFee || '').replace(/[^\d.]/g, '')) || 0
-                        const outside =
-                          rental.coverage === 'outside_city'
-                            ? Number(
-                                String(rental.outsideCityFee || '').replace(/[^\d.]/g, ''),
-                              ) || 0
-                            : 0
-                        const driver =
-                          rental.rentalType === 'With-driver'
-                            ? Number(String(rental.driverFee || '').replace(/[^\d.]/g, '')) ||
-                              0
-                            : 0
-                        const sum = city + outside + driver
-                        return sum > 0
-                          ? `₱${sum.toLocaleString('en-PH')}`
-                          : rental.rentalFee || '—'
-                      })()}
-                    </dd>
+                    <dd>{rental.totalAmount || rental.rentalFee || '—'}</dd>
+                  </div>
+                ) : null}
+                {rental.amountPaid != null && rental.amountPaid !== '' ? (
+                  <div>
+                    <dt>Amount received</dt>
+                    <dd>{rental.amountPaid}</dd>
+                  </div>
+                ) : null}
+                {rental.balanceDue != null && rental.balanceDue !== '' ? (
+                  <div className="summary-fee-row">
+                    <dt>Balance due</dt>
+                    <dd>{rental.balanceDue}</dd>
                   </div>
                 ) : null}
               </dl>

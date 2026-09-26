@@ -15,6 +15,7 @@ import {
   replaceRentals as apiReplaceRentals,
   addRental as apiAddRental,
   completeVehicleRental as completeVehicleRentalApi,
+  changeRentalVehicle as changeRentalVehicleApi,
   reconcileDuplicateOpenRentals as reconcileDuplicateOpenRentalsApi,
 } from '../api/backend'
 import { isSupabaseConfigured, requireSupabase } from '../api/supabaseClient'
@@ -446,7 +447,34 @@ export function VehicleProvider({ children }) {
           r.rental && typeof r.rental === 'object' ? { ...r.rental } : {}
         if (hasReturnMeta) {
           rentalJson.returnCondition = returnMeta.condition || 'ok'
-          rentalJson.returnInspection = returnMeta.inspection || null
+          if (
+            String(returnMeta.condition || '').toLowerCase() === 'damaged' &&
+            returnMeta.inspection &&
+            typeof returnMeta.inspection === 'object'
+          ) {
+            rentalJson.returnInspection = returnMeta.inspection
+          } else if (String(returnMeta.condition || '').toLowerCase() === 'ok') {
+            rentalJson.returnInspection = null
+          }
+          const overduePay = returnMeta.overduePayment
+          if (overduePay && typeof overduePay === 'object') {
+            const paid = Math.max(0, Number(overduePay.paidAmount) || 0)
+            const hours = Math.max(0, Number(overduePay.hours) || 0)
+            const charged = Math.max(0, Number(overduePay.chargedAmount) || paid)
+            const rate = Math.max(0, Number(overduePay.exceedRate) || 0)
+            const peso = (n) =>
+              `₱${Number(n || 0).toLocaleString('en-PH', {
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 2,
+              })}`
+            rentalJson.overdueHours = hours
+            rentalJson.overdueRate = rate
+            rentalJson.overdueChargedValue = charged
+            rentalJson.overdueCharged = peso(charged)
+            rentalJson.overdueFeeValue = paid
+            rentalJson.overdueFee = peso(paid)
+            rentalJson.overduePaidAt = now
+          }
         }
         return {
           ...r,
@@ -514,6 +542,126 @@ export function VehicleProvider({ children }) {
       )
     }
   }, [])
+
+  const changeRentalVehicle = useCallback(
+    async (rentalId, nextVehicle, extraPayment = 0) => {
+      if (!rentalId || !nextVehicle?.id) {
+        throw new Error('Rental and new vehicle are required')
+      }
+      const key = String(rentalId)
+      const newId = String(nextVehicle.id)
+      const now = new Date().toISOString()
+      const extra = Math.max(0, Number(extraPayment) || 0)
+
+      const current = rentalsRef.current.find((r) => String(r.id) === key)
+      if (!current) throw new Error('Rental not found')
+      const life = String(current.rentalLifecycle || '').toLowerCase()
+      if (life !== 'active' && life !== 'scheduled') {
+        throw new Error('Only active or scheduled rentals can change vehicle')
+      }
+      const oldId = String(current.vehicleId || current.vehicle?.id || '')
+      if (oldId && oldId === newId) throw new Error('Pick a different vehicle')
+
+      rentalSaveGen.current += 1
+      skipRentalAutosave.current = true
+      skipVehicleAutosave.current = true
+
+      setRentals((prev) =>
+        prev.map((r) => {
+          if (String(r.id) !== key) return r
+          const rentalJson = r.rental && typeof r.rental === 'object' ? { ...r.rental } : {}
+          const prevPaid = Number(
+            String(rentalJson.amountPaidValue ?? rentalJson.amountPaid ?? '').replace(
+              /[^\d.]/g,
+              '',
+            ) || 0,
+          )
+          const prevTotal = Number(
+            String(
+              rentalJson.totalAmountValue ?? rentalJson.totalAmount ?? rentalJson.rentalFee ?? '',
+            ).replace(/[^\d.]/g, '') || 0,
+          )
+          // Extra on change = added to total charge. First payment stays put.
+          const nextTotal = prevTotal + extra
+          const balance = Math.max(0, nextTotal - prevPaid)
+          const peso = (n) =>
+            `₱${Number(n || 0).toLocaleString('en-PH', {
+              minimumFractionDigits: 0,
+              maximumFractionDigits: 2,
+            })}`
+          if (
+            rentalJson.initialPaymentValue == null &&
+            rentalJson.initialPayment == null
+          ) {
+            rentalJson.initialPaymentValue = prevPaid
+            rentalJson.initialPayment = peso(prevPaid)
+          }
+          // Keep amount received unchanged — extra charge only raises total / balance.
+          rentalJson.amountPaidValue = prevPaid
+          rentalJson.amountPaid = peso(prevPaid)
+          rentalJson.totalAmountValue = nextTotal
+          rentalJson.totalAmount = peso(nextTotal)
+          rentalJson.balanceDueValue = balance
+          rentalJson.balanceDue = peso(balance)
+          const changes = Array.isArray(rentalJson.vehicleChanges)
+            ? [...rentalJson.vehicleChanges]
+            : []
+          changes.push({
+            at: now,
+            fromVehicleId: oldId || null,
+            fromPlate: r.vehicle?.plateNo || null,
+            toVehicleId: newId,
+            toPlate: nextVehicle.plateNo || null,
+            extraCharge: extra,
+          })
+          rentalJson.vehicleChanges = changes
+          return {
+            ...r,
+            vehicleId: newId,
+            vehicle: {
+              id: nextVehicle.id,
+              make: nextVehicle.make,
+              series: nextVehicle.series,
+              plateNo: nextVehicle.plateNo,
+              bodyType: nextVehicle.bodyType,
+              engineNo: nextVehicle.engineNo,
+              chassisNo: nextVehicle.chassisNo,
+              image: nextVehicle.image || '',
+              rates: nextVehicle.rates || null,
+            },
+            rental: rentalJson,
+            updatedAt: now,
+          }
+        }),
+      )
+
+      setVehicles((prev) =>
+        prev.map((v) => {
+          if (oldId && String(v.id) === oldId) {
+            return { ...v, status: 'Available', updatedAt: now }
+          }
+          if (String(v.id) === newId && life === 'active') {
+            return { ...v, status: 'Rented', updatedAt: now }
+          }
+          return v
+        }),
+      )
+
+      try {
+        const saved = await changeRentalVehicleApi(key, nextVehicle, extra)
+        if (saved?.id) {
+          setRentals((prev) =>
+            prev.map((r) => (String(r.id) === String(saved.id) ? normalizeRental(saved) : r)),
+          )
+        }
+        return saved
+      } catch (err) {
+        console.warn('Change vehicle API failed; local state updated', err)
+        throw err
+      }
+    },
+    [],
+  )
 
   const updateRentalCarPhotos = useCallback(async (rentalId, carPhotos, addedBy = '') => {
     if (!rentalId) return null
@@ -681,17 +829,31 @@ export function VehicleProvider({ children }) {
       approvalStatus: autoApprove ? 'accepted' : 'pending',
       rentalLifecycle: autoApprove
         ? (() => {
+            const mode = String(record?.deskMode || record?.rental?.deskMode || '')
+              .trim()
+              .toLowerCase()
+              .replace(/[\s-]+/g, '_')
             const start = record?.rental?.periodFrom
               ? new Date(record.rental.periodFrom).getTime()
               : NaN
+            if (mode === 'check_in' || mode === 'checkin') return 'active'
+            if (mode === 'booking') {
+              return !Number.isNaN(start) && start > Date.now() ? 'scheduled' : 'scheduled'
+            }
             return !Number.isNaN(start) && start > Date.now() ? 'scheduled' : 'active'
           })()
         : 'pending_approval',
       startedAt: autoApprove
         ? (() => {
+            const mode = String(record?.deskMode || record?.rental?.deskMode || '')
+              .trim()
+              .toLowerCase()
+              .replace(/[\s-]+/g, '_')
+            if (mode === 'check_in' || mode === 'checkin') return new Date().toISOString()
             const start = record?.rental?.periodFrom
               ? new Date(record.rental.periodFrom).getTime()
               : NaN
+            if (mode === 'booking') return null
             return Number.isNaN(start) || start <= Date.now() ? new Date().toISOString() : null
           })()
         : null,
@@ -764,6 +926,7 @@ export function VehicleProvider({ children }) {
         addRental,
         completeRentalForVehicle,
         cancelScheduledRental,
+        changeRentalVehicle,
         updateRentalCarPhotos,
         reloadData,
         replaceAllData,

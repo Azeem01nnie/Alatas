@@ -302,7 +302,7 @@ function detectImageFormat(dataUrl) {
 /**
  * Download the official Vehicle Rental Agreement PDF for a completed / history rental.
  */
-export async function downloadRentalAgreementPdf(transaction = {}) {
+export async function downloadRentalAgreementPdf(transaction = {}, options = {}) {
   const {
     personal = {},
     vehicle = {},
@@ -314,6 +314,13 @@ export async function downloadRentalAgreementPdf(transaction = {}) {
   } = transaction
 
   const name = fullName(personal) || 'Lessee'
+  const lessorName =
+    String(
+      options.lessorName ||
+        transaction.lessorName ||
+        transaction.encodedBy ||
+        '',
+    ).trim() || 'Authorized Representative'
   const logoDataUrl = await loadLetterheadLogo()
   const doc = new jsPDF({ unit: 'pt', format: 'a4' })
   doc.__alatasLogo = logoDataUrl
@@ -530,7 +537,7 @@ export async function downloadRentalAgreementPdf(transaction = {}) {
   doc.setFont(FONT, 'bold')
   doc.setFontSize(10)
   if (!signatureSrc) doc.text(name, leftX + 2, lineY - 2)
-  doc.text('Alatas Admin', rightX + 2, lineY - 2)
+  doc.text(lessorName, rightX + 2, lineY - 2)
 
   doc.setFont(FONT, 'normal')
   doc.setFontSize(9)

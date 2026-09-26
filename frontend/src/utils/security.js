@@ -16,14 +16,16 @@ export function escapeHtml(value) {
     .replace(/'/g, '&#39;')
 }
 
-/** Strip tags / control chars from user-facing text fields. */
+/** Strip tags / control chars from user-facing text fields.
+ * Does not trim — callers that sanitize on every keystroke must keep trailing spaces
+ * so users can type multi-word names; trim on blur/save instead.
+ */
 export function sanitizeUserText(value, { maxLength = 200 } = {}) {
   let text = String(value ?? '')
   text = text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
   text = text.replace(/<[^>]*>/g, '')
   text = text.replace(/javascript:/gi, '')
   text = text.replace(/on\w+\s*=/gi, '')
-  text = text.trim()
   if (text.length > maxLength) text = text.slice(0, maxLength)
   return text
 }

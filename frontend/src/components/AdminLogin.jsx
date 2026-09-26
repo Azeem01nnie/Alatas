@@ -52,6 +52,19 @@ export function getSessionUser() {
   }
 }
 
+/** Merge fields into the desk session user (e.g. after profile rename). */
+export function patchSessionUser(patch) {
+  const current = getSessionUser()
+  if (!current || !patch || typeof patch !== 'object') return current
+  const next = { ...current, ...patch }
+  try {
+    sessionStorage.setItem(USER_KEY, JSON.stringify(next))
+  } catch {
+    /* ignore */
+  }
+  return next
+}
+
 /**
  * Soft lock when biometrics are enrolled: clear desk UI session but keep
  * Supabase tokens in the vault so Conditional UI / fingerprint can unlock.

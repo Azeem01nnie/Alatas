@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Stepper from './Stepper'
-import StepPersonalInfo from './StepPersonalInfo'
+import StepCustomerIntake from './StepCustomerIntake'
 import StepVehicle from './StepVehicle'
 import StepRentalDetails from './StepRentalDetails'
-import StepPhoto from './StepPhoto'
-import StepTerms from './StepTerms'
+import StepPayment from './StepPayment'
 import StepCarCondition, { CAR_PHOTO_SLOTS } from './StepCarCondition'
 import StepSummary from './StepSummary'
 import LoadingScreen from './LoadingScreen'
@@ -19,10 +18,17 @@ import {
   sanitizeTimePart,
   toPeriodDate,
 } from '../utils/rentalPeriod'
-import { parseDurationDays, formatDurationDaysLabel, buildRentalAutoPatch } from '../utils/rentalFee'
-import { upsertCustomerFromPersonal } from '../utils/customers'
+import {
+  parseDurationDays,
+  formatDurationDaysLabel,
+  buildRentalAutoPatch,
+  formatRentalFee,
+  parseRentalFeeAmount,
+  resolveRentalQuoteTotal,
+} from '../utils/rentalFee'
+import { isCustomerBlacklisted, upsertCustomerFromPersonal } from '../utils/customers'
 
-const TOTAL_STEPS = 7
+const TOTAL_STEPS = 5
 
 const initialPersonal = {
   firstName: '',
@@ -78,6 +84,7 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
   const { vehicles, addRental } = useVehicles()
   const [step, setStep] = useState(1)
   const stepBodyRef = useRef(null)
+  const [deskMode, setDeskMode] = useState('check_in') // check_in | booking
   const [personal, setPersonal] = useState(initialPersonal)
   const [vehicleId, setVehicleId] = useState('')
   const [rental, setRental] = useState(initialRental)
@@ -87,12 +94,22 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
   const [signature, setSignature] = useState('')
   const [carPhotos, setCarPhotos] = useState({})
   const [termsAccepted, setTermsAccepted] = useState(false)
+  const [amountPaidInput, setAmountPaidInput] = useState('')
+  const [discountInput, setDiscountInput] = useState('')
   const [errors, setErrors] = useState({})
   const [phase, setPhase] = useState('form') // form | loading
   const [submitError, setSubmitError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   const selectedVehicle = vehicles.find((v) => v.id === vehicleId)
+  const quoteTotal = resolveRentalQuoteTotal(rental)
+  const discountAmount = Math.min(
+    quoteTotal,
+    Math.max(0, parseRentalFeeAmount(discountInput)),
+  )
+  const netTotal = Math.max(0, quoteTotal - discountAmount)
+  const amountPaid = parseRentalFeeAmount(amountPaidInput)
+  const balanceDue = Math.max(0, netTotal - amountPaid)
 
   const isDirty =
     phase === 'form' &&
@@ -111,7 +128,9 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
       Boolean(rental.fromDate) ||
       Boolean(rental.toDate) ||
       Boolean(rental.rentalFee) ||
-      Boolean(rental.durationOther))
+      Boolean(rental.durationOther) ||
+      amountPaidInput.trim() !== '' ||
+      discountInput.trim() !== '')
 
   useEffect(() => {
     onDirtyChange?.(isDirty)
@@ -171,7 +190,7 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
 
   // Car photos are optional — never keep required-slot errors around.
   useEffect(() => {
-    if (step !== 6) return
+    if (step !== 4) return
     setErrors((prev) => {
       const next = { ...prev }
       let changed = false
@@ -216,13 +235,18 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
       } else if (!isCompletePhMobile(personal.emergencyPhone)) {
         nextErrors.emergencyPhone = 'Enter a valid number (e.g. +63 912 123 1234)'
       }
+      if (isCustomerBlacklisted(personal)) {
+        nextErrors.contactNo = 'This customer is blacklisted and cannot be rented to'
+      }
+      if (!photo) nextErrors.photo = 'Add a photo of the customer holding their license'
+      if (!licensePhoto) nextErrors.licensePhoto = 'Add a clear photo of the customer'
+      if (!signature) nextErrors.signature = 'Customer signature is required'
+      if (!termsAccepted) nextErrors.terms = 'You must accept the terms to continue'
     }
 
     if (currentStep === 2) {
       if (!vehicleId) nextErrors.vehicle = 'Please select a vehicle and click Proceed'
-    }
 
-    if (currentStep === 3) {
       if (!rental.duration) nextErrors.duration = 'Select a duration'
       if (rental.duration === 'Others') {
         const days = parseDurationDays(rental.durationOther)
@@ -268,26 +292,42 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
         nextErrors.toDate = 'To must be after From'
       }
 
-      if (fromDt && fromDt.getTime() < Date.now()) {
-        nextErrors.fromHour = 'Start time cannot be in the past'
+      if (fromDt) {
+        const startMs = fromDt.getTime()
+        if (deskMode === 'booking' && startMs <= Date.now()) {
+          nextErrors.fromHour = 'Booking start must be in the future'
+        } else if (deskMode === 'check_in' && startMs < Date.now() - 15 * 60_000) {
+          nextErrors.fromHour = 'Check-in start cannot be far in the past'
+        }
       }
 
       if (!rental.rentalFee.trim()) nextErrors.rentalFee = 'Rental fee is required'
     }
 
-    if (currentStep === 4) {
-      if (!photo) nextErrors.photo = 'Add a photo of the customer holding their license'
-      if (!licensePhoto) {
-        nextErrors.licensePhoto = 'Add a clear photo of the customer'
+    if (currentStep === 3) {
+      const total = resolveRentalQuoteTotal(rental)
+      const disc = parseRentalFeeAmount(discountInput)
+      if (discountInput.trim() !== '' && disc < 0) {
+        nextErrors.discount = 'Discount cannot be negative'
+      } else if (disc > total + 0.009) {
+        nextErrors.discount = 'Discount cannot exceed the rental total'
+      }
+      const net = Math.max(0, total - Math.min(total, Math.max(0, disc)))
+      if (!(total > 0)) {
+        nextErrors.amountPaid = 'Rental total is missing. Go back and complete rental details.'
+      } else {
+        const paid = parseRentalFeeAmount(amountPaidInput)
+        if (amountPaidInput.trim() === '') {
+          nextErrors.amountPaid = 'Enter amount received (0 if collecting later)'
+        } else if (paid < 0) {
+          nextErrors.amountPaid = 'Amount cannot be negative'
+        } else if (paid > net + 0.009) {
+          nextErrors.amountPaid = 'Amount received cannot exceed the total after discount'
+        }
       }
     }
 
-    if (currentStep === 5) {
-      if (!signature) nextErrors.signature = 'Customer signature is required'
-      if (!termsAccepted) nextErrors.terms = 'You must accept the terms to continue'
-    }
-
-    // Step 6 car photos are optional — can be added later from the rental transaction.
+    // Step 4 car photos are optional.
 
     setErrors(nextErrors)
     return Object.keys(nextErrors).length === 0
@@ -295,6 +335,7 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
 
   const handleReset = useCallback(() => {
     setStep(1)
+    setDeskMode('check_in')
     setPersonal(initialPersonal)
     setVehicleId('')
     setRental(initialRental)
@@ -304,6 +345,8 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
     setSignature('')
     setCarPhotos({})
     setTermsAccepted(false)
+    setAmountPaidInput('')
+    setDiscountInput('')
     setErrors({})
     setSubmitError('')
     setSubmitting(false)
@@ -319,6 +362,11 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
       if (!selectedVehicle) {
         setSubmitError('Selected vehicle is no longer available. Please go back and choose again.')
         setStep(2)
+        setSubmitting(false)
+        return
+      }
+      if (isCustomerBlacklisted(personal)) {
+        setSubmitError('This customer is blacklisted and cannot be rented to.')
         setSubmitting(false)
         return
       }
@@ -366,11 +414,20 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
       const fromDt = toPeriodDate(rental.fromDate, fromTime, rental.fromMeridiem)
       const toDt = toPeriodDate(rental.toDate, toTime, rental.toMeridiem)
 
-      if (fromDt && fromDt.getTime() < Date.now()) {
-        setErrors({ fromHour: 'Start time cannot be in the past' })
-        setStep(3)
-        setSubmitting(false)
-        return
+      if (fromDt) {
+        const startMs = fromDt.getTime()
+        if (deskMode === 'booking' && startMs <= Date.now()) {
+          setErrors({ fromHour: 'Booking start must be in the future' })
+          setStep(3)
+          setSubmitting(false)
+          return
+        }
+        if (deskMode === 'check_in' && startMs < Date.now() - 15 * 60_000) {
+          setErrors({ fromHour: 'Check-in start cannot be far in the past' })
+          setStep(3)
+          setSubmitting(false)
+          return
+        }
       }
 
       const periodFromLabel = formatPeriodLabel(
@@ -411,6 +468,7 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
           rates: selectedVehicle.rates || null,
         },
         rental: {
+          deskMode,
           duration:
             rental.duration === 'Others' ? rental.durationOther : rental.duration,
           rentalType: rental.rentalType,
@@ -442,6 +500,16 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
               ? String(rental.driverFeeNote || '').trim()
               : '',
           rentalFee: rental.rentalFee,
+          discountAmount: discountAmount > 0 ? formatRentalFee(discountAmount) : '',
+          discountAmountValue: discountAmount,
+          totalAmount: formatRentalFee(netTotal),
+          totalAmountValue: netTotal,
+          amountPaid: formatRentalFee(amountPaid),
+          amountPaidValue: amountPaid,
+          initialPayment: formatRentalFee(amountPaid),
+          initialPaymentValue: amountPaid,
+          balanceDue: formatRentalFee(balanceDue),
+          balanceDueValue: balanceDue,
           fromDate: rental.fromDate,
           fromHour: rental.fromHour,
           fromMinute: rental.fromMinute,
@@ -462,6 +530,7 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
         signature: compressedSignature,
         carPhotos: compressedCarPhotos,
         termsAccepted,
+        deskMode,
         encodedAt: new Date().toISOString(),
         encodedBy: encoder,
         autoApprove: Boolean(autoApprove),
@@ -470,7 +539,11 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
 
       await addRental(record)
       try {
-        upsertCustomerFromPersonal(record.personal)
+        upsertCustomerFromPersonal(record.personal, {
+          holdingPhoto: compressedPhoto,
+          licensePhoto: compressedLicense,
+          optionalPhoto: compressedOptional,
+        })
       } catch (custErr) {
         console.warn('Could not save customer profile', custErr)
       }
@@ -487,7 +560,7 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
   }
 
   const handleNext = async () => {
-    if (step === 3 && rental.duration === 'Others') {
+    if (step === 2 && rental.duration === 'Others') {
       const labeled = formatDurationDaysLabel(rental.durationOther)
       if (labeled && labeled !== rental.durationOther) {
         const next = { ...rental, durationOther: labeled }
@@ -495,15 +568,15 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
         setRental({ ...next, ...auto })
       }
     }
-    // Step 6 (car photos) is fully optional — always allow continue.
-    if (step === 6) {
+    // Step 4 (car photos) is fully optional — always allow continue.
+    if (step === 4) {
       setErrors((prev) => {
         const next = { ...prev }
         for (const slot of CAR_PHOTO_SLOTS) next[slot.key] = ''
         next.carPhotos = ''
         return next
       })
-      setStep(7)
+      setStep(5)
       return
     }
     if (!validateStep(step)) return
@@ -528,39 +601,44 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
     return <LoadingScreen onDone={handleReset} />
   }
 
-  const nextDisabled = step === 5 && (!termsAccepted || !signature)
+  const nextDisabled = step === 1 && (!termsAccepted || !signature)
 
   return (
     <div className="encoder-card rent-car-panel">
+      <div className="rent-desk-mode" role="group" aria-label="Rental desk mode">
+        <button
+          type="button"
+          className={`rent-desk-mode-btn${deskMode === 'check_in' ? ' is-active' : ''}`}
+          aria-pressed={deskMode === 'check_in'}
+          onClick={() => setDeskMode('check_in')}
+        >
+          Check in
+        </button>
+        <button
+          type="button"
+          className={`rent-desk-mode-btn${deskMode === 'booking' ? ' is-active' : ''}`}
+          aria-pressed={deskMode === 'booking'}
+          onClick={() => setDeskMode('booking')}
+        >
+          Booking
+        </button>
+        <p className="rent-desk-mode-hint">
+          {deskMode === 'check_in'
+            ? 'Walk-in / start now — vehicle goes on rent when accepted.'
+            : 'Advance reservation — stays scheduled until the start time.'}
+        </p>
+      </div>
+
       <Stepper currentStep={step} />
 
       <div className="encoder-body" ref={stepBodyRef}>
         {step === 1 && (
-          <StepPersonalInfo data={personal} onChange={updatePersonal} errors={errors} />
-        )}
-        {step === 2 && (
-          <StepVehicle
-            selectedId={vehicleId}
-            onSelect={(id) => {
-              setVehicleId(id)
-              setErrors((prev) => ({ ...prev, vehicle: '' }))
-            }}
-            error={errors.vehicle}
-          />
-        )}
-        {step === 3 && (
-          <StepRentalDetails
-            data={rental}
-            onChange={updateRental}
-            errors={errors}
-            vehicle={selectedVehicle}
-          />
-        )}
-        {step === 4 && (
-          <StepPhoto
-            holdingPreview={photo}
-            licensePreview={licensePhoto}
-            optionalPreview={optionalPhoto}
+          <StepCustomerIntake
+            personal={personal}
+            onPersonalChange={updatePersonal}
+            photo={photo}
+            licensePhoto={licensePhoto}
+            optionalPhoto={optionalPhoto}
             onHoldingChange={(next) => {
               setPhoto(next)
               setErrors((prev) => ({ ...prev, photo: '' }))
@@ -573,13 +651,8 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
               setOptionalPhoto(next)
               setErrors((prev) => ({ ...prev, optionalPhoto: '' }))
             }}
-            errors={errors}
-          />
-        )}
-        {step === 5 && (
-          <StepTerms
-            accepted={termsAccepted}
-            onAcceptedChange={(val) => {
+            termsAccepted={termsAccepted}
+            onTermsAcceptedChange={(val) => {
               setTermsAccepted(val)
               setErrors((prev) => ({ ...prev, terms: '' }))
             }}
@@ -588,22 +661,63 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
               setSignature(val)
               setErrors((prev) => ({ ...prev, signature: '', terms: '' }))
             }}
-            error={errors.terms}
-            signatureError={errors.signature}
+            errors={errors}
           />
         )}
-        {step === 6 && (
+        {step === 2 && (
+          <div className="step-vehicle-rental">
+            <StepVehicle
+              selectedId={vehicleId}
+              onSelect={(id) => {
+                setVehicleId(id)
+                setErrors((prev) => ({ ...prev, vehicle: '' }))
+              }}
+              error={errors.vehicle}
+            />
+            <StepRentalDetails
+              data={rental}
+              onChange={updateRental}
+              errors={errors}
+              vehicle={selectedVehicle}
+            />
+          </div>
+        )}
+        {step === 3 && (
+          <StepPayment
+            rental={rental}
+            vehicle={selectedVehicle}
+            amountPaidInput={amountPaidInput}
+            onAmountPaidChange={(next) => {
+              setAmountPaidInput(next)
+              setErrors((prev) => ({ ...prev, amountPaid: '' }))
+            }}
+            discountInput={discountInput}
+            onDiscountChange={(next) => {
+              setDiscountInput(next)
+              setErrors((prev) => ({ ...prev, discount: '' }))
+            }}
+            error={errors.amountPaid}
+            discountError={errors.discount}
+          />
+        )}
+        {step === 4 && (
           <StepCarCondition
             photos={carPhotos}
             onChange={updateCarPhoto}
             errors={{}}
           />
         )}
-        {step === 7 && (
+        {step === 5 && (
           <StepSummary
             personal={personal}
             vehicle={selectedVehicle}
-            rental={rental}
+            rental={{
+              ...rental,
+              discountAmount: discountAmount > 0 ? formatRentalFee(discountAmount) : '',
+              totalAmount: formatRentalFee(netTotal),
+              amountPaid: formatRentalFee(amountPaid),
+              balanceDue: formatRentalFee(balanceDue),
+            }}
             photo={photo}
             licensePhoto={licensePhoto}
             optionalPhoto={optionalPhoto}

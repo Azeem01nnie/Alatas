@@ -256,10 +256,8 @@ export async function replaceVehicles(vehicles, options = {}) {
     let { error } = await sb.from('vehicles').upsert(items, { onConflict: 'id' })
     // Gallery/insurance columns may be missing until migration 008 is applied.
     // Fall back: keep the full gallery packed into the legacy `image` text column.
-    if (
-      error &&
-      /images|insurance_images|schema cache|column/i.test(String(error.message || error.code || ''))
-    ) {
+    const msg = String(error?.message || error?.details || error?.code || '')
+    if (error && /images|insurance_images|schema cache|column|PGRST204|42703/i.test(msg)) {
       const stripped = items.map(({ images, insurance_images, ...rest }) => {
         const gallery = Array.isArray(images)
           ? images.map((u) => String(u || '').trim()).filter(Boolean)
@@ -276,7 +274,10 @@ export async function replaceVehicles(vehicles, options = {}) {
         )
       }
     }
-    if (error) throwSb(error)
+    if (error) {
+      console.warn('vehicles upsert failed', error)
+      throwSb(error)
+    }
   }
 
   return fetchVehicles()
@@ -346,6 +347,26 @@ export async function completeVehicleRental(
         rentalJson.returnInspection = returnMeta.inspection
       } else if (String(returnMeta.condition || '').toLowerCase() === 'ok') {
         rentalJson.returnInspection = null
+      }
+
+      const overduePay = returnMeta.overduePayment
+      if (overduePay && typeof overduePay === 'object') {
+        const paid = Math.max(0, Number(overduePay.paidAmount) || 0)
+        const hours = Math.max(0, Number(overduePay.hours) || 0)
+        const charged = Math.max(0, Number(overduePay.chargedAmount) || paid)
+        const rate = Math.max(0, Number(overduePay.exceedRate) || 0)
+        const peso = (n) =>
+          `₱${Number(n || 0).toLocaleString('en-PH', {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 2,
+          })}`
+        rentalJson.overdueHours = hours
+        rentalJson.overdueRate = rate
+        rentalJson.overdueChargedValue = charged
+        rentalJson.overdueCharged = peso(charged)
+        rentalJson.overdueFeeValue = paid
+        rentalJson.overdueFee = peso(paid)
+        rentalJson.overduePaidAt = now
       }
       const { data: one, error } = await sb
         .from('rentals')
@@ -875,6 +896,128 @@ export async function addRental(rental) {
   return mapRental(data)
 }
 
+/**
+ * Swap the vehicle on an open rental and optionally record additional payment received.
+ * Frees the old unit and marks the new one Rented when the rental is active.
+ */
+export async function changeRentalVehicle(rentalId, nextVehicle, extraPayment = 0) {
+  const sb = requireSupabase()
+  const id = String(rentalId || '').trim()
+  if (!id) throw new Error('Rental id is required')
+  if (!nextVehicle?.id) throw new Error('New vehicle is required')
+
+  const { data: existing, error: existingErr } = await sb
+    .from('rentals')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle()
+  if (existingErr) throwSb(existingErr)
+  if (!existing) throw new Error('Rental not found')
+
+  const life = String(existing.rental_lifecycle || '').toLowerCase()
+  if (life !== 'active' && life !== 'scheduled') {
+    throw new Error('Only active or scheduled rentals can change vehicle')
+  }
+
+  const oldId = String(existing.vehicle_id || existing.vehicle?.id || '')
+  const newId = String(nextVehicle.id)
+  if (oldId && oldId === newId) throw new Error('Pick a different vehicle')
+
+  const snap = {
+    id: nextVehicle.id,
+    make: nextVehicle.make,
+    series: nextVehicle.series,
+    plateNo: nextVehicle.plateNo,
+    bodyType: nextVehicle.bodyType,
+    engineNo: nextVehicle.engineNo,
+    chassisNo: nextVehicle.chassisNo,
+    image: nextVehicle.image || '',
+    rates: nextVehicle.rates || null,
+  }
+
+  const rentalJson =
+    existing.rental && typeof existing.rental === 'object' ? { ...existing.rental } : {}
+  const extra = Math.max(0, Number(extraPayment) || 0)
+  const prevPaid = Number(
+    String(rentalJson.amountPaidValue ?? rentalJson.amountPaid ?? '')
+      .replace(/[^\d.]/g, '') || 0,
+  )
+  const prevTotal = Number(
+    String(rentalJson.totalAmountValue ?? rentalJson.totalAmount ?? rentalJson.rentalFee ?? '')
+      .replace(/[^\d.]/g, '') || 0,
+  )
+  // Additional amount on vehicle change is an extra charge on the total,
+  // not cash received. First payment (amountPaid) stays the same.
+  const nextTotal = prevTotal + extra
+  const balance = Math.max(0, nextTotal - prevPaid)
+  const peso = (n) =>
+    `₱${Number(n || 0).toLocaleString('en-PH', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    })}`
+
+  if (
+    rentalJson.initialPaymentValue == null &&
+    rentalJson.initialPayment == null &&
+    prevPaid >= 0
+  ) {
+    rentalJson.initialPaymentValue = prevPaid
+    rentalJson.initialPayment = peso(prevPaid)
+  }
+  // Keep amount received unchanged — extra charge only raises the total / balance.
+  rentalJson.amountPaidValue = prevPaid
+  rentalJson.amountPaid = peso(prevPaid)
+  rentalJson.totalAmountValue = nextTotal
+  rentalJson.totalAmount = peso(nextTotal)
+  rentalJson.balanceDueValue = balance
+  rentalJson.balanceDue = peso(balance)
+  const changes = Array.isArray(rentalJson.vehicleChanges) ? [...rentalJson.vehicleChanges] : []
+  changes.push({
+    at: new Date().toISOString(),
+    fromVehicleId: oldId || null,
+    fromPlate: existing.vehicle?.plateNo || null,
+    toVehicleId: newId,
+    toPlate: snap.plateNo || null,
+    extraCharge: extra,
+  })
+  rentalJson.vehicleChanges = changes
+
+  const vehicleIds = await knownVehicleIdSet(sb)
+  const row = withSafeVehicleFk(
+    {
+      ...existing,
+      vehicle_id: newId,
+      vehicle: snap,
+      rental: rentalJson,
+      updated_at: new Date().toISOString(),
+    },
+    vehicleIds,
+  )
+
+  const { data, error } = await sb
+    .from('rentals')
+    .update({
+      vehicle_id: row.vehicle_id,
+      vehicle: row.vehicle,
+      rental: row.rental,
+      updated_at: row.updated_at,
+    })
+    .eq('id', id)
+    .select('*')
+    .single()
+  if (error) throwSb(error)
+
+  const now = new Date().toISOString()
+  if (oldId) {
+    await sb.from('vehicles').update({ status: 'Available', updated_at: now }).eq('id', oldId)
+  }
+  if (life === 'active' && newId) {
+    await sb.from('vehicles').update({ status: 'Rented', updated_at: now }).eq('id', newId)
+  }
+
+  return mapRental(data)
+}
+
 /** Targeted car-photo update — uploads images to Storage, then patches only this rental. */
 export async function patchRentalCarPhotos(rentalId, carPhotos, addedBy = '') {
   const sb = requireSupabase()
@@ -964,12 +1107,24 @@ export async function acceptPendingRental(id) {
   if (fetchErr) throwSb(error)
   if (!row) throwSb(error)
   const periodFrom = row.rental?.periodFrom ? new Date(row.rental.periodFrom).getTime() : NaN
-  const startNow = Number.isNaN(periodFrom) || periodFrom <= Date.now()
+  const deskMode = String(row.desk_mode || row.rental?.deskMode || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_')
+  let startNow = Number.isNaN(periodFrom) || periodFrom <= Date.now()
+  let lifecycle = startNow ? 'active' : 'scheduled'
+  if (deskMode === 'check_in' || deskMode === 'checkin') {
+    startNow = true
+    lifecycle = 'active'
+  } else if (deskMode === 'booking') {
+    startNow = false
+    lifecycle = 'scheduled'
+  }
   const { data: updated, error: updErr } = await sb
     .from('rentals')
     .update({
       approval_status: 'accepted',
-      rental_lifecycle: startNow ? 'active' : 'scheduled',
+      rental_lifecycle: lifecycle,
       started_at: startNow ? now : null,
       rejection_reason: null,
       updated_at: now,
@@ -978,7 +1133,7 @@ export async function acceptPendingRental(id) {
     .select('*')
     .single()
   if (updErr) throwSb(updErr)
-  if (startNow && row.vehicle_id) {
+  if (lifecycle === 'active' && row.vehicle_id) {
     await sb.from('vehicles').update({ status: 'Rented', updated_at: now }).eq('id', row.vehicle_id)
   }
   return mapRental(updated)
@@ -1130,6 +1285,32 @@ export async function fetchOwnersRemote() {
   return []
 }
 
+export async function fetchDeskExpensesRemote() {
+  const sb = requireSupabase()
+  const { data, error } = await sb
+    .from('app_settings')
+    .select('value')
+    .eq('key', 'desk_expenses')
+    .maybeSingle()
+  if (error) throwSb(error)
+  const value = data?.value
+  if (Array.isArray(value)) return value
+  if (value && Array.isArray(value.entries)) return value.entries
+  return []
+}
+
+export async function saveDeskExpensesRemote(entries) {
+  const sb = requireSupabase()
+  const next = Array.isArray(entries) ? entries : []
+  const { error } = await sb.from('app_settings').upsert({
+    key: 'desk_expenses',
+    value: { entries: next },
+    updated_at: new Date().toISOString(),
+  })
+  if (error) throwSb(error)
+  return next
+}
+
 export async function saveOwnersRemote(owners) {
   const sb = requireSupabase()
   const next = Array.isArray(owners) ? owners : []
@@ -1259,6 +1440,13 @@ async function clearAppDataClientFallback(sb) {
     updated_at: new Date().toISOString(),
   })
   if (reportsErr) throwSb(reportsErr)
+
+  const { error: deskExpErr } = await sb.from('app_settings').upsert({
+    key: 'desk_expenses',
+    value: { entries: [] },
+    updated_at: new Date().toISOString(),
+  })
+  if (deskExpErr) throwSb(deskExpErr)
 
   const storageDeleted =
     (await clearStorageBucket(sb, 'vehicles')) +

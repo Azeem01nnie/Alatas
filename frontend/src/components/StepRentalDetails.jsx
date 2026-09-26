@@ -31,7 +31,7 @@ function PeriodFields({
   data,
   onField,
   onTime,
-  errors,
+  errors = {},
   minDate,
   readOnly,
 }) {
@@ -76,7 +76,8 @@ function PeriodFields({
   )
 }
 
-export default function StepRentalDetails({ data, onChange, errors, vehicle }) {
+export default function StepRentalDetails({ data, onChange, errors = {}, vehicle }) {
+  const panelRef = useRef(null)
   const minDate = todayDateValue()
   const toMinDate = data.fromDate && data.fromDate > minDate ? data.fromDate : minDate
   const rates = vehicle?.rates
@@ -105,11 +106,19 @@ export default function StepRentalDetails({ data, onChange, errors, vehicle }) {
     return buildDriverFeePatch(nextData.rentalType, hrs)
   }
 
+  const keepRentalInView = () => {
+    // After chip clicks, keep the rental block visible (combined vehicle+rental step).
+    requestAnimationFrame(() => {
+      panelRef.current?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+    })
+  }
+
   const applyField = (key, value) => {
     const next = { ...data, [key]: value }
     const auto = buildRentalAutoPatch(next, rates)
     const driver = syncDriverPatch({ ...next, ...auto }, auto.feeHours ?? next.feeHours)
     onChange({ [key]: value, ...auto, ...driver })
+    keepRentalInView()
   }
 
   const applyCoverage = (nextCoverage) => {
@@ -120,9 +129,10 @@ export default function StepRentalDetails({ data, onChange, errors, vehicle }) {
         outsideCityDestinationName: '',
         outsideCityFee: '',
       })
-      return
+    } else {
+      onChange({ coverage: 'outside_city' })
     }
-    onChange({ coverage: 'outside_city' })
+    keepRentalInView()
   }
 
   const applyDestination = (destinationId) => {
@@ -172,18 +182,28 @@ export default function StepRentalDetails({ data, onChange, errors, vehicle }) {
 
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
+  const dataRef = useRef(data)
+  dataRef.current = data
 
-  // Keep fee + auto end time + driver wage in sync when duration / start / rates change
+  // Keep fee + auto end time + driver wage in sync with duration / start / rates.
+  // Depend only on inputs — not on outputs this effect writes — to avoid update loops.
   useEffect(() => {
-    const auto = buildRentalAutoPatch(data, rates)
-    const driver = syncDriverPatch(
-      { ...data, ...auto },
-      auto.feeHours ?? data.feeHours,
-    )
+    const current = dataRef.current
+    const auto = buildRentalAutoPatch(current, rates)
+    const driverHours =
+      auto.feeHours != null
+        ? auto.feeHours
+        : parseDurationHours(current.duration, current.durationOther)
+    const driver = syncDriverPatch({ ...current, ...auto }, driverHours)
     const patch = { ...auto, ...driver }
     const keys = Object.keys(patch)
     if (!keys.length) return
-    const changed = keys.some((key) => data[key] !== patch[key])
+    const changed = keys.some((key) => {
+      const nextVal = patch[key]
+      const prevVal = current[key]
+      if (nextVal == null && (prevVal == null || prevVal === '')) return false
+      return nextVal !== prevVal
+    })
     if (changed) onChangeRef.current(patch)
   }, [
     data.duration,
@@ -192,18 +212,7 @@ export default function StepRentalDetails({ data, onChange, errors, vehicle }) {
     data.fromHour,
     data.fromMinute,
     data.fromMeridiem,
-    data.rentalFee,
-    data.feeNote,
-    data.feeHours,
     data.rentalType,
-    data.driverFee,
-    data.driverFeeNote,
-    data.driverBillableHours,
-    data.driverWagePerHour,
-    data.toDate,
-    data.toHour,
-    data.toMinute,
-    data.toMeridiem,
     ratesKey,
   ])
 
@@ -258,7 +267,7 @@ export default function StepRentalDetails({ data, onChange, errors, vehicle }) {
     (withDriver && (driverFee > 0 || data.driverFeeNote))
 
   return (
-    <section className="step-panel step-rental">
+    <section className="step-panel step-rental" ref={panelRef}>
       <header className="step-rental-head">
         <div>
           <h2 className="step-title">Rental Details</h2>

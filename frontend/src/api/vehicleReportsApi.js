@@ -112,10 +112,11 @@ export async function pushVehicleReportsToCloud(store) {
 }
 
 export async function fetchVehicleReportsFromCloud() {
+  // Supabase is the source of truth. An empty store must win — do not fall
+  // through to Render/local API or wiped expenses get resurrected.
   if (isSupabaseConfigured) {
     try {
-      const remote = await fetchVehicleReportsRemote()
-      if (remote?.entries?.length || remote?.submissions?.length) return remote
+      return await fetchVehicleReportsRemote()
     } catch (err) {
       console.warn('Supabase vehicle reports fetch failed', err)
     }
@@ -142,4 +143,37 @@ export async function fetchVehicleReportsFromCloud() {
   }
 
   return null
+}
+
+/** Wipe local + every cloud mirror so Clear data cannot leave expenses behind. */
+export async function clearVehicleReportsEverywhere() {
+  const empty = { entries: [], submissions: [] }
+  try {
+    localStorage.setItem('alatas-vehicle-reports', JSON.stringify(empty))
+  } catch {
+    try {
+      localStorage.removeItem('alatas-vehicle-reports')
+    } catch {
+      /* ignore */
+    }
+  }
+  try {
+    await pushVehicleReportsToCloud(empty)
+  } catch (err) {
+    console.warn('Could not push empty vehicle reports after clear', err)
+  }
+  // Also clear per-vehicle mirrors if any vehicles remain.
+  if (isSupabaseConfigured) {
+    try {
+      const { requireSupabase } = await import('./supabaseClient')
+      const sb = requireSupabase()
+      await sb
+        .from('vehicles')
+        .update({ report_entries: [], updated_at: new Date().toISOString() })
+        .neq('id', '')
+    } catch (err) {
+      console.warn('Could not clear vehicle report_entries mirrors', err)
+    }
+  }
+  return empty
 }

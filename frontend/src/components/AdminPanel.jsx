@@ -30,10 +30,12 @@ import AdminLogin, {
   getSessionRole,
   getSessionUser,
   isAdminLoggedIn,
+  patchSessionUser,
   verifyAdminCredentials,
 } from './AdminLogin'
 import ConfirmModal from './ConfirmModal'
 import DamageInspectionModal from './DamageInspectionModal'
+import OverduePaymentModal from './OverduePaymentModal'
 import DamageReports from './DamageReports'
 import CustomersPanel from './CustomersPanel'
 import OutsideCityDestinationsPanel from './OutsideCityDestinationsPanel'
@@ -47,6 +49,7 @@ import TransactionPage from './TransactionPage'
 import VehicleModal from './VehicleModal'
 import VehicleReports from './VehicleReports'
 import PendingApprovals from './PendingApprovals'
+import NeedsAttentionPanel from './NeedsAttentionPanel'
 import EmployeesPanel from './EmployeesPanel'
 import {
   addOwner,
@@ -56,7 +59,13 @@ import {
   syncOwnersFromVehicles,
   updateOwner,
 } from '../utils/owners'
-import { loadReportStore } from '../utils/vehicleReports'
+import { loadReportStore, clearLocalReportStore } from '../utils/vehicleReports'
+import {
+  addDeskExpense,
+  clearDeskExpenses,
+  pullDeskExpensesFromCloud,
+  sumDeskExpenses,
+} from '../utils/deskExpenses'
 import {
   loadOutsideCityDestinations,
   replaceOutsideCityDestinations,
@@ -69,12 +78,16 @@ import { getVehicleGallery, getInsuranceImages } from '../utils/vehicleImages'
 import {
   formatRentalFee,
   isRevenueCountableRental,
+  resolveOverdueCharge,
+  resolveOverdueHours,
   resolveRentalChargeBreakdown,
   resolveRentalTotalCharges,
 } from '../utils/rentalFee'
+import { buildDeskDashboardMetrics } from '../utils/deskMetrics'
 import { fetchSystemStatus, runCloudSync, saveAdminProfileRemote, clearAllAppData, clearRentalsData } from '../api/backend'
 import { requireSupabase } from '../api/supabaseClient'
 import { CLOUD_SYNC_ENABLED, isCloudConfigured } from '../api/cloudSync'
+import { clearVehicleReportsEverywhere } from '../api/vehicleReportsApi'
 import { describeCloudConnection } from '../config/cloudConnection'
 import { useConnectivity } from '../hooks/useConnectivity'
 import { clearLoginAudit, fetchLoginAudit, formatAuditRole, formatAuditStatus } from '../utils/loginAudit'
@@ -444,6 +457,25 @@ function vehicleThumbSrc(vehicle) {
   return gallery[0] || logo
 }
 
+/** check_in | booking | '' for older rows without deskMode. */
+function resolveHistoryDeskMode(rental) {
+  const raw = String(rental?.deskMode || rental?.rental?.deskMode || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_')
+  if (raw === 'booking') return 'booking'
+  if (raw === 'check_in' || raw === 'checkin') return 'check_in'
+  const life = String(rental?.rentalLifecycle || '').toLowerCase()
+  if (life === 'scheduled') return 'booking'
+  return ''
+}
+
+function historyDeskModeLabel(mode) {
+  if (mode === 'booking') return 'Booking'
+  if (mode === 'check_in') return 'Check-in'
+  return ''
+}
+
 /** How late a rental is/was past periodTo. Null when not overdue. */
 function formatOverdueDuration(rental, now = Date.now()) {
   const due = new Date(rental?.rental?.periodTo || 0).getTime()
@@ -679,12 +711,14 @@ export default function AdminPanel() {
     updateVehicleStatus,
     completeRentalForVehicle,
     cancelScheduledRental,
+    changeRentalVehicle,
     updateRentalCarPhotos,
     replaceAllData,
     reloadData,
     wipeLocalFleet,
     wipeLocalRentals,
     unlockFleetWrites,
+    bookedVehicleIds,
   } = useVehicles()
   const { online } = useConnectivity()
   const [authed, setAuthed] = useState(() => isAdminLoggedIn())
@@ -700,6 +734,7 @@ export default function AdminPanel() {
   const [historySearch, setHistorySearch] = useState('')
   const [historyDateFrom, setHistoryDateFrom] = useState('')
   const [historyDateTo, setHistoryDateTo] = useState('')
+  const [historyDeskFilter, setHistoryDeskFilter] = useState('all') // all | check_in | booking
   const [revenuePreset, setRevenuePreset] = useState('week')
   const [revenueDateFrom, setRevenueDateFrom] = useState('')
   const [revenueDateTo, setRevenueDateTo] = useState('')
@@ -730,12 +765,19 @@ export default function AdminPanel() {
   const [addOwnerModal, setAddOwnerModal] = useState(null) // null | { forEdit: boolean }
   const [confirm, setConfirm] = useState(null)
   const [damageReturn, setDamageReturn] = useState(null)
+  const [overduePrompt, setOverduePrompt] = useState(null)
+  const [overdueBusy, setOverdueBusy] = useState(false)
   const [clearDataCreds, setClearDataCreds] = useState({
     username: '',
     password: '',
     error: '',
   })
   const [clearDataBusy, setClearDataBusy] = useState(false)
+  const [deskExpenseEntries, setDeskExpenseEntries] = useState([])
+  const [expenseModalOpen, setExpenseModalOpen] = useState(false)
+  const [expenseAmount, setExpenseAmount] = useState('')
+  const [expenseNote, setExpenseNote] = useState('')
+  const [expenseError, setExpenseError] = useState('')
   const [loginAudit, setLoginAudit] = useState([])
   const [loginAuditBusy, setLoginAuditBusy] = useState(false)
   const [securityNotice, setSecurityNotice] = useState('')
@@ -803,6 +845,18 @@ export default function AdminPanel() {
       mounted = false
     }
   }, [ready, loadError, vehicles, archivedVehicles])
+
+  useEffect(() => {
+    if (!ready || loadError) return
+    let mounted = true
+    ;(async () => {
+      const entries = await pullDeskExpensesFromCloud()
+      if (mounted) setDeskExpenseEntries(entries)
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [ready, loadError])
 
   useEffect(() => {
     if (tab === 'settings') {
@@ -932,6 +986,8 @@ export default function AdminPanel() {
     saveAdminProfile(next)
     setProfile(next)
     setProfileDraft(next)
+    const updatedSession = patchSessionUser({ displayName: next.displayName })
+    if (updatedSession) setSessionUser(updatedSession)
     try {
       await saveAdminProfileRemote(next)
       setProfileMessage('Profile saved and synced.')
@@ -1196,6 +1252,7 @@ export default function AdminPanel() {
       localStorage.removeItem('alatas-offline-queue')
       localStorage.removeItem('alatas-owners')
       localStorage.removeItem('alatas-vehicle-reports')
+      localStorage.removeItem('alatas-desk-expenses-v1')
       localStorage.removeItem('alatas-xz-readings')
       localStorage.removeItem('alatas-customers')
       localStorage.removeItem('alatas-outside-city-destinations')
@@ -1216,6 +1273,11 @@ export default function AdminPanel() {
       })
 
       await clearAllAppData()
+      // Force empty reports on every mirror (Supabase + local/Render API).
+      await clearVehicleReportsEverywhere()
+      clearLocalReportStore()
+      clearDeskExpenses()
+      setDeskExpenseEntries([])
 
       const refreshed = await reloadData()
       const vehiclesLeft = refreshed?.vehicles?.length || 0
@@ -1375,12 +1437,13 @@ export default function AdminPanel() {
     () => NAV.filter((item) => isAdminUser || !item.adminOnly),
     [isAdminUser],
   )
-  const sessionDisplayName =
-    sessionUser?.displayName ||
-    sessionUser?.username ||
-    (isAdminUser ? profile.displayName : '') ||
-    profile.displayName ||
-    (isAdminUser ? 'Admin' : 'Employee')
+  // Admin sidebar name comes from saved profile; session name is only a fallback.
+  const sessionDisplayName = isAdminUser
+    ? profile.displayName ||
+      sessionUser?.displayName ||
+      sessionUser?.username ||
+      'Admin'
+    : sessionUser?.displayName || sessionUser?.username || 'Employee'
 
   useEffect(() => {
     if (!authed) return
@@ -1514,9 +1577,18 @@ export default function AdminPanel() {
   )
 
   const utilization = useMemo(() => {
-    if (!vehicles.length) return 0
-    return Math.round((counts.Rented / vehicles.length) * 100)
-  }, [counts.Rented, vehicles.length])
+    if (!fleetVehicles.length) return 0
+    return Math.round((counts.Rented / fleetVehicles.length) * 100)
+  }, [counts.Rented, fleetVehicles.length])
+
+  const deskMetrics = useMemo(
+    () => buildDeskDashboardMetrics(rentals, vehicles),
+    [rentals, vehicles],
+  )
+  const deskExpenseTotal = useMemo(
+    () => sumDeskExpenses(deskExpenseEntries),
+    [deskExpenseEntries],
+  )
 
   const upcomingScheduled = useMemo(() => {
     const now = Date.now()
@@ -1641,7 +1713,12 @@ export default function AdminPanel() {
     const fromMs = historyDateFrom ? new Date(`${historyDateFrom}T00:00:00`).getTime() : null
     const toMs = historyDateTo ? new Date(`${historyDateTo}T23:59:59.999`).getTime() : null
 
-    return rentals.filter((r) => {
+    const rows = rentals.filter((r) => {
+      if (historyDeskFilter !== 'all') {
+        const mode = resolveHistoryDeskMode(r)
+        if (mode !== historyDeskFilter) return false
+      }
+
       if (q) {
         const name = [
           r.personal?.firstName,
@@ -1665,7 +1742,17 @@ export default function AdminPanel() {
 
       return true
     })
-  }, [rentals, historySearch, historyDateFrom, historyDateTo])
+
+    // Sort: Check-in first, then Booking, then unknown — newest encoded within each group.
+    const rank = (mode) => (mode === 'check_in' ? 0 : mode === 'booking' ? 1 : 2)
+    return [...rows].sort((a, b) => {
+      const modeDiff = rank(resolveHistoryDeskMode(a)) - rank(resolveHistoryDeskMode(b))
+      if (modeDiff) return modeDiff
+      const ta = new Date(a.encodedAt || a.rental?.periodFrom || 0).getTime() || 0
+      const tb = new Date(b.encodedAt || b.rental?.periodFrom || 0).getTime() || 0
+      return tb - ta
+    })
+  }, [rentals, historySearch, historyDateFrom, historyDateTo, historyDeskFilter])
 
   const historyWithImages = useMemo(() => {
     return filteredHistory.map((r) => {
@@ -2172,7 +2259,6 @@ export default function AdminPanel() {
   }
 
   const requestRentCompleted = (vehicle, rental = null) => {
-    if (!isAdminUser) return
     setConfirm({
       type: 'complete-rental-choice',
       title: 'Complete rental return?',
@@ -2188,13 +2274,52 @@ export default function AdminPanel() {
     })
   }
 
+  const beginCompleteReturn = ({ vehicle, rental, vehicleId, plateNo, rentalId, next }) => {
+    const fleet =
+      vehicles.find((v) => String(v.id) === String(vehicleId || vehicle?.id || '')) || vehicle
+    const rentalRow =
+      rentals.find((r) => String(r.id) === String(rentalId || rental?.id || '')) || rental
+    const hours = resolveOverdueHours(rentalRow)
+    const charged = resolveOverdueCharge(rentalRow, fleet)
+    const exceedRate = Number(fleet?.rates?.exceedHour || rentalRow?.vehicle?.rates?.exceedHour) || 0
+
+    if (charged > 0) {
+      setOverduePrompt({
+        vehicle: fleet,
+        rental: rentalRow,
+        vehicleId,
+        plateNo,
+        rentalId,
+        hours,
+        chargedAmount: charged,
+        exceedRate,
+        next: next === 'damaged' ? 'damaged' : 'ok',
+      })
+      return
+    }
+
+    if (next === 'damaged') {
+      setDamageReturn({ vehicle: fleet, rental: rentalRow, vehicleId, plateNo, rentalId })
+      return
+    }
+
+    void finishRentCompleted({
+      vehicleId,
+      plateNo,
+      rentalId,
+      returnMeta: { condition: 'ok', inspection: null },
+    })
+  }
+
   const finishRentCompleted = async ({ vehicleId, plateNo, rentalId, returnMeta = null }) => {
     try {
       await completeRentalForVehicle(vehicleId, plateNo, rentalId, returnMeta)
       setMessage(
         returnMeta?.condition === 'damaged'
           ? 'Damaged return recorded. Rental marked completed.'
-          : 'Rental marked completed.',
+          : returnMeta?.overduePayment
+            ? 'Overdue collected. Rental marked completed.'
+            : 'Rental marked completed.',
       )
       setTimeout(() => setMessage(''), 2500)
     } catch (err) {
@@ -2380,11 +2505,13 @@ export default function AdminPanel() {
       updateVehicleStatus(confirm.vehicleId, confirm.status)
     }
     if (confirm.type === 'complete-rental' || confirm.type === 'complete-rental-choice') {
-      await finishRentCompleted({
+      beginCompleteReturn({
+        vehicle: confirm.vehicle,
+        rental: confirm.rental,
         vehicleId: confirm.vehicleId,
         plateNo: confirm.plateNo,
         rentalId: confirm.rentalId,
-        returnMeta: { condition: 'ok', inspection: null },
+        next: 'ok',
       })
     }
     if (confirm.type === 'cancel-rental') {
@@ -2799,13 +2926,12 @@ export default function AdminPanel() {
               key={rentFormKey}
               onDirtyChange={handleRentDirtyChange}
               encodedByName={sessionDisplayName}
-              autoApprove={isAdminUser}
             />
           )}
 
           {tab === 'dashboard' && (
             <section className="admin-dashboard">
-              <div className="dashboard-stats">
+              <div className="dashboard-stats dashboard-stats--desk">
                 <article className="stat-card">
                   <span className="stat-label">Available</span>
                   <strong className="stat-value">{counts.Available}</strong>
@@ -2813,6 +2939,22 @@ export default function AdminPanel() {
                 <article className="stat-card">
                   <span className="stat-label">On Rent</span>
                   <strong className="stat-value">{counts.Rented}</strong>
+                </article>
+                <article className="stat-card">
+                  <span className="stat-label">Check in</span>
+                  <strong className="stat-value">{deskMetrics.checkIn}</strong>
+                </article>
+                <article className="stat-card">
+                  <span className="stat-label">Booking</span>
+                  <strong className="stat-value">{deskMetrics.booking}</strong>
+                </article>
+                <article className="stat-card">
+                  <span className="stat-label">Rentals</span>
+                  <strong className="stat-value">{deskMetrics.rentals}</strong>
+                </article>
+                <article className="stat-card">
+                  <span className="stat-label">Vehicles rented</span>
+                  <strong className="stat-value">{deskMetrics.totalVehicleRented}</strong>
                 </article>
                 <article className="stat-card">
                   <span className="stat-label">Maintenance</span>
@@ -2830,242 +2972,99 @@ export default function AdminPanel() {
                   <span className="stat-label">Utilization</span>
                   <strong className="stat-value">{utilization}%</strong>
                 </article>
+                <article className="stat-card">
+                  <span className="stat-label">Active customers</span>
+                  <strong className="stat-value">{deskMetrics.activeCustomers}</strong>
+                </article>
+                <article className="stat-card">
+                  <span className="stat-label">Blacklisted</span>
+                  <strong className="stat-value">{deskMetrics.blacklistedCustomers}</strong>
+                </article>
+                <article className="stat-card">
+                  <span className="stat-label">Add ons</span>
+                  <strong className="stat-value">{formatPesoDash(deskMetrics.addOns)}</strong>
+                </article>
+                <article className="stat-card">
+                  <span className="stat-label">Excess hours</span>
+                  <strong className="stat-value">{formatPesoDash(deskMetrics.excessHours)}</strong>
+                </article>
+                <article className="stat-card">
+                  <span className="stat-label">Discounts</span>
+                  <strong className="stat-value">{formatPesoDash(deskMetrics.discounts)}</strong>
+                </article>
+                <button
+                  type="button"
+                  className="stat-card stat-card--btn"
+                  onClick={() => {
+                    setExpenseAmount('')
+                    setExpenseNote('')
+                    setExpenseError('')
+                    setExpenseModalOpen(true)
+                  }}
+                >
+                  <span className="stat-label">Expenses</span>
+                  <strong className="stat-value">{formatPesoDash(deskExpenseTotal)}</strong>
+                </button>
+                <article className="stat-card">
+                  <span className="stat-label">Avg daily rate</span>
+                  <strong className="stat-value">{formatPesoDash(deskMetrics.averageDailyRate)}</strong>
+                </article>
+                <article className="stat-card">
+                  <span className="stat-label">Grand total</span>
+                  <strong className="stat-value">{formatPesoDash(deskMetrics.grandTotal)}</strong>
+                </article>
+                <article className="stat-card">
+                  <span className="stat-label">Balance due</span>
+                  <strong className="stat-value">{formatPesoDash(deskMetrics.balanceDue)}</strong>
+                </article>
               </div>
 
               <div className="dashboard-grid">
                 <div className="dashboard-main">
-                  <section className="dash-panel dash-attention">
-                    <h3 className="dash-panel-title">Needs attention</h3>
-
-                    <div
-                      className="dash-attn-filters"
-                      role="group"
-                      aria-label="Needs attention filter"
-                    >
-                      {[
-                        { id: 'upcoming', label: 'Upcoming', count: upcomingScheduled.length },
-                        { id: 'onRent', label: 'On rent', count: onRentQueue.length },
-                        { id: 'maintenance', label: 'Maintenance', count: maintenanceVehicles.length },
-                        {
-                          id: 'pending',
-                          label: 'Pending',
-                          fullLabel: 'Waiting for approval',
-                          count: pendingApprovalCount,
-                        },
-                      ].map((opt) => (
-                    <button
-                          key={opt.id}
-                      type="button"
-                          className={`dash-attn-filter-btn${attentionFilter === opt.id ? ' is-active' : ''}`}
-                          aria-pressed={attentionFilter === opt.id}
-                          aria-label={
-                            opt.fullLabel
-                              ? `${opt.fullLabel}${opt.count > 0 ? `, ${opt.count}` : ''}`
-                              : undefined
-                          }
-                          title={opt.fullLabel || undefined}
-                          onClick={() => setAttentionFilter(opt.id)}
-                        >
-                          <span className="dash-attn-filter-label">{opt.label}</span>
-                          {opt.count > 0 ? (
-                            <span className="dash-attn-filter-count">{opt.count}</span>
-                          ) : null}
-                    </button>
-                  ))}
-              </div>
-
-                    <div className="dash-attn-body">
-                      {attentionFilter === 'upcoming' && (
-                        upcomingScheduled.length === 0 ? (
-                          <p className="dash-attn-empty">No upcoming rentals.</p>
-                        ) : (
-                          <div className="dash-attn-list">
-                            {upcomingScheduled.map(({ rental, vehicle, isPastDue }) => {
-                              const startLabel =
-                                rental.rental?.periodFromLabel ||
-                                formatDateTime(rental.rental?.periodFrom)
-                              const remaining = isPastDue
-                                ? null
-                                : formatTimeRemaining(rental.rental?.periodFrom, Date.now(), {
-                                    mode: 'untilStart',
-                                  })
-                  return (
-                              <article key={rental.id} className="dash-attn-row">
-                                <div className="dash-attn-thumb" aria-hidden="true">
-                                  {vehicle?.image ? (
-                                    <img src={vehicle.image} alt="" />
-                                  ) : (
-                                    <span>
-                                      {(vehicle?.make || '?').slice(0, 1)}
-                                      {(vehicle?.series || '').slice(0, 1)}
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="dash-attn-meta">
-                      <strong>
-                                    {vehicle?.make} — {vehicle?.series}
-                      </strong>
-                      <span>
-                                    {vehicle?.plateNo} · {customerName(rental)}
-                      </span>
-                                  <span className="dash-attn-time">
-                                    {startLabel}
-                                    {isPastDue ? (
-                                      ' · activating…'
-                                    ) : remaining ? (
-                                      <>
-                                        {' · '}
-                                        <span className="dash-attn-remaining">{remaining}</span>
-                                      </>
-                                    ) : null}
-                                  </span>
-                                </div>
-                                {isAdminUser ? (
-                                  <button
-                                    type="button"
-                                    className="btn-outline btn-sm btn-danger-outline"
-                                    onClick={() => requestCancelRental(rental, vehicle)}
-                                  >
-                                    Cancel
-                                  </button>
-                                ) : null}
-                              </article>
-                              )
-                            })}
-                          </div>
+                  <NeedsAttentionPanel
+                    attentionFilter={attentionFilter}
+                    onFilterChange={setAttentionFilter}
+                    upcomingScheduled={upcomingScheduled}
+                    onRentQueue={onRentQueue}
+                    maintenanceVehicles={maintenanceVehicles}
+                    pendingApprovalCount={pendingApprovalCount}
+                    isAdminUser={isAdminUser}
+                    vehicles={vehicles}
+                    rentals={rentals}
+                    bookedVehicleIds={bookedVehicleIds}
+                    onCancelRental={requestCancelRental}
+                    onCompleteRental={requestRentCompleted}
+                    onManage={() => setTab('manage')}
+                    onChangeVehicle={async ({ rental, toVehicle, extraPayment }) => {
+                      try {
+                        await changeRentalVehicle(rental.id, toVehicle, extraPayment)
+                        setMessage(
+                          extraPayment > 0
+                            ? `Vehicle changed. ₱${Number(extraPayment).toLocaleString('en-PH')} added to total.`
+                            : 'Vehicle changed.',
                         )
-                      )}
-
-                      {attentionFilter === 'onRent' && (
-                        onRentQueue.length === 0 ? (
-                          <p className="dash-attn-empty">No active rentals.</p>
-                        ) : (
-                          <div className="dash-attn-list">
-                            {onRentQueue.map(({ rental, vehicle }) => {
-                              const untilLabel =
-                                rental.rental?.periodToLabel ||
-                                formatDateTime(rental.rental?.periodTo)
-                              const remaining = formatTimeRemaining(rental.rental?.periodTo)
-                              const isOverdue =
-                                remaining && remaining.startsWith('Overdue')
-                              return (
-                              <article key={rental.id} className="dash-attn-row">
-                                <div className="dash-attn-thumb" aria-hidden="true">
-                                  {vehicle?.image ? (
-                                    <img src={vehicle.image} alt="" />
-                                  ) : (
-                                    <span>
-                                      {(vehicle?.make || '?').slice(0, 1)}
-                                      {(vehicle?.series || '').slice(0, 1)}
-                        </span>
-                      )}
-                    </div>
-                                <div className="dash-attn-meta">
-                                  <strong>
-                                    {vehicle?.make} — {vehicle?.series}
-                                  </strong>
-                                  <span>
-                                    {vehicle?.plateNo} · {customerName(rental)}
-                                  </span>
-                                  <span className="dash-attn-time">
-                                    Until {untilLabel}
-                                    {remaining ? (
-                                      <>
-                                        {' · '}
-                    <span
-                                          className={
-                                            isOverdue
-                                              ? 'dash-attn-remaining is-overdue'
-                                              : 'dash-attn-remaining'
-                                          }
-                                        >
-                                          {remaining}
-                    </span>
-                                      </>
-                                    ) : null}
-                                  </span>
-                                </div>
-                                {isAdminUser ? (
-                                  <div className="dash-attn-actions">
-                                    <button
-                                      type="button"
-                                      className="btn-outline btn-sm btn-danger-outline"
-                                      onClick={() => requestCancelRental(rental, vehicle)}
-                                    >
-                                      Cancel
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="btn-outline btn-sm"
-                                      onClick={() => requestRentCompleted(vehicle, rental)}
-                                    >
-                                      Complete
-                                    </button>
-                                  </div>
-                                ) : null}
-                              </article>
-                              )
-                            })}
-                          </div>
-                        )
-                      )}
-
-                      {attentionFilter === 'maintenance' && (
-                        maintenanceVehicles.length === 0 ? (
-                          <p className="dash-attn-empty">No units under maintenance.</p>
-                        ) : (
-                          <div className="dash-attn-list">
-                            {maintenanceVehicles.map((v) => (
-                              <article key={v.id} className="dash-attn-row">
-                                <div className="dash-attn-thumb" aria-hidden="true">
-                                  {v.image ? (
-                                    <img src={v.image} alt="" />
-                                  ) : (
-                                    <span>
-                                      {(v.make || '?').slice(0, 1)}
-                                      {(v.series || '').slice(0, 1)}
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="dash-attn-meta">
-                                  <strong>
-                                    {v.make} — {v.series}
-                                  </strong>
-                                  <span>
-                                    {v.plateNo} · {v.bodyType}
-                                  </span>
-                                </div>
-                                {isAdminUser ? (
-                      <button
-                        type="button"
-                                    className="btn-ghost btn-sm"
-                                    onClick={() => setTab('manage')}
-                      >
-                                    Manage
-                      </button>
-                    ) : null}
-                  </article>
-                            ))}
-                          </div>
-                        )
-                      )}
-
-                      {attentionFilter === 'pending' && (
-                        <PendingApprovals
-                          vehicles={vehicles}
-                          onChanged={reloadData}
-                          embedded
-                          canApprove={isAdminUser}
-                          canEditCarPhotos
-                          onOpenPhotos={(rental) => {
-                            const fresh =
-                              rentals.find((row) => String(row.id) === String(rental.id)) || rental
-                            openTransaction(fresh, 'dashboard')
-                          }}
-                        />
-                      )}
-              </div>
-            </section>
+                        setTimeout(() => setMessage(''), 2500)
+                      } catch (err) {
+                        setMessage(err?.message || 'Could not change vehicle.')
+                        setTimeout(() => setMessage(''), 4000)
+                        throw err
+                      }
+                    }}
+                    pendingSlot={
+                      <PendingApprovals
+                        vehicles={vehicles}
+                        onChanged={reloadData}
+                        embedded
+                        canApprove={isAdminUser}
+                        canEditCarPhotos
+                        onOpenPhotos={(rental) => {
+                          const fresh =
+                            rentals.find((row) => String(row.id) === String(rental.id)) || rental
+                          openTransaction(fresh, 'dashboard')
+                        }}
+                      />
+                    }
+                  />
                 </div>
 
                 <div className="dashboard-side">
@@ -3573,7 +3572,7 @@ export default function AdminPanel() {
             <VehicleReports
               vehicles={vehicles}
               rentals={rentals}
-              adminName={profile.displayName}
+              adminName={sessionDisplayName}
               dataReady={ready && !loadError}
               onOpenRental={(rental) => openTransaction(rental, 'reports')}
               onOwnerUpdate={(ownerId, patch) => {
@@ -3591,12 +3590,7 @@ export default function AdminPanel() {
             <DamageReports
               rentals={rentals}
               vehicles={vehicles}
-              adminName={
-                sessionUser?.displayName ||
-                sessionUser?.username ||
-                profile?.displayName ||
-                'Admin'
-              }
+              adminName={sessionDisplayName}
             />
           )}
 
@@ -3604,12 +3598,7 @@ export default function AdminPanel() {
             <XZReadings
               rentals={rentals}
               vehicles={vehicles}
-              adminName={
-                sessionUser?.displayName ||
-                sessionUser?.username ||
-                profile?.displayName ||
-                'Admin'
-              }
+              adminName={sessionDisplayName}
             />
           )}
 
@@ -3653,7 +3642,19 @@ export default function AdminPanel() {
                   />
                 </div>
 
-                {(historySearch || historyDateFrom || historyDateTo) && (
+                <label className="field history-desk-field">
+                  <span className="field-label">Check-in / Booking</span>
+                  <select
+                    value={historyDeskFilter}
+                    onChange={(e) => setHistoryDeskFilter(e.target.value)}
+                  >
+                    <option value="all">All</option>
+                    <option value="check_in">Check-in</option>
+                    <option value="booking">Booking</option>
+                  </select>
+                </label>
+
+                {(historySearch || historyDateFrom || historyDateTo || historyDeskFilter !== 'all') && (
                   <button
                     type="button"
                     className="btn-ghost history-clear-filters"
@@ -3661,6 +3662,7 @@ export default function AdminPanel() {
                       setHistorySearch('')
                       setHistoryDateFrom('')
                       setHistoryDateTo('')
+                      setHistoryDeskFilter('all')
                     }}
                   >
                     Clear
@@ -3671,6 +3673,8 @@ export default function AdminPanel() {
               <p className="history-filter-note">
                 {historyWithImages.length} result{historyWithImages.length === 1 ? '' : 's'}
                 {(historyDateFrom || historyDateTo) && ' · filtered by encoded date'}
+                {historyDeskFilter !== 'all' &&
+                  ` · ${historyDeskFilter === 'booking' ? 'Booking' : 'Check-in'} only`}
               </p>
 
               <div className="history-list">
@@ -3685,6 +3689,8 @@ export default function AdminPanel() {
                     ).trim() || 'Customer'
                   const life = r.rentalLifecycle || 'completed'
                   const overdue = formatOverdueDuration(r)
+                  const deskMode = resolveHistoryDeskMode(r)
+                  const deskLabel = historyDeskModeLabel(deskMode)
                   const fleet =
                     vehicles.find((v) => String(v.id) === String(r.vehicleId || r.vehicle?.id || '')) ||
                     null
@@ -3732,6 +3738,13 @@ export default function AdminPanel() {
                     </div>
 
                     <div className="history-meta">
+                        {deskLabel ? (
+                          <span
+                            className={`history-chip history-chip-desk history-chip-desk-${deskMode}`}
+                          >
+                            {deskLabel}
+                          </span>
+                        ) : null}
                         {r.rental?.rentalType && (
                           <span className="history-chip">{r.rental.rentalType}</span>
                         )}
@@ -4703,6 +4716,76 @@ export default function AdminPanel() {
         />
       )}
 
+      {expenseModalOpen ? (
+        <div
+          className="modal-overlay confirm-modal-overlay"
+          role="presentation"
+          onClick={() => setExpenseModalOpen(false)}
+        >
+          <div
+            className="modal-panel confirm-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="desk-expense-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="desk-expense-title" className="modal-title">
+              Add expense
+            </h3>
+            <label className="field">
+              <span className="field-label">Amount</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={expenseAmount}
+                onChange={(e) => {
+                  const raw = e.target.value.replace(/[^\d.]/g, '')
+                  const parts = raw.split('.')
+                  setExpenseAmount(
+                    parts.length <= 1
+                      ? raw
+                      : `${parts[0]}.${parts.slice(1).join('').slice(0, 2)}`,
+                  )
+                  setExpenseError('')
+                }}
+                placeholder="0"
+              />
+            </label>
+            <label className="field">
+              <span className="field-label">Note</span>
+              <input
+                type="text"
+                value={expenseNote}
+                onChange={(e) => setExpenseNote(e.target.value)}
+                placeholder="Optional"
+              />
+            </label>
+            {expenseError ? <p className="error-msg">{expenseError}</p> : null}
+            <div className="modal-actions">
+              <button type="button" className="btn-outline" onClick={() => setExpenseModalOpen(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => {
+                  const amount = Number(expenseAmount)
+                  if (!expenseAmount.trim() || !Number.isFinite(amount) || amount <= 0) {
+                    setExpenseError('Enter an amount greater than 0')
+                    return
+                  }
+                  const next = addDeskExpense({ amount, note: expenseNote })
+                  setDeskExpenseEntries(next)
+                  setExpenseModalOpen(false)
+                }}
+              >
+                Save expense
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {confirm && (
         <ConfirmModal
           title={confirm.title}
@@ -4736,12 +4819,13 @@ export default function AdminPanel() {
           onSecondary={
             confirm.type === 'complete-rental-choice'
               ? () => {
-                  setDamageReturn({
+                  beginCompleteReturn({
                     vehicle: confirm.vehicle,
                     rental: confirm.rental,
                     vehicleId: confirm.vehicleId,
                     plateNo: confirm.plateNo,
                     rentalId: confirm.rentalId,
+                    next: 'damaged',
                   })
                   setConfirm(null)
                 }
@@ -4803,16 +4887,55 @@ export default function AdminPanel() {
         </ConfirmModal>
       )}
 
+      <OverduePaymentModal
+        open={Boolean(overduePrompt)}
+        vehicle={overduePrompt?.vehicle}
+        hours={overduePrompt?.hours || 0}
+        chargedAmount={overduePrompt?.chargedAmount || 0}
+        exceedRate={overduePrompt?.exceedRate || 0}
+        busy={overdueBusy}
+        onCancel={() => {
+          if (overdueBusy) return
+          setOverduePrompt(null)
+        }}
+        onConfirm={async (overduePayment) => {
+          if (!overduePrompt) return
+          setOverdueBusy(true)
+          try {
+            if (overduePrompt.next === 'damaged') {
+              setDamageReturn({
+                vehicle: overduePrompt.vehicle,
+                rental: overduePrompt.rental,
+                vehicleId: overduePrompt.vehicleId,
+                plateNo: overduePrompt.plateNo,
+                rentalId: overduePrompt.rentalId,
+                overduePayment,
+              })
+              setOverduePrompt(null)
+              return
+            }
+            await finishRentCompleted({
+              vehicleId: overduePrompt.vehicleId,
+              plateNo: overduePrompt.plateNo,
+              rentalId: overduePrompt.rentalId,
+              returnMeta: {
+                condition: 'ok',
+                inspection: null,
+                overduePayment,
+              },
+            })
+            setOverduePrompt(null)
+          } finally {
+            setOverdueBusy(false)
+          }
+        }}
+      />
+
       <DamageInspectionModal
         open={Boolean(damageReturn)}
         vehicle={damageReturn?.vehicle}
         rental={damageReturn?.rental}
-        adminName={
-          sessionUser?.displayName ||
-          sessionUser?.username ||
-          profile?.displayName ||
-          'Admin'
-        }
+        adminName={sessionDisplayName}
         onCancel={() => setDamageReturn(null)}
         onSubmit={async (inspection) => {
           await finishRentCompleted({
@@ -4822,6 +4945,7 @@ export default function AdminPanel() {
             returnMeta: {
               condition: 'damaged',
               inspection,
+              overduePayment: damageReturn?.overduePayment || null,
             },
           })
           setDamageReturn(null)

@@ -125,7 +125,7 @@ function resolveRentalOwnerKey(rental, customersByKey) {
   return direct
 }
 
-export function upsertCustomerFromPersonal(personal = {}) {
+export function upsertCustomerFromPersonal(personal = {}, photos = {}) {
   const contactNo = formatPhMobile(personal.contactNo || '')
   const key = customerContactKey(contactNo)
   const ownerKey = customerOwnerKey({ ...personal, contactNo })
@@ -139,6 +139,22 @@ export function upsertCustomerFromPersonal(personal = {}) {
       ? prev.find((c) => customerContactKey(c.contactNo) === key)
       : null)
   const now = new Date().toISOString()
+
+  const nextHolding =
+    photos.holdingPhoto != null && String(photos.holdingPhoto).trim()
+      ? String(photos.holdingPhoto)
+      : existing?.holdingPhoto || ''
+  const nextLicense =
+    photos.licensePhoto != null && String(photos.licensePhoto).trim()
+      ? String(photos.licensePhoto)
+      : existing?.licensePhoto || ''
+  const nextOptional =
+    photos.optionalPhoto != null && String(photos.optionalPhoto).trim()
+      ? String(photos.optionalPhoto)
+      : photos.optionalPhoto === ''
+        ? ''
+        : existing?.optionalPhoto || ''
+
   const nextRow = {
     id: existing?.id || `cust_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
     firstName: String(personal.firstName || '').trim(),
@@ -150,8 +166,14 @@ export function upsertCustomerFromPersonal(personal = {}) {
     emergencyRelation: String(personal.emergencyRelation || '').trim(),
     emergencyRelationOther: String(personal.emergencyRelationOther || '').trim(),
     emergencyPhone: formatPhMobile(personal.emergencyPhone || ''),
+    holdingPhoto: nextHolding,
+    licensePhoto: nextLicense,
+    optionalPhoto: nextOptional,
     createdAt: existing?.createdAt || now,
     updatedAt: now,
+    blacklisted: Boolean(existing?.blacklisted),
+    blacklistReason: String(existing?.blacklistReason || '').trim(),
+    blacklistedAt: existing?.blacklistedAt || '',
     // Count is owned by sync / live recount — do not increment here.
     rentalCount: existing?.rentalCount || 0,
   }
@@ -195,6 +217,38 @@ export function deleteCustomer(id) {
   return next
 }
 
+export function setCustomerBlacklisted(id, blacklisted, reason = '') {
+  const prev = loadCustomers()
+  const next = prev.map((c) => {
+    if (String(c.id) !== String(id)) return c
+    const on = Boolean(blacklisted)
+    return {
+      ...c,
+      blacklisted: on,
+      blacklistReason: on ? String(reason || c.blacklistReason || '').trim() : '',
+      blacklistedAt: on ? new Date().toISOString() : '',
+      updatedAt: new Date().toISOString(),
+    }
+  })
+  saveCustomers(next)
+  return next.find((c) => String(c.id) === String(id)) || null
+}
+
+export function isCustomerBlacklisted(customerOrContact) {
+  if (!customerOrContact) return false
+  if (typeof customerOrContact === 'object') {
+    if (customerOrContact.blacklisted) return true
+    if (customerOrContact.id) {
+      const row = loadCustomers().find((c) => String(c.id) === String(customerOrContact.id))
+      if (row?.blacklisted) return true
+    }
+    const byPhone = findCustomerByContact(customerOrContact.contactNo || '')
+    return Boolean(byPhone?.blacklisted)
+  }
+  const byPhone = findCustomerByContact(customerOrContact)
+  return Boolean(byPhone?.blacklisted)
+}
+
 export function findCustomerByContact(contactNo) {
   const key = customerContactKey(formatPhMobile(contactNo))
   if (!isCompleteContactKey(key)) return null
@@ -229,6 +283,10 @@ export function syncCustomersFromRentals(rentals = []) {
     const existing = byKey.get(key)
     const stamp = r.encodedAt || r.createdAt || new Date().toISOString()
 
+    const holdingFromRental = String(r.photo || '').trim()
+    const licenseFromRental = String(r.licensePhoto || '').trim()
+    const optionalFromRental = String(p.optionalPhoto || r.optionalPhoto || '').trim()
+
     if (!existing) {
       byKey.set(key, {
         id: `cust_${key.replace(/\W/g, '').slice(-10)}_${Math.random().toString(36).slice(2, 5)}`,
@@ -241,8 +299,14 @@ export function syncCustomersFromRentals(rentals = []) {
         emergencyRelation: String(p.emergencyRelation || '').trim(),
         emergencyRelationOther: String(p.emergencyRelationOther || '').trim(),
         emergencyPhone: formatPhMobile(p.emergencyPhone || ''),
+        holdingPhoto: holdingFromRental,
+        licensePhoto: licenseFromRental,
+        optionalPhoto: optionalFromRental,
         createdAt: stamp,
         updatedAt: stamp,
+        blacklisted: false,
+        blacklistReason: '',
+        blacklistedAt: '',
         rentalCount: 0,
       })
     } else {
@@ -262,6 +326,12 @@ export function syncCustomersFromRentals(rentals = []) {
         emergencyRelationOther:
           existing.emergencyRelationOther || String(p.emergencyRelationOther || '').trim(),
         emergencyPhone: existing.emergencyPhone || formatPhMobile(p.emergencyPhone || ''),
+        holdingPhoto: existing.holdingPhoto || holdingFromRental,
+        licensePhoto: existing.licensePhoto || licenseFromRental,
+        optionalPhoto: existing.optionalPhoto || optionalFromRental,
+        blacklisted: Boolean(existing.blacklisted),
+        blacklistReason: String(existing.blacklistReason || '').trim(),
+        blacklistedAt: existing.blacklistedAt || '',
         updatedAt: stamp,
       })
     }

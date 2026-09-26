@@ -3,12 +3,14 @@ import { BODY_TYPES } from '../data/vehicles'
 import { useVehicles } from '../context/VehicleContext'
 import { ARCHIVE_EVENT, getArchivedIdSet } from '../utils/archivedVehicles'
 import { getDisplayStatus } from '../utils/vehicleDisplayStatus'
+import { resolveVehicleDisplayImage } from '../utils/vehicleImages'
 import VehicleModal from './VehicleModal'
 
 export default function StepVehicle({ selectedId, onSelect, error }) {
   const { vehicles, bookedVehicleIds, rentals } = useVehicles()
   const [previewId, setPreviewId] = useState(null)
   const [archiveTick, setArchiveTick] = useState(0)
+  const [bodyTypeFilter, setBodyTypeFilter] = useState('all')
 
   useEffect(() => {
     const onArchive = () => setArchiveTick((t) => t + 1)
@@ -27,9 +29,32 @@ export default function StepVehicle({ selectedId, onSelect, error }) {
     })
   }, [vehicles, bookedVehicleIds, rentals, archiveTick])
 
+  const typeOptions = useMemo(() => {
+    const present = new Set(
+      available.map((v) => String(v.bodyType || 'Other').trim()).filter(Boolean),
+    )
+    const ordered = [...BODY_TYPES, 'Other'].filter((t) => present.has(t))
+    for (const t of present) {
+      if (!ordered.includes(t)) ordered.push(t)
+    }
+    return ordered
+  }, [available])
+
+  useEffect(() => {
+    if (bodyTypeFilter === 'all') return
+    if (!typeOptions.includes(bodyTypeFilter)) setBodyTypeFilter('all')
+  }, [bodyTypeFilter, typeOptions])
+
+  const filtered = useMemo(() => {
+    if (bodyTypeFilter === 'all') return available
+    return available.filter(
+      (v) => String(v.bodyType || 'Other').trim() === bodyTypeFilter,
+    )
+  }, [available, bodyTypeFilter])
+
   const grouped = useMemo(() => {
     const groups = {}
-    available.forEach((v) => {
+    filtered.forEach((v) => {
       const key = v.bodyType || 'Other'
       if (!groups[key]) groups[key] = []
       groups[key].push(v)
@@ -38,7 +63,12 @@ export default function StepVehicle({ selectedId, onSelect, error }) {
     return order
       .filter((key) => groups[key]?.length)
       .map((key) => ({ bodyType: key, items: groups[key] }))
-  }, [available])
+      .concat(
+        Object.keys(groups)
+          .filter((key) => !order.includes(key))
+          .map((key) => ({ bodyType: key, items: groups[key] })),
+      )
+  }, [filtered])
 
   const preview = available.find((v) => v.id === previewId)
   const hasSelection = Boolean(selectedId)
@@ -52,8 +82,28 @@ export default function StepVehicle({ selectedId, onSelect, error }) {
         Only free vehicles are shown. Reserved or rented units are hidden.
       </p>
 
+      <label className="field step-vehicle-type-filter">
+        <span className="field-label">Vehicle type</span>
+        <select
+          value={bodyTypeFilter}
+          disabled={available.length === 0}
+          onChange={(e) => setBodyTypeFilter(e.target.value)}
+        >
+          <option value="all">All types</option>
+          {typeOptions.map((type) => (
+            <option key={type} value={type}>
+              {type}
+            </option>
+          ))}
+        </select>
+      </label>
+
       {available.length === 0 && (
         <p className="empty-state">No available vehicles at the moment.</p>
+      )}
+
+      {available.length > 0 && filtered.length === 0 && (
+        <p className="empty-state">No available vehicles for this type.</p>
       )}
 
       <div
@@ -71,14 +121,15 @@ export default function StepVehicle({ selectedId, onSelect, error }) {
               {group.bodyType}
               <span className="vehicle-group-count">{group.items.length}</span>
             </h3>
-            <div className="vehicle-grid">
+            <div className="vehicle-grid vehicle-grid--list">
               {group.items.map((vehicle) => {
                 const isSelected = selectedId === vehicle.id
+                const thumb = resolveVehicleDisplayImage(vehicle)
                 return (
                   <button
                     key={vehicle.id}
                     type="button"
-                    className={`vehicle-card${isSelected ? ' selected' : ''}${
+                    className={`vehicle-card vehicle-card--list${isSelected ? ' selected' : ''}${
                       hasSelection && !isSelected ? ' is-faded' : ''
                     }`}
                     onClick={() => setPreviewId(vehicle.id)}
@@ -86,20 +137,16 @@ export default function StepVehicle({ selectedId, onSelect, error }) {
                   >
                     {isSelected && <span className="vehicle-selected-badge">Selected</span>}
                     <span className="vehicle-thumb">
-                      {vehicle.image ? (
-                        <img src={vehicle.image} alt={vehicle.make} loading="lazy" />
-                      ) : (
-                        <span className="vehicle-thumb-fallback" aria-hidden>
-                          {(vehicle.make || '?').slice(0, 1)}
-                        </span>
-                      )}
+                      <img src={thumb} alt="" loading="lazy" />
                     </span>
-                    <span className="vehicle-make">{vehicle.make}</span>
-                    <span className="vehicle-meta">{vehicle.series}</span>
-                    <span className="vehicle-meta">
-                      {vehicle.seats} seats · {vehicle.transmission}
+                    <span className="vehicle-card-copy">
+                      <span className="vehicle-make">{vehicle.make}</span>
+                      <span className="vehicle-meta">{vehicle.series}</span>
+                      <span className="vehicle-meta">
+                        {vehicle.seats} seats · {vehicle.transmission}
+                      </span>
+                      <span className="vehicle-plate">{vehicle.plateNo}</span>
                     </span>
-                    <span className="vehicle-plate">{vehicle.plateNo}</span>
                   </button>
                 )
               })}
@@ -112,7 +159,10 @@ export default function StepVehicle({ selectedId, onSelect, error }) {
 
       {preview && (
         <VehicleModal
-          vehicle={preview}
+          vehicle={{
+            ...preview,
+            image: resolveVehicleDisplayImage(preview),
+          }}
           confirmLabel={
             isChangingSelection || isReselectingSame ? 'Change' : 'Proceed'
           }
@@ -127,6 +177,11 @@ export default function StepVehicle({ selectedId, onSelect, error }) {
           onProceed={() => {
             onSelect(preview.id)
             setPreviewId(null)
+            requestAnimationFrame(() => {
+              document
+                .getElementById('rental-details-anchor')
+                ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            })
           }}
         />
       )}
