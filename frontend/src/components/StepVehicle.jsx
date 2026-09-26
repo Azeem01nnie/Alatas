@@ -142,7 +142,7 @@ export default function StepVehicle({ selectedId, onSelect, error }) {
                     <span className="vehicle-card-copy">
                       <span className="vehicle-make">{vehicle.make}</span>
                       <span className="vehicle-meta">{vehicle.series}</span>
-                      <span className="vehicle-meta">
+                      <span className="vehicle-meta vehicle-meta--specs">
                         {vehicle.seats} seats · {vehicle.transmission}
                       </span>
                       <span className="vehicle-plate">{vehicle.plateNo}</span>

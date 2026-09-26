@@ -2341,7 +2341,7 @@ input[type='number']:focus {
 .vehicle-grid--list {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: 0.28rem;
 }
 
 .vehicle-card {
@@ -2371,8 +2371,8 @@ input[type='number']:focus {
 .vehicle-card--list {
   flex-direction: row;
   align-items: center;
-  border-radius: 8px;
-  min-height: 4.5rem;
+  border-radius: 6px;
+  min-height: 2.65rem;
 }
 
 .vehicle-card--list:hover {
@@ -2384,9 +2384,9 @@ input[type='number']:focus {
 }
 
 .vehicle-card--list .vehicle-thumb {
-  width: 5.75rem;
-  min-width: 5.75rem;
-  height: 4.5rem;
+  width: 3.35rem;
+  min-width: 3.35rem;
+  height: 2.65rem;
   aspect-ratio: auto;
   border-bottom: none;
   border-right: 1px solid var(--border);
@@ -2399,33 +2399,53 @@ input[type='number']:focus {
 
 .vehicle-card--list .vehicle-card-copy {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.08rem;
-  padding: 0.55rem 0.85rem;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.4rem;
+  row-gap: 0.08rem;
+  padding: 0.28rem 0.55rem;
+  padding-right: 4.25rem;
   min-width: 0;
   flex: 1;
 }
 
 .vehicle-card--list .vehicle-make {
   margin: 0;
-  font-size: 0.88rem;
+  font-size: 0.78rem;
+  line-height: 1.15;
 }
 
 .vehicle-card--list .vehicle-meta {
   margin: 0;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
+  line-height: 1.15;
+}
+
+.vehicle-card--list .vehicle-meta--specs {
+  flex-basis: 100%;
+  color: var(--muted, #6b7280);
+  font-size: 0.65rem;
 }
 
 .vehicle-card--list .vehicle-plate {
-  margin: 0.2rem 0 0;
-  align-self: flex-start;
+  margin: 0;
+  align-self: center;
+  font-size: 0.62rem;
+  padding: 0.08rem 0.35rem;
+  position: absolute;
+  right: 0.45rem;
+  top: 50%;
+  transform: translateY(-50%);
 }
 
 .vehicle-card--list .vehicle-selected-badge {
-  top: 0.45rem;
-  right: 0.55rem;
-  left: auto;
+  top: 0.15rem;
+  left: 0.15rem;
+  right: auto;
+  font-size: 0.55rem;
+  padding: 0.06rem 0.28rem;
+  z-index: 1;
 }
 
 .vehicle-card.is-faded {
@@ -13526,17 +13546,22 @@ html[data-theme='dark'] .employees-role-option.is-active {
   .vehicle-grid--list {
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
+    gap: 0.22rem;
   }
 
   .vehicle-card {
     border-radius: 8px;
   }
 
+  .vehicle-card--list {
+    min-height: 2.4rem;
+  }
+
   .vehicle-card--list .vehicle-thumb {
-    width: 4.75rem;
-    min-width: 4.75rem;
-    height: 4rem;
+    width: 2.9rem;
+    min-width: 2.9rem;
+    height: 2.4rem;
+    aspect-ratio: auto;
   }
 
   .vehicle-thumb {
@@ -13546,7 +13571,12 @@ html[data-theme='dark'] .employees-role-option.is-active {
 
   .vehicle-card--list .vehicle-thumb {
     aspect-ratio: auto;
-    height: 4rem;
+    height: 2.4rem;
+  }
+
+  .vehicle-card--list .vehicle-card-copy {
+    padding: 0.22rem 0.45rem;
+    padding-right: 3.75rem;
   }
 
   .vehicle-thumb img {
