@@ -5,7 +5,7 @@ import './index.css'
 import App from './App.jsx'
 import { VehicleProvider } from './context/VehicleContext.jsx'
 
-// Force new SW so OR/CR parser fixes are not stuck behind a stale precache
+// Force new SW so OR/CR scanner (same-origin Tesseract) is not stuck behind a stale precache
 registerSW({
   immediate: true,
   onNeedRefresh() {
@@ -13,6 +13,18 @@ registerSW({
   },
   onRegisteredSW(_url, registration) {
     registration?.update?.()
+    // Bust stale caches after scanner asset path change (2026-09-27)
+    try {
+      const key = 'alatas_sw_bust_orcr_v2'
+      if (!localStorage.getItem(key)) {
+        localStorage.setItem(key, '1')
+        caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k)))).finally(() => {
+          registration?.unregister?.().finally(() => window.location.reload())
+        })
+      }
+    } catch {
+      /* ignore */
+    }
   },
 })
 

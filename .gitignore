@@ -21,6 +21,9 @@ alatas-*-*.json
 *service-account*.json
 **/serviceAccount*.json
 
+# Tesseract assets copied at build time (see frontend/vite.config.js)
+frontend/public/tesseract/
+
 # Local SQLite data (can exceed GitHub 100MB limit)
 backend/sqlite/*.db
 backend/sqlite/*.db-shm
