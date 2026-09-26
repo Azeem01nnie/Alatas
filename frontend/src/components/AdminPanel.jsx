@@ -760,28 +760,6 @@ export default function AdminPanel() {
   const [orcrProgress, setOrcrProgress] = useState(0)
   const [orcrTarget, setOrcrTarget] = useState(null) // 'add' | 'edit' | null
   const [orcrDocHint, setOrcrDocHint] = useState(null) // 'cr' | 'or' | null
-  const [orcrEngine, setOrcrEngine] = useState(() => {
-    try {
-      const saved = localStorage.getItem('alatas_orcr_engine')
-      if (saved === 'tesseract' || saved === 'gemini' || saved === 'document-ai') {
-        return saved
-      }
-      // Migrate old default
-      return 'document-ai'
-    } catch {
-      return 'document-ai'
-    }
-  })
-  const setOrcrEnginePersist = (engine) => {
-    const next =
-      engine === 'tesseract' || engine === 'gemini' ? engine : 'document-ai'
-    setOrcrEngine(next)
-    try {
-      localStorage.setItem('alatas_orcr_engine', next)
-    } catch {
-      /* ignore */
-    }
-  }
   const crFileRef = useRef(null)
   const orFileRef = useRef(null)
   const crEditFileRef = useRef(null)
@@ -2220,7 +2198,6 @@ export default function AdminPanel() {
           compressed,
           setOrcrProgress,
           docHint,
-          orcrEngine,
         )
         fields = sanitizeScanFields(scanned?.fields || {})
       } catch (scanErr) {
@@ -3618,8 +3595,6 @@ export default function AdminPanel() {
                     orcrBusy={orcrBusy && orcrTarget === 'add'}
                     orcrDocHint={orcrTarget === 'add' ? orcrDocHint : null}
                     orcrProgress={orcrProgress}
-                    orcrEngine={orcrEngine}
-                    onOrcrEngineChange={setOrcrEnginePersist}
                     locked={fieldsLocked}
                     onToggleLock={() => setFieldsLocked(false)}
                 />
@@ -4959,8 +4934,6 @@ export default function AdminPanel() {
                     orcrBusy={orcrBusy && orcrTarget === 'edit'}
                     orcrDocHint={orcrTarget === 'edit' ? orcrDocHint : null}
                     orcrProgress={orcrProgress}
-                    orcrEngine={orcrEngine}
-                    onOrcrEngineChange={setOrcrEnginePersist}
               />
             </div>
               </div>
@@ -5311,8 +5284,6 @@ function VehicleFields({
   orcrBusy = false,
   orcrDocHint = null, // 'cr' | 'or' | null
   orcrProgress = 0,
-  orcrEngine = 'document-ai', // 'document-ai' | 'gemini' | 'tesseract'
-  onOrcrEngineChange,
 }) {
   const disabled = locked || orcrBusy
   const crScanning = orcrBusy && orcrDocHint === 'cr'
@@ -5342,36 +5313,9 @@ function VehicleFields({
           <span className="field-label">LTO OR &amp; CR scan</span>
           <p className="edit-section-copy">
             Upload the Certificate of Registration (CR) and Official Receipt (OR) as PNG, JPEG,
-            WebP, or PDF (first page). Choose Document AI (Google forms), Gemini, or Tesseract
-            (local), then upload. After a successful scan, fields become read-only — use Edit only
-            to correct mistakes.
+            WebP, or PDF (first page). Scanning runs locally with Tesseract OCR. After a successful
+            scan, fields become read-only — use Edit only to correct mistakes.
           </p>
-          <div className="orcr-engine-toggle" role="group" aria-label="OR/CR scan engine">
-            <button
-              type="button"
-              className={`orcr-engine-btn${orcrEngine === 'document-ai' ? ' is-active' : ''}`}
-              disabled={orcrBusy}
-              onClick={() => onOrcrEngineChange?.('document-ai')}
-            >
-              Document AI
-            </button>
-            <button
-              type="button"
-              className={`orcr-engine-btn${orcrEngine === 'gemini' ? ' is-active' : ''}`}
-              disabled={orcrBusy}
-              onClick={() => onOrcrEngineChange?.('gemini')}
-            >
-              Gemini
-            </button>
-            <button
-              type="button"
-              className={`orcr-engine-btn${orcrEngine === 'tesseract' ? ' is-active' : ''}`}
-              disabled={orcrBusy}
-              onClick={() => onOrcrEngineChange?.('tesseract')}
-            >
-              Tesseract
-            </button>
-          </div>
         </div>
         <div className="vehicle-form-toolbar-actions">
           <input

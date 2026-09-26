@@ -11313,47 +11313,6 @@ html[data-theme='dark'] .transaction-collapse-toggle {
   gap: 0.5rem;
 }
 
-.orcr-engine-toggle {
-  display: inline-flex;
-  align-items: center;
-  margin-top: 0.65rem;
-  padding: 0.2rem;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  gap: 0.15rem;
-}
-
-.orcr-engine-btn {
-  min-height: 2rem;
-  padding: 0.35rem 0.85rem;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--muted);
-  font-family: inherit;
-  font-size: 0.72rem;
-  font-weight: 650;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-.orcr-engine-btn:hover:not(:disabled) {
-  color: var(--text);
-}
-
-.orcr-engine-btn.is-active {
-  background: var(--surface-muted);
-  color: var(--text);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
-}
-
-.orcr-engine-btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
 .orcr-preview {
   max-width: 220px;
   border-radius: 10px;

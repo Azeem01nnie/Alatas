@@ -211,9 +211,12 @@ function looksLikePlate(value) {
 
 /** Fix common Tesseract confusions on plate tokens — carefully, without breaking L154JX. */
 function normalizePlateToken(raw) {
-  const original = String(raw || '')
+  const spaced = String(raw || '')
     .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '')
+    .replace(/[^A-Z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const original = spaced.replace(/\s/g, '')
   if (!original) return ''
 
   // Leading S→5 only (519WLL read as S19WLL) — do not remap L/I globally
@@ -230,8 +233,62 @@ function normalizePlateToken(raw) {
     .replace(/[BZ]/g, '8')
   if (/^\d{5,8}$/.test(digitish)) return digitish
 
+  // Classic PH: ABC1234 / AB1234 / ABC 1234
+  const classic = original.match(/^([A-Z]{1,3})(\d{3,4})([A-Z]{0,3})$/)
+  if (classic && looksLikePlate(original)) return original.slice(0, 10)
+
   if (looksLikePlate(original)) return original.slice(0, 10)
   if (looksLikePlate(digitish) && /^\d{5,8}$/.test(digitish)) return digitish
+  return ''
+}
+
+function editDistance(a, b) {
+  const s = String(a || '')
+  const t = String(b || '')
+  if (s === t) return 0
+  if (!s.length) return t.length
+  if (!t.length) return s.length
+  const row = Array.from({ length: t.length + 1 }, (_, i) => i)
+  for (let i = 0; i < s.length; i += 1) {
+    let prev = i + 1
+    for (let j = 0; j < t.length; j += 1) {
+      const cur = s[i] === t[j] ? row[j] : Math.min(row[j], row[j + 1], prev) + 1
+      row[j] = prev
+      prev = cur
+    }
+    row[t.length] = prev
+  }
+  return row[t.length]
+}
+
+/** Map OCR-garbled brand tokens onto known makes (HONOA→Honda, TOY0TA→Toyota). */
+function resolveMakeToken(tok) {
+  const raw = String(tok || '').replace(/[^A-Za-z0-9]/g, '')
+  if (!raw || isJunkMakeToken(raw)) return ''
+  const upper = raw
+    .toUpperCase()
+    .replace(/0/g, 'O')
+    .replace(/1/g, 'I')
+    .replace(/5/g, 'S')
+  const exact = KNOWN_MAKES.find(
+    (k) => k.toUpperCase() === upper || k.toUpperCase() === raw.toUpperCase(),
+  )
+  if (exact) return exact
+  let best = ''
+  let bestD = 99
+  for (const k of KNOWN_MAKES) {
+    const ku = k.toUpperCase()
+    const d = editDistance(upper, ku)
+    const maxAllow = ku.length <= 4 ? 1 : 2
+    if (d <= maxAllow && d < bestD) {
+      best = k
+      bestD = d
+    }
+  }
+  if (best) return best
+  if (/^[A-Za-z]{3,16}$/.test(raw) && !isFieldLabelToken(raw)) {
+    return autoCapitalizeWords(raw)
+  }
   return ''
 }
 
@@ -508,10 +565,12 @@ function parseVehicleParticularsRow(text) {
         .map((t) => t.trim())
         .filter((t) => t && !isFieldLabelToken(t))
       if (tokens.length) {
-        const makeHit = tokens.find((t) =>
-          KNOWN_MAKES.some((k) => new RegExp(`^${k}$`, 'i').test(t)),
-        )
-        if (makeHit) out.make = autoCapitalizeWords(makeHit)
+        const makeHit =
+          tokens
+            .map((t) => resolveMakeToken(t))
+            .find((t) => t && KNOWN_MAKES.some((k) => k === t)) ||
+          tokens.find((t) => resolveMakeToken(t))
+        if (makeHit) out.make = resolveMakeToken(makeHit) || autoCapitalizeWords(makeHit)
         const seriesHit =
           tokens.find((t) => CAR_SERIES_HINT.test(t)) ||
           tokens.find(
@@ -738,33 +797,34 @@ function pickMake(text) {
   for (const brand of KNOWN_MAKES) {
     if (new RegExp(`\\b${brand}\\b`, 'i').test(flat)) return brand
   }
+  // Fuzzy scan tokens against known brands
+  const tokens = flat.match(/[A-Za-z][A-Za-z0-9]{2,16}/g) || []
+  for (const tok of tokens) {
+    if (isJunkMakeToken(tok)) continue
+    const hit = resolveMakeToken(tok)
+    if (hit && KNOWN_MAKES.some((k) => k === hit)) return hit
+  }
 
   const block = valueBlockAfterLabel(text, /^(?:MAKE\s*\/?\s*BRAND|MAKE|BRAND)\b/i)
   if (block) {
-    const tok = block.split(/\s+/)[0]
-    if (!isJunkMakeToken(tok)) {
-      const hit = KNOWN_MAKES.find((k) => new RegExp(`^${k}$`, 'i').test(tok))
-      if (hit) return hit
-      if (/^[A-Za-z]{2,20}$/.test(tok) && !isFieldLabelToken(tok)) {
-        return autoCapitalizeWords(tok)
-      }
-    }
+    const resolved = resolveMakeToken(block.split(/\s+/)[0])
+    if (resolved) return resolved
   }
 
   const row = parseVehicleParticularsRow(text)
-  if (row.make && !isJunkMakeToken(row.make)) return row.make
+  if (row.make) {
+    const resolved = resolveMakeToken(row.make)
+    if (resolved) return resolved
+  }
 
   const after = valueAfterLabel(
     text,
     /MAKE\s*(?:\/\s*BRAND)?\s*[:.\-]*/i,
-    (tok) =>
-      !isJunkMakeToken(tok) &&
-      (KNOWN_MAKES.some((k) => new RegExp(`^${k}$`, 'i').test(tok)) ||
-        (/^[A-Za-z]{2,20}$/.test(tok) && !isFieldLabelToken(tok))),
+    (tok) => Boolean(resolveMakeToken(tok)),
   )
   if (after) {
-    const hit = KNOWN_MAKES.find((k) => new RegExp(`^${k}$`, 'i').test(after))
-    return hit || autoCapitalizeWords(after)
+    const resolved = resolveMakeToken(after)
+    if (resolved) return resolved
   }
 
   const labeled = firstMatch(text, [
@@ -772,9 +832,9 @@ function pickMake(text) {
     /\bBRAND\s*[:.\-]?\s*([A-Z][A-Z0-9\-]{1,20})\b/i,
     /MAKE\s*[:.\-]?\s*([A-Z][A-Z0-9\-]{1,20})\b/i,
   ])
-  if (labeled && !isJunkMakeToken(labeled) && !isFieldLabelToken(labeled)) {
-    const hit = KNOWN_MAKES.find((k) => new RegExp(`^${k}$`, 'i').test(labeled))
-    return hit || autoCapitalizeWords(labeled)
+  if (labeled) {
+    const resolved = resolveMakeToken(labeled)
+    if (resolved) return resolved
   }
   return ''
 }
@@ -1084,9 +1144,60 @@ function mergeFields(primary, secondary) {
 }
 
 function scoreFields(fields) {
-  return ['make', 'series', 'plateNo', 'engineNo', 'chassisNo', 'ownerName', 'bodyType', 'seats'].filter(
-    (k) => Boolean(fields?.[k]),
-  ).length
+  const weights = {
+    plateNo: 3,
+    engineNo: 3,
+    chassisNo: 3,
+    make: 2,
+    series: 2,
+    ownerName: 1,
+    bodyType: 1,
+    seats: 1,
+  }
+  let score = 0
+  for (const [k, w] of Object.entries(weights)) {
+    if (fields?.[k]) score += w
+  }
+  return score
+}
+
+/** Prefer values that appear across multiple OCR passes. */
+function consensusFields(parsedList) {
+  const keys = [
+    'make',
+    'series',
+    'plateNo',
+    'engineNo',
+    'chassisNo',
+    'ownerName',
+    'bodyType',
+    'seats',
+  ]
+  const out = {}
+  for (const key of keys) {
+    const votes = new Map()
+    for (const fields of parsedList) {
+      let v = fields?.[key]
+      if (!v) continue
+      if (key === 'plateNo') v = normalizePlateToken(v) || v
+      if (key === 'make') v = resolveMakeToken(v) || v
+      if (key === 'series') v = normalizeSeries(v) || v
+      if (!v) continue
+      const norm = String(v).trim()
+      if (!norm) continue
+      votes.set(norm, (votes.get(norm) || 0) + 1)
+    }
+    let best = ''
+    let bestN = 0
+    for (const [v, n] of votes) {
+      if (n > bestN || (n === bestN && v.length > best.length)) {
+        best = v
+        bestN = n
+      }
+    }
+    if (best) out[key] = best
+  }
+  return sanitizeScanFields(out)
 }
 
 /** Drop label-like OCR mistakes before applying to the form. */
@@ -1155,56 +1266,60 @@ export async function prepareOrcrVariants(dataUrl) {
     const img = new Image()
     img.onload = () => {
       try {
-        const maxSide = 2000
+        const maxSide = 2200
         const longest = Math.max(img.width, img.height) || 1
-        // Upscale small photos; downscale huge ones for memory
-        const scale = Math.min(2.2, Math.max(1, maxSide / longest), maxSide / longest)
+        // Upscale small phone photos; cap huge ones
+        const scale = Math.min(2.5, Math.max(1.15, maxSide / longest))
         const w = Math.max(1, Math.round(img.width * scale))
         const h = Math.max(1, Math.round(img.height * scale))
-        if (w * h > 4_500_000) {
+        if (w * h > 5_000_000) {
           resolve([dataUrl])
           return
         }
 
-        const makeCanvas = (mode) => {
+        const renderRegion = (y0Ratio, y1Ratio, mode) => {
+          const srcY = Math.floor(img.height * y0Ratio)
+          const srcH = Math.max(1, Math.floor(img.height * (y1Ratio - y0Ratio)))
+          const destW = Math.max(1, Math.round(img.width * scale))
+          const destH = Math.max(1, Math.round(srcH * scale))
           const canvas = document.createElement('canvas')
-          canvas.width = w
-          canvas.height = h
+          canvas.width = destW
+          canvas.height = destH
           const ctx = canvas.getContext('2d', { willReadFrequently: true })
           if (!ctx) return null
           ctx.fillStyle = '#ffffff'
-          ctx.fillRect(0, 0, w, h)
+          ctx.fillRect(0, 0, destW, destH)
           ctx.imageSmoothingEnabled = true
           ctx.imageSmoothingQuality = 'high'
-          ctx.drawImage(img, 0, 0, w, h)
+          ctx.drawImage(img, 0, srcY, img.width, srcH, 0, 0, destW, destH)
 
-          const imageData = ctx.getImageData(0, 0, w, h)
+          const imageData = ctx.getImageData(0, 0, destW, destH)
           const d = imageData.data
           for (let i = 0; i < d.length; i += 4) {
             const r = d[i]
             const g = d[i + 1]
             const b = d[i + 2]
-            // Pink/blue security tint → light gray background; ink stays dark
             let gray = 0.299 * r + 0.587 * g + 0.114 * b
-            // Bleach colored LTO security paper toward white
             const chroma = Math.max(r, g, b) - Math.min(r, g, b)
-            if (chroma > 12 && gray > 120) {
-              gray = Math.min(255, gray + 28 + chroma * 0.25)
+            // Bleach pink/blue LTO security paper toward white
+            if (chroma > 12 && gray > 115) {
+              gray = Math.min(255, gray + 32 + chroma * 0.3)
             }
-            // Extra lift for pink/magenta paper (high R+B)
             if (r > 140 && b > 120 && g < r - 10) {
-              gray = Math.min(255, gray + 20)
+              gray = Math.min(255, gray + 24)
             }
 
             if (mode === 'soft') {
-              gray = (gray - 128) * 1.35 + 128
+              gray = (gray - 128) * 1.45 + 128
               gray = Math.max(0, Math.min(255, gray))
             } else if (mode === 'hard') {
-              gray = (gray - 128) * 1.75 + 128
-              gray = gray >= 165 ? 255 : gray <= 125 ? 0 : gray
+              gray = (gray - 128) * 1.85 + 128
+              gray = gray >= 168 ? 255 : gray <= 120 ? 0 : gray
+            } else if (mode === 'ink') {
+              gray = (gray - 110) * 1.35 + 128
+              gray = Math.max(0, Math.min(255, gray))
             } else {
-              // 'ink' — mild stretch only
-              gray = (gray - 118) * 1.2 + 128
+              gray = (gray - 124) * 1.15 + 128
               gray = Math.max(0, Math.min(255, gray))
             }
             d[i] = d[i + 1] = d[i + 2] = gray
@@ -1214,10 +1329,18 @@ export async function prepareOrcrVariants(dataUrl) {
         }
 
         const out = []
-        for (const mode of ['soft', 'ink', 'hard']) {
-          const url = makeCanvas(mode)
+        const push = (url) => {
           if (url) out.push(url)
         }
+
+        // Full-frame soft + ink (best for pink CR paper)
+        push(renderRegion(0, 1, 'soft'))
+        push(renderRegion(0, 1, 'ink'))
+        // Top band — plate / owner / make often live here
+        push(renderRegion(0, 0.48, 'soft'))
+        // Middle band — engine / chassis / series grid
+        push(renderRegion(0.28, 0.78, 'ink'))
+
         resolve(out.length ? out : [dataUrl])
       } catch {
         resolve([dataUrl])
@@ -1261,8 +1384,8 @@ export async function scanOrcrImage(dataUrl, onProgress, hint = 'auto') {
   let variants = [dataUrl]
   try {
     variants = await prepareOrcrVariants(dataUrl)
-    // Soft + original photo (hard binary often hurts pink LTO paper)
-    variants = [...variants.filter((v) => v !== dataUrl).slice(0, 2), dataUrl]
+    // soft full, ink full, then original (region crops help but cost time)
+    variants = [variants[0], variants[1], variants[2], dataUrl].filter(Boolean)
   } catch (err) {
     console.warn('OR/CR enhance skipped', err)
   }
@@ -1271,39 +1394,49 @@ export async function scanOrcrImage(dataUrl, onProgress, hint = 'auto') {
 
   try {
     const texts = []
-    // PSM 6 = block of text, 4 = single column, 3 = fully automatic (good for grids)
-    const psms = ['6', '4', '3']
+    // Open alphabet for names; whitelist for IDs; sparse for plate/engine cells
+    const passes = [
+      { psm: '6', whitelist: null },
+      {
+        psm: '6',
+        whitelist:
+          "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 /-'.,()",
+      },
+      { psm: '11', whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789- ' },
+    ]
     const images = variants.slice(0, 3)
     let step = 0
-    const total = images.length * psms.length
+    const total = images.length * passes.length
 
     for (const image of images) {
-      for (const psm of psms) {
+      for (const pass of passes) {
         step += 1
-        progress(Math.min(95, Math.round((step / total) * 90)))
-        await worker.setParameters({
-          tessedit_pageseg_mode: psm,
+        progress(Math.min(94, Math.round((step / total) * 88) + 8))
+        const params = {
+          tessedit_pageseg_mode: pass.psm,
           preserve_interword_spaces: '1',
-          // Prefer printed caps/digits used on LTO forms (names still work via spaces)
-          tessedit_char_whitelist:
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 /-'.,()",
-        })
+          user_defined_dpi: '300',
+          tessedit_char_whitelist: pass.whitelist || '',
+        }
+        await worker.setParameters(params)
         try {
           const result = await worker.recognize(image)
-          if (result?.data?.text) texts.push(result.data.text)
+          if (result?.data?.text?.trim()) texts.push(result.data.text)
         } catch (recErr) {
-          console.warn('Tesseract recognize failed', psm, recErr)
+          console.warn('Tesseract recognize failed', pass.psm, recErr)
         }
       }
     }
 
     progress(96)
+    const parsed = texts.map((text) => parseOrCrText(text, hint))
     const combined = texts.join('\n')
-    let best = parseOrCrText(combined, hint)
-    let bestScore = scoreFields(best)
+    const fromCombined = parseOrCrText(combined, hint)
+    parsed.push(fromCombined)
 
-    for (const text of texts) {
-      const fields = parseOrCrText(text, hint)
+    let best = fromCombined
+    let bestScore = scoreFields(best)
+    for (const fields of parsed) {
       const score = scoreFields(fields)
       if (score > bestScore) {
         best = fields
@@ -1311,14 +1444,17 @@ export async function scanOrcrImage(dataUrl, onProgress, hint = 'auto') {
       }
     }
 
-    let mergedAll = {}
-    for (const text of texts) {
-      mergedAll = mergeFields(mergedAll, parseOrCrText(text, hint))
+    const voted = consensusFields(parsed)
+    if (scoreFields(voted) >= bestScore) {
+      best = { ...voted, docType: best.docType || voted.docType }
+    } else {
+      best = mergeFields(best, voted)
+      best = sanitizeScanFields(best)
     }
-    mergedAll = mergeFields(mergedAll, best)
-    if (scoreFields(mergedAll) >= bestScore) {
-      best = { ...mergedAll, docType: best.docType || mergedAll.docType }
-    }
+
+    // Final fill from combined text for any remaining holes
+    best = mergeFields(best, fromCombined)
+    best = sanitizeScanFields(best)
 
     progress(100)
     return { rawText: combined, fields: best }
