@@ -29,7 +29,13 @@ async function readAndCompress(file) {
     reader.onerror = () => reject(new Error('Could not read file'))
     reader.readAsDataURL(file)
   })
-  return compressImageDataUrl(dataUrl, 960, 0.8)
+  return compressImageDataUrl(dataUrl, 1400, 0.85)
+}
+
+/** Phones/tablets: hand off to the native camera app (better focus, flash, full screen). */
+function prefersNativeCamera() {
+  if (typeof window === 'undefined') return false
+  return Boolean(window.matchMedia?.('(pointer: coarse)').matches) && 'ontouchstart' in window
 }
 
 /** Front/selfie cameras get a mirror preview; rear/document cameras stay unflipped. */
@@ -67,6 +73,7 @@ function PhotoSlot({
   onUploadClick,
   onPreview,
   inputRef,
+  captureInputRef,
 }) {
   return (
     <article className={`photo-upload-card${preview ? ' has-preview' : ''}${error ? ' has-error' : ''}`}>
@@ -109,6 +116,14 @@ function PhotoSlot({
           ref={inputRef}
           type="file"
           accept="image/*"
+          className="sr-only"
+          onChange={onPick}
+        />
+        <input
+          ref={captureInputRef}
+          type="file"
+          accept="image/*"
+          capture="user"
           className="sr-only"
           onChange={onPick}
         />
@@ -168,6 +183,7 @@ export default function StepPhoto({
   compact = false,
 }) {
   const inputRefs = useRef({})
+  const captureInputRefs = useRef({})
   const videoRefs = useRef({})
   const streamRef = useRef(null)
 
@@ -296,7 +312,7 @@ export default function StepPhoto({
       }
       ctx.drawImage(video, 0, 0)
       const raw = canvas.toDataURL('image/jpeg', 0.92)
-      const compressed = await compressImageDataUrl(raw, 960, 0.8)
+      const compressed = await compressImageDataUrl(raw, 1400, 0.85)
       if (!compressed) {
         setLocalError((prev) => ({
           ...prev,
@@ -380,9 +396,21 @@ export default function StepPhoto({
             inputRef={(el) => {
               inputRefs.current[slot.key] = el
             }}
-            onToggleCamera={() =>
-              cameraKey === slot.key ? stopCamera() : startCamera(slot.key)
-            }
+            captureInputRef={(el) => {
+              captureInputRefs.current[slot.key] = el
+            }}
+            onToggleCamera={() => {
+              if (cameraKey === slot.key) {
+                stopCamera()
+                return
+              }
+              if (prefersNativeCamera() && captureInputRefs.current[slot.key]) {
+                stopCamera()
+                captureInputRefs.current[slot.key].click()
+                return
+              }
+              startCamera(slot.key)
+            }}
             onCapture={() => captureFromCamera(slot.key)}
             onPick={(e) => handleFile(slot.key, e.target.files?.[0], e.target)}
             onUploadClick={() => inputRefs.current[slot.key]?.click()}

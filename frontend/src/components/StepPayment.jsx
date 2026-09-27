@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { resolveVehicleDisplayImage } from '../utils/vehicleImages'
 import {
   formatRentalFee,
   parseRentalFeeAmount,
@@ -86,11 +87,11 @@ export default function StepPayment({
         </div>
         {vehicle ? (
           <div className="rental-vehicle-chip">
-            {vehicle.image ? (
-              <img src={vehicle.image} alt="" className="rental-vehicle-chip-thumb" />
-            ) : (
-              <div className="rental-vehicle-chip-thumb rental-vehicle-chip-thumb--empty" aria-hidden />
-            )}
+            <img
+              src={resolveVehicleDisplayImage(vehicle)}
+              alt=""
+              className="rental-vehicle-chip-thumb"
+            />
             <div>
               <strong>
                 {vehicle.make} — {vehicle.series}

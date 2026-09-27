@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { BODY_TYPES } from '../data/vehicles'
 import { getArchivedIdSet } from '../utils/archivedVehicles'
 import { getDisplayStatus } from '../utils/vehicleDisplayStatus'
+import { resolveVehicleDisplayImage } from '../utils/vehicleImages'
 import {
   formatRentalFee,
   parseRentalFeeAmount,
@@ -56,14 +57,7 @@ function formatPeso(amount) {
 function VehicleThumb({ vehicle }) {
   return (
     <div className="dash-attn-thumb" aria-hidden="true">
-      {vehicle?.image ? (
-        <img src={vehicle.image} alt="" />
-      ) : (
-        <span>
-          {(vehicle?.make || '?').slice(0, 1)}
-          {(vehicle?.series || '').slice(0, 1)}
-        </span>
-      )}
+      <img src={resolveVehicleDisplayImage(vehicle)} alt="" />
     </div>
   )
 }
@@ -276,11 +270,7 @@ function ChangeVehicleModal({
                   }}
                 >
                   <span className="dash-change-vehicle-thumb">
-                    {v.image ? (
-                      <img src={v.image} alt="" />
-                    ) : (
-                      <span>{(v.make || '?').slice(0, 1)}</span>
-                    )}
+                    <img src={resolveVehicleDisplayImage(v)} alt="" />
                   </span>
                   <span className="dash-change-vehicle-copy">
                     <strong>
@@ -467,13 +457,13 @@ export default function NeedsAttentionPanel({
                         tabIndex={0}
                         onClick={() => openDetail(rental, vehicle)}
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
+                          if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
                             e.preventDefault()
                             openDetail(rental, vehicle)
                           }
                         }}
                       >
-                        <td>
+                        <td data-label="Vehicle" className="dash-attn-cell-wide">
                           <div className="dash-attn-cell-vehicle">
                             <VehicleThumb vehicle={vehicle} />
                             <div>
@@ -484,8 +474,8 @@ export default function NeedsAttentionPanel({
                             </div>
                           </div>
                         </td>
-                        <td>{customerName(rental)}</td>
-                        <td>
+                        <td data-label="Renter" className="dash-attn-cell-wide">{customerName(rental)}</td>
+                        <td data-label="Starts" className="dash-attn-cell-wide">
                           <div className="dash-attn-cell-time">
                             <span>{startLabel}</span>
                             {isPastDue ? (
@@ -495,10 +485,10 @@ export default function NeedsAttentionPanel({
                             ) : null}
                           </div>
                         </td>
-                        <td>
+                        <td data-label="First paid">
                           <span className="dash-attn-balance">{formatPeso(firstPaid)}</span>
                         </td>
-                        <td>
+                        <td data-label="Balance">
                           <span className={bal > 0 ? 'dash-attn-balance is-due' : 'dash-attn-balance'}>
                             {formatPeso(bal)}
                           </span>
@@ -564,13 +554,13 @@ export default function NeedsAttentionPanel({
                         tabIndex={0}
                         onClick={() => openDetail(rental, vehicle)}
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
+                          if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
                             e.preventDefault()
                             openDetail(rental, vehicle)
                           }
                         }}
                       >
-                        <td>
+                        <td data-label="Vehicle" className="dash-attn-cell-wide">
                           <div className="dash-attn-cell-vehicle">
                             <VehicleThumb vehicle={vehicle} />
                             <div>
@@ -581,8 +571,8 @@ export default function NeedsAttentionPanel({
                             </div>
                           </div>
                         </td>
-                        <td>{customerName(rental)}</td>
-                        <td>
+                        <td data-label="Renter" className="dash-attn-cell-wide">{customerName(rental)}</td>
+                        <td data-label="Until" className="dash-attn-cell-wide">
                           <div className="dash-attn-cell-time">
                             <span>{untilLabel}</span>
                             {remaining ? (
@@ -598,10 +588,10 @@ export default function NeedsAttentionPanel({
                             ) : null}
                           </div>
                         </td>
-                        <td>
+                        <td data-label="First paid">
                           <span className="dash-attn-balance">{formatPeso(firstPaid)}</span>
                         </td>
-                        <td>
+                        <td data-label="Balance">
                           <span className={bal > 0 ? 'dash-attn-balance is-due' : 'dash-attn-balance'}>
                             {formatPeso(bal)}
                           </span>
@@ -652,7 +642,7 @@ export default function NeedsAttentionPanel({
             <p className="dash-attn-empty">No units under maintenance.</p>
           ) : (
             <div className="dash-attn-table-wrap">
-              <table className="dash-attn-table">
+              <table className="dash-attn-table dash-attn-table--maintenance">
                 <thead>
                   <tr>
                     <th>Vehicle</th>
@@ -664,7 +654,7 @@ export default function NeedsAttentionPanel({
                 <tbody>
                   {maintenanceVehicles.map((v) => (
                     <tr key={v.id} className="dash-attn-tr is-static">
-                      <td>
+                      <td data-label="Vehicle" className="dash-attn-cell-wide">
                         <div className="dash-attn-cell-vehicle">
                           <VehicleThumb vehicle={v} />
                           <div>
@@ -674,8 +664,8 @@ export default function NeedsAttentionPanel({
                           </div>
                         </div>
                       </td>
-                      <td>{v.bodyType || '—'}</td>
-                      <td>{v.plateNo || '—'}</td>
+                      <td data-label="Type">{v.bodyType || '—'}</td>
+                      <td data-label="Plate">{v.plateNo || '—'}</td>
                       <td className="dash-attn-actions-col">
                         {isAdminUser ? (
                           <button type="button" className="btn-ghost btn-sm" onClick={onManage}>

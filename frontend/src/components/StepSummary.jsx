@@ -1,4 +1,5 @@
 import { formatEmergencyContact } from '../utils/phone'
+import { resolveVehicleDisplayImage } from '../utils/vehicleImages'
 import { CAR_PHOTO_SLOTS } from './StepCarCondition'
 
 function formatDateTime(value) {
@@ -250,11 +251,11 @@ export default function StepSummary({
                 </div>
                 {vehicle ? (
                   <>
-                    {vehicle.image ? (
-                      <img src={vehicle.image} alt={vehicle.make} className="summary-vehicle-img" />
-                    ) : (
-                      <div className="summary-vehicle-img summary-vehicle-img--empty" aria-hidden />
-                    )}
+                    <img
+                      src={resolveVehicleDisplayImage(vehicle)}
+                      alt={vehicle.make}
+                      className="summary-vehicle-img"
+                    />
                     <div className="summary-vehicle-copy">
                       <strong>
                         {vehicle.make} — {vehicle.series}

@@ -74,7 +74,11 @@ import {
   loadDriverWageSettings,
   replaceDriverWageSettings,
 } from '../utils/driverWage'
-import { getVehicleGallery, getInsuranceImages } from '../utils/vehicleImages'
+import {
+  getVehicleGallery,
+  getInsuranceImages,
+  resolveVehicleDisplayImage,
+} from '../utils/vehicleImages'
 import {
   formatRentalFee,
   isRevenueCountableRental,
@@ -3965,13 +3969,7 @@ export default function AdminPanel() {
                     onClick={() => openTransaction(r, 'history')}
                   >
                     <div className="history-thumb" aria-hidden="true">
-                      {r.vehicle?.image ? (
-                        <img src={r.vehicle.image} alt="" />
-                      ) : (
-                        <span className="history-thumb-fallback">
-                          {(r.vehicle?.make || 'A').slice(0, 1)}
-                        </span>
-                      )}
+                      <img src={resolveVehicleDisplayImage(r.vehicle)} alt="" />
                     </div>
 
                     <div className="history-body">

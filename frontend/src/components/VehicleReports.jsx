@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { resolveVehicleDisplayImage } from '../utils/vehicleImages'
 import { jsPDF } from 'jspdf'
 import * as XLSX from 'xlsx'
 import { addOwner, loadOwners, normalizeInvestorSharePercent } from '../utils/owners'
@@ -1078,7 +1079,7 @@ export default function VehicleReports({
                 className="reports-vehicle-card"
                 onClick={() => setSelectedVehicleId(v.id)}
               >
-                {v.image ? <img src={v.image} alt="" /> : <span className="reports-vehicle-fallback" aria-hidden />}
+                <img src={resolveVehicleDisplayImage(v)} alt="" />
                 <div className="reports-vehicle-copy">
                   <strong>{v.make} {v.series}</strong>
                   <span className="reports-vehicle-plate">{v.plateNo}</span>

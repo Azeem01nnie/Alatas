@@ -1,4 +1,5 @@
 ﻿import { useEffect, useRef, useState } from 'react'
+import { resolveVehicleDisplayImage } from '../utils/vehicleImages'
 import { CONTRACT_TERMS, LIABILITY_CLAUSE, getContractClauseNumber } from '../data/contract'
 import { formatEmergencyContact } from '../utils/phone'
 import { compressImageDataUrl } from '../utils/storage'
@@ -349,11 +350,10 @@ export default function TransactionPage({
               </figure>
             ) : null}
             <figure className="transaction-photo-card">
-              {vehicle.image ? (
-                <img src={vehicle.image} alt={`${vehicle.make || 'Vehicle'}`} />
-              ) : (
-                <div className="transaction-photo-empty">No vehicle image</div>
-              )}
+              <img
+                src={resolveVehicleDisplayImage(vehicle)}
+                alt={`${vehicle.make || 'Vehicle'}`}
+              />
               <figcaption>Vehicle Photo</figcaption>
             </figure>
           </div>

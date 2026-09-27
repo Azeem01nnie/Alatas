@@ -19,6 +19,7 @@
   --brand-soft: rgba(179, 32, 37, 0.08);
   --accent-yellow: #f5c400;
   --metal: #111111;
+  --on-metal: #ffffff;
   --metal-elevated: #1a1a1a;
   --steel: #9a9a9a;
   --accent: var(--brand);
@@ -51,6 +52,7 @@ html[data-theme='dark'] {
   --border-strong: #e8dede;
   --brand-soft: rgba(179, 32, 37, 0.22);
   --metal: #f7f2f2;
+  --on-metal: #100e0e;
   --metal-elevated: #ffffff;
   --steel: #9a8c8c;
   --ok: #3dd68c;
@@ -516,7 +518,7 @@ body {
 .rent-desk-mode-btn.is-active {
   background: var(--metal);
   border-color: var(--metal);
-  color: #fff;
+  color: var(--on-metal);
 }
 
 .rent-desk-mode-hint {
@@ -631,9 +633,14 @@ body {
 }
 
 .step-photo-compact .photo-upload-stage {
-  min-height: 5.5rem;
-  height: 5.5rem;
-  aspect-ratio: auto;
+  min-height: 11rem;
+  height: auto;
+  aspect-ratio: 4 / 3;
+}
+
+.step-photo-compact .photo-upload-preview {
+  object-fit: contain;
+  background: #0f0d0d;
 }
 
 .step-photo-compact .photo-upload-actions {
@@ -673,8 +680,9 @@ body {
   }
 
   .step-photo-compact .photo-upload-stage {
-    height: 7rem;
-    min-height: 7rem;
+    height: auto;
+    min-height: 14rem;
+    aspect-ratio: 3 / 4;
   }
 }
 
@@ -1406,7 +1414,7 @@ body {
 
 .premium-date-day.is-selected {
   background: var(--metal);
-  color: #fff;
+  color: var(--on-metal);
   transform: scale(1.04);
 }
 
@@ -1502,7 +1510,7 @@ body {
 
 .premium-time-wheel-option.is-selected {
   background: var(--metal);
-  color: #fff;
+  color: var(--on-metal);
   font-weight: 650;
   transform: scale(1.02);
 }
@@ -1536,7 +1544,7 @@ body {
 .premium-time-ampm-btn.is-selected {
   background: var(--metal);
   border-color: var(--metal);
-  color: #fff;
+  color: var(--on-metal);
 }
 
 .picker-modal-footer {
@@ -4017,7 +4025,7 @@ input[type='number']:focus {
   height: 2.1rem;
   border-radius: 999px;
   background: var(--metal);
-  color: #fff;
+  color: var(--on-metal);
   font-size: 0.72rem;
   font-weight: 650;
   letter-spacing: 0.08em;
@@ -5468,6 +5476,8 @@ html[data-theme='dark'] .password-strength.is-weak .password-strength-value {
 
 .dash-attn-body {
   min-height: 4rem;
+  min-width: 0;
+  container: attention / inline-size;
 }
 
 .dash-attn-card {
@@ -5988,6 +5998,7 @@ html[data-theme='dark'] .conn-status.is-offline {
   border-collapse: collapse;
   min-width: 0;
   table-layout: fixed;
+  color: var(--text);
 }
 
 .dash-attn-table th,
@@ -6039,6 +6050,26 @@ html[data-theme='dark'] .conn-status.is-offline {
 .dash-attn-table th:nth-child(5),
 .dash-attn-table td:nth-child(5) {
   width: 12%;
+}
+
+.dash-attn-table--maintenance th:nth-child(1),
+.dash-attn-table--maintenance td:nth-child(1) {
+  width: 38%;
+}
+
+.dash-attn-table--maintenance th:nth-child(2),
+.dash-attn-table--maintenance td:nth-child(2) {
+  width: 22%;
+}
+
+.dash-attn-table--maintenance th:nth-child(3),
+.dash-attn-table--maintenance td:nth-child(3) {
+  width: 20%;
+}
+
+.dash-attn-table--maintenance th:nth-child(4),
+.dash-attn-table--maintenance td:nth-child(4) {
+  width: 20%;
 }
 
 .dash-attn-tr {
@@ -6143,6 +6174,29 @@ html[data-theme='dark'] .conn-status.is-offline {
   white-space: nowrap;
 }
 
+.dash-attn-table .dash-attn-actions-col {
+  vertical-align: middle;
+  overflow: visible;
+}
+
+.dash-attn-table .dash-attn-actions {
+  display: inline-grid;
+  grid-auto-flow: row;
+  grid-template-columns: minmax(4.75rem, max-content);
+  gap: 0.3rem;
+  margin-left: 0;
+  justify-items: stretch;
+}
+
+.dash-attn-table .dash-attn-actions .btn-outline,
+.dash-attn-table .dash-attn-actions .btn-ghost,
+.dash-attn-table .dash-attn-actions .btn-sm {
+  width: 100%;
+  justify-content: center;
+  text-align: center;
+  padding: 0.3rem 0.5rem;
+}
+
 .dash-attn-table .dash-attn-thumb {
   width: 2.15rem;
   height: 1.55rem;
@@ -6151,6 +6205,136 @@ html[data-theme='dark'] .conn-status.is-offline {
 
 .dash-attn-remaining {
   font-size: 0.64rem;
+}
+
+.dash-attn-table .dash-attn-remaining {
+  color: var(--rented) !important;
+}
+
+.dash-attn-table .dash-attn-remaining.is-overdue {
+  color: var(--maintenance) !important;
+}
+
+html[data-theme='dark'] .dash-attn-balance.is-due {
+  color: #ff8a80;
+}
+
+/* Respond to the panel width, including narrow desktop dashboard columns. */
+@container attention (max-width: 42rem) {
+  .dash-attn-table-wrap {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    overflow: visible;
+  }
+
+  .dash-attn-table,
+  .dash-attn-table tbody {
+    display: block;
+    width: 100%;
+  }
+
+  .dash-attn-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .dash-attn-table .dash-attn-tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem 1rem;
+    padding: 0.85rem;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+  }
+
+  .dash-attn-tr + .dash-attn-tr {
+    margin-top: 0.65rem;
+  }
+
+  .dash-attn-table .dash-attn-tr > td {
+    display: block;
+    width: auto;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    overflow: visible;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    font-size: 0.82rem;
+    line-height: 1.4;
+  }
+
+  .dash-attn-tr > td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 0.2rem;
+    color: var(--muted);
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .dash-attn-tr > td:first-child::before {
+    display: none;
+  }
+
+  .dash-attn-cell-wide,
+  .dash-attn-tr > .dash-attn-actions-col {
+    grid-column: 1 / -1;
+  }
+
+  .dash-attn-table .dash-attn-cell-vehicle {
+    gap: 0.65rem;
+  }
+
+  .dash-attn-table .dash-attn-thumb {
+    width: 3.5rem;
+    height: 2.5rem;
+    flex-shrink: 0;
+  }
+
+  .dash-attn-table .dash-attn-cell-vehicle strong,
+  .dash-attn-table .dash-attn-cell-vehicle span,
+  .dash-attn-table .dash-attn-cell-time > span,
+  .dash-attn-table .dash-attn-balance {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    overflow: visible;
+  }
+
+  .dash-attn-table .dash-attn-cell-vehicle strong {
+    font-size: 0.86rem;
+  }
+
+  .dash-attn-table .dash-attn-cell-time,
+  .dash-attn-table .dash-attn-balance {
+    font-size: 0.82rem;
+  }
+
+  .dash-attn-table .dash-attn-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(4.75rem, 1fr));
+    width: 100%;
+    gap: 0.5rem;
+  }
+
+  .dash-attn-table .dash-attn-actions .btn-sm,
+  .dash-attn-table .dash-attn-actions-col > .btn-sm {
+    min-height: 2.25rem;
+    width: 100%;
+    padding: 0.45rem 0.35rem;
+    font-size: 0.68rem;
+    white-space: normal;
+    justify-content: center;
+  }
 }
 
 .dash-attn-detail-modal {
@@ -15226,4 +15410,102 @@ html[data-theme='dark'] .damage-modal select {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Dark theme: surfaces that were hard-coded white in light mode */
+html[data-theme='dark'] .period-card,
+html[data-theme='dark'] .terms-accordion,
+html[data-theme='dark'] .terms-accordion-toggle,
+html[data-theme='dark'] .signature-block,
+html[data-theme='dark'] .summary-section,
+html[data-theme='dark'] .summary-media-panel,
+html[data-theme='dark'] .vehicle-modal-header,
+html[data-theme='dark'] .address-suggestions,
+html[data-theme='dark'] .cal-fleet-menu,
+html[data-theme='dark'] .xz-chart-tooltip {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+html[data-theme='dark'] .summary-hero {
+  background:
+    linear-gradient(135deg, rgba(179, 32, 37, 0.18), transparent 55%),
+    var(--surface);
+  border-color: var(--border);
+}
+
+html[data-theme='dark'] .summary-status-pill {
+  background: var(--surface-muted);
+  border-color: var(--border);
+}
+
+html[data-theme='dark'] .terms-accordion-chevron,
+html[data-theme='dark'] .premium-date-nav-btn,
+html[data-theme='dark'] .premium-time-ampm-btn,
+html[data-theme='dark'] .cal-nav-btn,
+html[data-theme='dark'] .step-vehicle-type-filter select,
+html[data-theme='dark'] .history-desk-field select,
+html[data-theme='dark'] .status-select,
+html[data-theme='dark'] .damage-modal select,
+html[data-theme='dark'] select {
+  background-color: var(--surface-muted);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+html[data-theme='dark'] .premium-time-wheel-frame {
+  background: var(--surface-muted);
+}
+
+html[data-theme='dark'] .premium-time-wheel-fade-top {
+  background: linear-gradient(180deg, var(--surface-muted) 10%, transparent);
+}
+
+html[data-theme='dark'] .premium-time-wheel-fade-bottom {
+  background: linear-gradient(0deg, var(--surface-muted) 10%, transparent);
+}
+
+html[data-theme='dark'] .vehicle-card:hover {
+  background: var(--surface-muted);
+}
+
+html[data-theme='dark'] .edit-image-default-label {
+  background: rgba(16, 14, 14, 0.85);
+  color: var(--text);
+}
+
+/* Signature pads stay light so the dark ink remains visible */
+html[data-theme='dark'] .signature-pad-frame,
+html[data-theme='dark'] .summary-signature-frame,
+html[data-theme='dark'] .summary-signature,
+html[data-theme='dark'] .contract-signature-img {
+  background: #f7f2f2;
+}
+
+html[data-theme='dark'] .signature-pad-hint {
+  color: #6b5f5f;
+}
+
+/* Outline buttons: softer borders than --border-strong on dark */
+html[data-theme='dark'] .btn-outline {
+  border-color: var(--border);
+  color: var(--text);
+}
+
+html[data-theme='dark'] .btn-outline:hover:not(:disabled) {
+  border-color: var(--muted);
+  background: var(--surface-muted);
+}
+
+html[data-theme='dark'] .btn-danger-outline {
+  color: #ff8a80 !important;
+  border-color: rgba(255, 138, 128, 0.45) !important;
+  background: rgba(255, 138, 128, 0.08) !important;
+}
+
+html[data-theme='dark'] .btn-danger-outline:hover:not(:disabled) {
+  color: #fff !important;
+  background: #b42318 !important;
+  border-color: #b42318 !important;
 }

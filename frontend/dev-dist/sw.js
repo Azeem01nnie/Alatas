@@ -81,7 +81,7 @@ define(['./workbox-25613826'], (function (workbox) { 'use strict';
     "revision": "3ca0b8505b4bec776b69afdba2768812"
   }, {
     "url": "/index.html",
-    "revision": "0.bs7e9a83uk8"
+    "revision": "0.bqh92hiaadg"
   }], {});
   workbox.cleanupOutdatedCaches();
   workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("/index.html"), {
@@ -98,6 +98,20 @@ define(['./workbox-25613826'], (function (workbox) { 'use strict';
     "cacheName": "gstatic-fonts-cache",
     plugins: [new workbox.ExpirationPlugin({
       maxEntries: 10,
+      maxAgeSeconds: 31536000
+    })]
+  }), 'GET');
+  workbox.registerRoute(/^https:\/\/tessdata\.projectnaptha\.com\/.*/i, new workbox.CacheFirst({
+    "cacheName": "tessdata-cache",
+    plugins: [new workbox.ExpirationPlugin({
+      maxEntries: 4,
+      maxAgeSeconds: 31536000
+    })]
+  }), 'GET');
+  workbox.registerRoute(/\/tesseract\/.*/i, new workbox.CacheFirst({
+    "cacheName": "tesseract-assets",
+    plugins: [new workbox.ExpirationPlugin({
+      maxEntries: 8,
       maxAgeSeconds: 31536000
     })]
   }), 'GET');
