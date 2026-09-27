@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { downloadDamageReportPdf } from '../utils/damageReportPdf'
 import { compressImageDataUrl } from '../utils/storage'
+import SelectMenu from './SelectMenu'
 
 const DAMAGE_TYPES = [
   'Scratch',
@@ -129,12 +130,18 @@ function parseWitnessDateTime(raw = '') {
   return { witnessDate: todayInputValue(), witnessTime: '', witnessMeridiem: 'PM', witnessDateTime: s }
 }
 
-function Field({ label, children, full }) {
+const MERIDIEM_OPTIONS = [
+  { value: 'AM', label: 'AM' },
+  { value: 'PM', label: 'PM' },
+]
+
+function Field({ label, children, full, asGroup }) {
+  const Tag = asGroup ? 'div' : 'label'
   return (
-    <label className={`field${full ? ' field-full' : ''}`}>
+    <Tag className={`field${full ? ' field-full' : ''}`}>
       <span className="field-label">{label}</span>
       {children}
-    </label>
+    </Tag>
   )
 }
 
@@ -469,25 +476,23 @@ export default function DamageInspectionModal({
                       <span className="error-msg">{errors.dateReturned}</span>
                     ) : null}
                   </Field>
-                  <Field label="Time Returned">
+                  <Field label="Time Returned" asGroup>
                     <div className="damage-time-row">
                       <input
                         type="text"
                         value={form.timeReturned}
+                        aria-label="Time returned"
                         onChange={(e) =>
                           setField('timeReturned', e.target.value, { upper: false })
                         }
                         placeholder="e.g. 3:30"
                       />
-                      <select
+                      <SelectMenu
                         value={form.timeMeridiem}
-                        onChange={(e) =>
-                          setField('timeMeridiem', e.target.value, { upper: false })
-                        }
-                      >
-                        <option value="AM">AM</option>
-                        <option value="PM">PM</option>
-                      </select>
+                        onChange={(v) => setField('timeMeridiem', v, { upper: false })}
+                        ariaLabel="AM or PM"
+                        options={MERIDIEM_OPTIONS}
+                      />
                     </div>
                   </Field>
                   <Field label="Odometer Reading">
@@ -853,25 +858,23 @@ export default function DamageInspectionModal({
                       onChange={(e) => setField('witnessDate', e.target.value, { upper: false })}
                     />
                   </Field>
-                  <Field label="Time">
+                  <Field label="Time" asGroup>
                     <div className="damage-time-row">
                       <input
                         type="text"
                         value={form.witnessTime || ''}
+                        aria-label="Witness time"
                         onChange={(e) =>
                           setField('witnessTime', e.target.value, { upper: false })
                         }
                         placeholder="e.g. 3:30"
                       />
-                      <select
+                      <SelectMenu
                         value={form.witnessMeridiem || 'PM'}
-                        onChange={(e) =>
-                          setField('witnessMeridiem', e.target.value, { upper: false })
-                        }
-                      >
-                        <option value="AM">AM</option>
-                        <option value="PM">PM</option>
-                      </select>
+                        onChange={(v) => setField('witnessMeridiem', v, { upper: false })}
+                        ariaLabel="AM or PM"
+                        options={MERIDIEM_OPTIONS}
+                      />
                     </div>
                   </Field>
                 </div>

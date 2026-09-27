@@ -1,4 +1,5 @@
 import AddressAutocomplete from './AddressAutocomplete'
+import SelectMenu from './SelectMenu'
 import { ensurePhMobilePrefix, formatPhMobile } from '../utils/phone'
 import {
   customerDisplayName,
@@ -127,25 +128,24 @@ export default function StepPersonalInfo({ data, onChange, errors, embedded = fa
       ) : null}
 
       {customers.length > 0 ? (
-        <label className="field field-full returning-customer-field">
+        <div className="field field-full returning-customer-field">
           <span className="field-label">Returning customer</span>
-          <select
+          <SelectMenu
             value=""
-            onChange={(e) => {
-              const id = e.target.value
+            onChange={(id) => {
               if (!id) return
-              const c = customers.find((row) => String(row.id) === id)
+              const c = customers.find((row) => String(row.id) === String(id))
               applyCustomer(c)
             }}
-          >
-            <option value="">Select saved customer to autofill…</option>
-            {customers.map((c) => (
-              <option key={c.id} value={c.id} disabled={Boolean(c.blacklisted)}>
-                {customerDisplayName(c)} · {c.contactNo}
-                {c.blacklisted ? ' · BLACKLISTED' : ''}
-              </option>
-            ))}
-          </select>
+            ariaLabel="Returning customer"
+            placeholder="Select saved customer to autofill…"
+            options={customers.map((c) => ({
+              value: c.id,
+              label: customerDisplayName(c),
+              hint: c.blacklisted ? `${c.contactNo} · Blacklisted` : c.contactNo,
+              disabled: Boolean(c.blacklisted),
+            }))}
+          />
           {matched?.blacklisted ? (
             <span className="error-msg">
               This contact is blacklisted
@@ -156,7 +156,7 @@ export default function StepPersonalInfo({ data, onChange, errors, embedded = fa
               Returning customer matched by contact — form autofilled.
             </span>
           ) : null}
-        </label>
+        </div>
       ) : null}
 
       <div className="form-grid">
@@ -229,32 +229,28 @@ export default function StepPersonalInfo({ data, onChange, errors, embedded = fa
               )}
             </label>
 
-            <label className="field">
+            <div className="field">
               <span className="field-label">
                 Relationship
                 <span className="required">*</span>
               </span>
-              <select
+              <SelectMenu
+                id="emergency-relation"
                 name="emergencyRelation"
+                ariaLabel="Relationship"
                 value={data.emergencyRelation}
-                onChange={(e) => {
-                  const next = e.target.value
+                placeholder="Select relationship"
+                options={EMERGENCY_RELATIONS.map((rel) => ({ value: rel, label: rel }))}
+                error={Boolean(errors.emergencyRelation)}
+                onChange={(next) => {
                   onChange('emergencyRelation', next)
                   if (next !== 'Other') onChange('emergencyRelationOther', '')
                 }}
-                className={errors.emergencyRelation ? 'input-error' : ''}
-              >
-                <option value="">Select relationship</option>
-                {EMERGENCY_RELATIONS.map((rel) => (
-                  <option key={rel} value={rel}>
-                    {rel}
-                  </option>
-                ))}
-              </select>
+              />
               {errors.emergencyRelation && (
                 <span className="error-msg">{errors.emergencyRelation}</span>
               )}
-            </label>
+            </div>
 
             {data.emergencyRelation === 'Other' && (
               <label className="field emergency-other-field">

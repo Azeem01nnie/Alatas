@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import SelectMenu from './SelectMenu'
 
 export default function AddOwnerModal({
   ownershipType = 'company',
@@ -68,16 +69,18 @@ export default function AddOwnerModal({
             {error && <span className="error-msg">{error}</span>}
           </label>
 
-          <label className="field">
+          <div className="field">
             <span className="field-label">Ownership type</span>
-            <select
+            <SelectMenu
               value={type}
-              onChange={(e) => setType(e.target.value === 'thirdParty' ? 'thirdParty' : 'company')}
-            >
-              <option value="company">COMPANY-OWNED</option>
-              <option value="thirdParty">THIRD-PARTY OWNED</option>
-            </select>
-          </label>
+              onChange={(v) => setType(v === 'thirdParty' ? 'thirdParty' : 'company')}
+              ariaLabel="Ownership type"
+              options={[
+                { value: 'company', label: 'COMPANY-OWNED' },
+                { value: 'thirdParty', label: 'THIRD-PARTY OWNED' },
+              ]}
+            />
+          </div>
 
           <div className="modal-actions">
             <button type="button" className="btn-outline confirm-cancel-btn" onClick={onCancel}>

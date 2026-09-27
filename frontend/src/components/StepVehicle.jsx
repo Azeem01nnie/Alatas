@@ -5,6 +5,7 @@ import { ARCHIVE_EVENT, getArchivedIdSet } from '../utils/archivedVehicles'
 import { getDisplayStatus } from '../utils/vehicleDisplayStatus'
 import { resolveVehicleDisplayImage } from '../utils/vehicleImages'
 import VehicleModal from './VehicleModal'
+import SelectMenu from './SelectMenu'
 
 export default function StepVehicle({ selectedId, onSelect, error }) {
   const { vehicles, bookedVehicleIds, rentals } = useVehicles()
@@ -82,21 +83,19 @@ export default function StepVehicle({ selectedId, onSelect, error }) {
         Only free vehicles are shown. Reserved or rented units are hidden.
       </p>
 
-      <label className="field step-vehicle-type-filter">
+      <div className="field step-vehicle-type-filter">
         <span className="field-label">Vehicle type</span>
-        <select
+        <SelectMenu
           value={bodyTypeFilter}
           disabled={available.length === 0}
-          onChange={(e) => setBodyTypeFilter(e.target.value)}
-        >
-          <option value="all">All types</option>
-          {typeOptions.map((type) => (
-            <option key={type} value={type}>
-              {type}
-            </option>
-          ))}
-        </select>
-      </label>
+          onChange={setBodyTypeFilter}
+          ariaLabel="Vehicle type"
+          options={[
+            { value: 'all', label: 'All types' },
+            ...typeOptions.map((type) => ({ value: type, label: type })),
+          ]}
+        />
+      </div>
 
       {available.length === 0 && (
         <p className="empty-state">No available vehicles at the moment.</p>

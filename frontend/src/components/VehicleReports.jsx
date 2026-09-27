@@ -16,6 +16,7 @@ import {
   updateReportEntry,
 } from '../utils/vehicleReports'
 import { fetchVehicleReportsFromCloud } from '../api/vehicleReportsApi'
+import SelectMenu from './SelectMenu'
 
 const EMPTY_ENTRY = {
   date: new Date().toISOString().slice(0, 10),
@@ -135,26 +136,35 @@ function EntryModal({ initial = EMPTY_ENTRY, onSave, onClose, title = 'Add Entry
             <input type="date" value={form.date} onChange={(e) => set('date', e.target.value)} />
           </label>
 
-          <label className="field">
+          <div className="field">
             <span className="field-label">Type</span>
-            <select value={form.type} onChange={(e) => set('type', e.target.value)}>
-              {REPORT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </label>
+            <SelectMenu
+              value={form.type}
+              onChange={(v) => set('type', v)}
+              ariaLabel="Type"
+              options={REPORT_TYPES.map((t) => ({ value: t, label: t }))}
+            />
+          </div>
 
-          <label className="field">
+          <div className="field">
             <span className="field-label">Category</span>
-            <select value={form.category} onChange={(e) => set('category', e.target.value)}>
-              {REPORT_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </label>
+            <SelectMenu
+              value={form.category}
+              onChange={(v) => set('category', v)}
+              ariaLabel="Category"
+              options={REPORT_CATEGORIES.map((c) => ({ value: c, label: c }))}
+            />
+          </div>
 
-          <label className="field">
+          <div className="field">
             <span className="field-label">Status</span>
-            <select value={form.status} onChange={(e) => set('status', e.target.value)}>
-              {REPORT_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </label>
+            <SelectMenu
+              value={form.status}
+              onChange={(v) => set('status', v)}
+              ariaLabel="Status"
+              options={REPORT_STATUSES.map((s) => ({ value: s, label: s }))}
+            />
+          </div>
 
           <label className="field field-full">
             <span className="field-label">Description</span>

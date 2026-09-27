@@ -15,6 +15,6 @@ body,
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #f7f7f7;
-  color: #111111;
+  background: var(--bg, #f7f7f7);
+  color: var(--text, #111111);
 }

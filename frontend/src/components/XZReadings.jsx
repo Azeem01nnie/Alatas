@@ -322,7 +322,7 @@ export default function XZReadings({ rentals = [], vehicles = [], adminName = 'A
           <h3>Current period sales</h3>
           <span>{reading.count} line{reading.count === 1 ? '' : 's'}</span>
         </div>
-        <table className="xz-table">
+        <table className="xz-table xz-table--sales">
           <thead>
             <tr>
               <th>Date / time</th>
@@ -342,13 +342,17 @@ export default function XZReadings({ rentals = [], vehicles = [], adminName = 'A
               </tr>
             ) : (
               reading.lines.map((row) => (
-                <tr key={row.rentalId}>
-                  <td>{row.dateLabel}</td>
-                  <td>{row.customer}</td>
-                  <td>{row.plate}</td>
-                  <td>{row.vehicle}</td>
-                  <td>{row.duration}</td>
-                  <td className="xz-amount">{formatPesoXZ(row.amount)}</td>
+                <tr key={row.rentalId} className="xz-row">
+                  <td className="xz-cell-date" data-label="Date / time">
+                    {row.dateLabel}
+                  </td>
+                  <td className="xz-cell-customer">{row.customer}</td>
+                  <td className="xz-cell-plate">{row.plate}</td>
+                  <td className="xz-cell-vehicle">{row.vehicle}</td>
+                  <td className="xz-cell-duration" data-label="Duration">
+                    {row.duration}
+                  </td>
+                  <td className="xz-amount xz-cell-amount">{formatPesoXZ(row.amount)}</td>
                 </tr>
               ))
             )}
@@ -367,7 +371,7 @@ export default function XZReadings({ rentals = [], vehicles = [], adminName = 'A
           <h3>Z-reading history</h3>
           <span>{zHistory.length} close{zHistory.length === 1 ? '' : 's'}</span>
         </div>
-        <table className="xz-table">
+        <table className="xz-table xz-table--history">
           <thead>
             <tr>
               <th>Closed at</th>
@@ -386,15 +390,21 @@ export default function XZReadings({ rentals = [], vehicles = [], adminName = 'A
               </tr>
             ) : (
               zHistory.map((z) => (
-                <tr key={z.id}>
-                  <td>{new Date(z.closedAt).toLocaleString()}</td>
-                  <td>
+                <tr key={z.id} className="xz-row">
+                  <td className="xz-cell-closed" data-label="Closed at">
+                    {new Date(z.closedAt).toLocaleString()}
+                  </td>
+                  <td className="xz-cell-period" data-label="Period">
                     {new Date(z.periodFrom).toLocaleString()} →{' '}
                     {new Date(z.periodTo).toLocaleString()}
                   </td>
-                  <td>{z.count}</td>
-                  <td className="xz-amount">{formatPesoXZ(z.revenue)}</td>
-                  <td>{z.closedBy || '—'}</td>
+                  <td className="xz-cell-rentals" data-label="Rentals">
+                    {z.count}
+                  </td>
+                  <td className="xz-amount xz-cell-total">{formatPesoXZ(z.revenue)}</td>
+                  <td className="xz-cell-by" data-label="Closed by">
+                    {z.closedBy || '—'}
+                  </td>
                 </tr>
               ))
             )}

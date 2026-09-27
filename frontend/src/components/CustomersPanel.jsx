@@ -20,6 +20,19 @@ const EDIT_PHOTO_SLOTS = [
   { key: 'optionalPhoto', label: 'Optional photo' },
 ]
 
+const EDIT_TRACKED_FIELDS = [
+  'firstName',
+  'middleName',
+  'lastName',
+  'address',
+  'contactNo',
+  'emergencyName',
+  'emergencyRelation',
+  'emergencyRelationOther',
+  'emergencyPhone',
+  ...EDIT_PHOTO_SLOTS.map((slot) => slot.key),
+]
+
 async function readAndCompressPhoto(file) {
   const dataUrl = await new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -74,6 +87,9 @@ export default function CustomersPanel({ rentals = [] }) {
   const [statusFilter, setStatusFilter] = useState('all') // all | active | blacklisted
   const [viewRow, setViewRow] = useState(null)
   const [editRow, setEditRow] = useState(null)
+  const [editOriginal, setEditOriginal] = useState(null)
+  const [clearPhotoSlot, setClearPhotoSlot] = useState(null)
+  const [confirmDiscardEdit, setConfirmDiscardEdit] = useState(false)
   const [deleteRow, setDeleteRow] = useState(null)
   const [blacklistRow, setBlacklistRow] = useState(null)
   const [blacklistReason, setBlacklistReason] = useState('')
@@ -109,6 +125,29 @@ export default function CustomersPanel({ rentals = [] }) {
 
   const refresh = () => setVersion((n) => n + 1)
 
+  const openEdit = (row) => {
+    setEditRow({ ...row })
+    setEditOriginal({ ...row })
+  }
+
+  const closeEdit = () => {
+    setEditRow(null)
+    setEditOriginal(null)
+    setClearPhotoSlot(null)
+    setConfirmDiscardEdit(false)
+  }
+
+  const isEditDirty =
+    Boolean(editRow && editOriginal) &&
+    EDIT_TRACKED_FIELDS.some(
+      (key) => String(editRow[key] ?? '') !== String(editOriginal[key] ?? ''),
+    )
+
+  const requestCloseEdit = () => {
+    if (isEditDirty) setConfirmDiscardEdit(true)
+    else closeEdit()
+  }
+
   const handleSaveEdit = (e) => {
     e.preventDefault()
     if (!editRow?.id) return
@@ -126,7 +165,7 @@ export default function CustomersPanel({ rentals = [] }) {
       licensePhoto: editRow.licensePhoto || '',
       optionalPhoto: editRow.optionalPhoto || '',
     })
-    setEditRow(null)
+    closeEdit()
     refresh()
     if (saved && viewRow && String(viewRow.id) === String(saved.id)) {
       setViewRow({ ...saved, rentalCount: countCustomerRentals(rentals, saved) })
@@ -235,12 +274,16 @@ export default function CustomersPanel({ rentals = [] }) {
                     }
                   }}
                 >
-                  <td>
+                  <td className="customers-cell-name">
                     <strong className="customers-row-name">{customerDisplayName(c)}</strong>
                   </td>
-                  <td>{c.contactNo || '—'}</td>
-                  <td>{c.rentalCount || 0}</td>
-                  <td>
+                  <td className="customers-cell-contact" data-label="Contact">
+                    {c.contactNo || '—'}
+                  </td>
+                  <td className="customers-cell-rentals" data-label="Rentals">
+                    {c.rentalCount || 0}
+                  </td>
+                  <td className="customers-cell-status">
                     {c.blacklisted ? (
                       <span className="customers-status-badge is-blacklisted">Blacklisted</span>
                     ) : (
@@ -256,7 +299,7 @@ export default function CustomersPanel({ rentals = [] }) {
                       <button
                         type="button"
                         className="customers-action-btn"
-                        onClick={() => setEditRow({ ...c })}
+                        onClick={() => openEdit(c)}
                       >
                         Edit
                       </button>
@@ -473,7 +516,7 @@ export default function CustomersPanel({ rentals = [] }) {
               <button
                 type="button"
                 className="btn-ghost"
-                onClick={() => setEditRow({ ...viewRow })}
+                onClick={() => openEdit(viewRow)}
               >
                 Edit
               </button>
@@ -513,7 +556,7 @@ export default function CustomersPanel({ rentals = [] }) {
         <div
           className="modal-overlay confirm-modal-overlay"
           role="presentation"
-          onClick={() => setEditRow(null)}
+          onClick={requestCloseEdit}
         >
           <div
             className="modal-panel confirm-modal customers-edit-modal"
@@ -613,9 +656,7 @@ export default function CustomersPanel({ rentals = [] }) {
                             <button
                               type="button"
                               className="customers-edit-photo-clear"
-                              onClick={() =>
-                                setEditRow((p) => (p ? { ...p, [slot.key]: '' } : p))
-                              }
+                              onClick={() => setClearPhotoSlot(slot)}
                             >
                               Clear
                             </button>
@@ -628,7 +669,7 @@ export default function CustomersPanel({ rentals = [] }) {
               </div>
 
               <div className="modal-actions field-full">
-                <button type="button" className="btn-outline" onClick={() => setEditRow(null)}>
+                <button type="button" className="btn-outline" onClick={requestCloseEdit}>
                   Cancel
                 </button>
                 <button type="submit" className="btn-primary">
@@ -636,6 +677,76 @@ export default function CustomersPanel({ rentals = [] }) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      ) : null}
+
+      {editRow && clearPhotoSlot ? (
+        <div
+          className="modal-overlay confirm-modal-overlay customers-stacked-overlay"
+          role="presentation"
+          onClick={() => setClearPhotoSlot(null)}
+        >
+          <div
+            className="modal-panel confirm-modal"
+            role="alertdialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="modal-title">Remove this photo?</h3>
+            <p className="confirm-message">
+              The {clearPhotoSlot.label.toLowerCase()} photo will be removed from this customer
+              once you save.
+            </p>
+            <div className="modal-actions">
+              <button type="button" className="btn-outline" onClick={() => setClearPhotoSlot(null)}>
+                Keep photo
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => {
+                  const key = clearPhotoSlot.key
+                  setEditRow((p) => (p ? { ...p, [key]: '' } : p))
+                  setClearPhotoSlot(null)
+                }}
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {editRow && confirmDiscardEdit ? (
+        <div
+          className="modal-overlay confirm-modal-overlay customers-stacked-overlay"
+          role="presentation"
+          onClick={() => setConfirmDiscardEdit(false)}
+        >
+          <div
+            className="modal-panel confirm-modal"
+            role="alertdialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="modal-title">Discard changes?</h3>
+            <p className="confirm-message">
+              You have unsaved changes to {customerDisplayName(editRow) || 'this customer'}. If you
+              leave now, they will be lost.
+            </p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn-outline"
+                onClick={() => setConfirmDiscardEdit(false)}
+              >
+                Keep editing
+              </button>
+              <button type="button" className="btn-primary" onClick={closeEdit}>
+                Discard
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

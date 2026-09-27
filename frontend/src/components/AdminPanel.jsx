@@ -42,6 +42,8 @@ import OutsideCityDestinationsPanel from './OutsideCityDestinationsPanel'
 import DriverWagePanel from './DriverWagePanel'
 import XZReadings from './XZReadings'
 import AddOwnerModal from './AddOwnerModal'
+import SortableThumbGrid from './SortableThumbGrid'
+import SelectMenu from './SelectMenu'
 import PremiumDatePicker from './PremiumDatePicker'
 import RentCarForm from './RentCarForm'
 import RentalCalendar from './RentalCalendar'
@@ -117,6 +119,22 @@ import DataScopeModal, { ALL_DOWNLOAD_SCOPE_IDS } from './DataScopeModal'
 const PROFILE_KEY = 'alatas-admin-profile'
 const SYSTEM_SETTINGS_KEY = 'alatas-admin-system-settings'
 const PLATE_MAX = 10
+
+const OWNERSHIP_OPTIONS = [
+  { value: 'company', label: 'COMPANY-OWNED' },
+  { value: 'thirdParty', label: 'THIRD-PARTY OWNED' },
+]
+
+const TRANSMISSION_OPTIONS = [
+  { value: 'Automatic', label: 'AUTOMATIC' },
+  { value: 'Manual', label: 'MANUAL' },
+  { value: 'Manual / Automatic', label: 'MANUAL / AUTOMATIC' },
+]
+
+const FLEET_STATUS_OPTIONS = [
+  { value: 'Available', label: 'AVAILABLE' },
+  { value: 'Under Maintenance', label: 'IN MAINTENANCE' },
+]
 
 function sanitizePlateNo(value) {
   return String(value || '')
@@ -3548,7 +3566,10 @@ export default function AdminPanel() {
                           key={f.id}
                         type="button"
                           className={`chip${manageStatus === f.id ? ' selected' : ''}`}
-                          onClick={() => setManageStatus(f.id)}
+                          onClick={(e) => {
+                            setManageStatus(f.id)
+                            e.currentTarget.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' })
+                          }}
                       >
                           {f.label}
                       </button>
@@ -3892,17 +3913,20 @@ export default function AdminPanel() {
                   />
                 </div>
 
-                <label className="field history-desk-field">
-                  <span className="field-label">Check-in / Booking</span>
-                  <select
+                <div className="field history-desk-field">
+                  <span className="field-label" id="history-desk-label">Check-in / Booking</span>
+                  <SelectMenu
+                    id="history-desk-filter"
                     value={historyDeskFilter}
-                    onChange={(e) => setHistoryDeskFilter(e.target.value)}
-                  >
-                    <option value="all">All</option>
-                    <option value="check_in">Check-in</option>
-                    <option value="booking">Booking</option>
-                  </select>
-                </label>
+                    onChange={setHistoryDeskFilter}
+                    ariaLabel="Check-in / Booking"
+                    options={[
+                      { value: 'all', label: 'All' },
+                      { value: 'check_in', label: 'Check-in' },
+                      { value: 'booking', label: 'Booking' },
+                    ]}
+                  />
+                </div>
 
                 {(historySearch || historyDateFrom || historyDateTo || historyDeskFilter !== 'all') && (
                   <button
@@ -5446,37 +5470,37 @@ function VehicleFields({
         <p className="edit-section-copy">Links this vehicle to Vehicle Reports (Owner → Vehicle).</p>
       </div>
 
-      <label className="field">
+      <div className="field">
         <span className="field-label">Owner *</span>
-        <select
+        <SelectMenu
           value={data.ownerId || ''}
-          onChange={(e) => onOwnerSelect?.(e.target.value)}
+          onChange={(v) => onOwnerSelect?.(v)}
           disabled={disabled}
-          className={errors.ownerId ? 'input-error' : ''}
-        >
-          <option value="">SELECT OWNER…</option>
-          {owners.map((o) => (
-            <option key={o.id} value={o.id}>
-              {String(o.name || '').toUpperCase()}
-              {o.ownershipType === 'thirdParty' ? ' (THIRD-PARTY)' : ' (COMPANY)'}
-            </option>
-          ))}
-          <option value="__new__">+ ADD NEW OWNER</option>
-        </select>
+          error={Boolean(errors.ownerId)}
+          ariaLabel="Owner"
+          placeholder="SELECT OWNER…"
+          options={[
+            ...owners.map((o) => ({
+              value: o.id,
+              label: String(o.name || '').toUpperCase(),
+              hint: o.ownershipType === 'thirdParty' ? 'THIRD-PARTY' : 'COMPANY',
+            })),
+            { value: '__new__', label: '+ ADD NEW OWNER' },
+          ]}
+        />
         {errors.ownerId && <span className="error-msg">{errors.ownerId}</span>}
-      </label>
+      </div>
 
-      <label className="field">
+      <div className="field">
         <span className="field-label">Ownership type *</span>
-        <select
+        <SelectMenu
           value={data.ownershipType === 'thirdParty' ? 'thirdParty' : 'company'}
-          onChange={(e) => onChange('ownershipType', e.target.value)}
+          onChange={(v) => onChange('ownershipType', v)}
           disabled={disabled}
-        >
-          <option value="company">COMPANY-OWNED</option>
-          <option value="thirdParty">THIRD-PARTY OWNED</option>
-        </select>
-      </label>
+          ariaLabel="Ownership type"
+          options={OWNERSHIP_OPTIONS}
+        />
+      </div>
 
       <div className="field field-full edit-section-heading">
         <span className="field-label">Vehicle Details</span>
@@ -5512,22 +5536,19 @@ function VehicleFields({
         />
         {errors.series && <span className="error-msg">{errors.series}</span>}
       </label>
-      <label className="field">
+      <div className="field">
         <span className="field-label">Body Type *</span>
-        <select
+        <SelectMenu
           value={data.bodyType}
-          onChange={(e) => onChange('bodyType', e.target.value)}
+          onChange={(v) => onChange('bodyType', v)}
           disabled={disabled}
-          className={errors.bodyType ? 'input-error' : ''}
-        >
-          {BODY_TYPES.map((t) => (
-            <option key={t} value={t}>
-              {String(t).toUpperCase()}
-            </option>
-          ))}
-        </select>
+          error={Boolean(errors.bodyType)}
+          ariaLabel="Body type"
+          placeholder="SELECT BODY TYPE…"
+          options={BODY_TYPES.map((t) => ({ value: t, label: String(t).toUpperCase() }))}
+        />
         {errors.bodyType && <span className="error-msg">{errors.bodyType}</span>}
-      </label>
+      </div>
       <label className="field">
         <span className="field-label">Seats *</span>
         <input
@@ -5541,30 +5562,28 @@ function VehicleFields({
         />
         {errors.seats && <span className="error-msg">{errors.seats}</span>}
       </label>
-      <label className="field">
+      <div className="field">
         <span className="field-label">Transmission *</span>
-        <select
+        <SelectMenu
           value={data.transmission}
-          onChange={(e) => onChange('transmission', e.target.value)}
+          onChange={(v) => onChange('transmission', v)}
           disabled={disabled}
-          className={errors.transmission ? 'input-error' : ''}
-        >
-          <option value="Automatic">AUTOMATIC</option>
-          <option value="Manual">MANUAL</option>
-          <option value="Manual / Automatic">MANUAL / AUTOMATIC</option>
-        </select>
+          error={Boolean(errors.transmission)}
+          ariaLabel="Transmission"
+          placeholder="SELECT TRANSMISSION…"
+          options={TRANSMISSION_OPTIONS}
+        />
         {errors.transmission && <span className="error-msg">{errors.transmission}</span>}
-      </label>
-      <label className="field">
+      </div>
+      <div className="field">
         <span className="field-label">Fleet status</span>
-        <select
+        <SelectMenu
           value={data.status === 'Under Maintenance' ? 'Under Maintenance' : 'Available'}
-          onChange={(e) => onChange('status', e.target.value)}
+          onChange={(v) => onChange('status', v)}
           disabled={disabled || data.status === 'Rented'}
-        >
-          <option value="Available">AVAILABLE</option>
-          <option value="Under Maintenance">IN MAINTENANCE</option>
-        </select>
+          ariaLabel="Fleet status"
+          options={FLEET_STATUS_OPTIONS}
+        />
         {data.status === 'Rented' ? (
           <span className="edit-section-copy">Status is managed while this vehicle is on rent.</span>
         ) : (
@@ -5572,7 +5591,7 @@ function VehicleFields({
             In maintenance vehicles are hidden from Rent Car selection.
           </span>
         )}
-      </label>
+      </div>
       <label className="field">
         <span className="field-label">Plate No.</span>
         <input
@@ -5687,22 +5706,15 @@ function VehicleFields({
             <span>Choose Image(s)</span>
           </label>
           {gallery.length ? (
-            <div className="vehicle-thumb-grid">
-              {gallery.map((src, index) => (
-                <div key={`gal-${index}`} className="vehicle-thumb-card">
-                  <img src={src} alt={`Vehicle ${index + 1}`} />
-                  <button
-                    type="button"
-                    className="vehicle-thumb-remove"
-                    aria-label={`Remove photo ${index + 1}`}
-                    onClick={() => removeGalleryAt(index)}
-                  >
-                    ×
-                  </button>
-                  {index === 0 ? <span className="vehicle-thumb-badge">Main</span> : null}
-          </div>
-              ))}
-            </div>
+            <SortableThumbGrid
+              items={gallery}
+              altPrefix="Photo"
+              onRemove={removeGalleryAt}
+              onReorder={(next) => {
+                onChange('images', next)
+                onChange('image', next[0] || '')
+              }}
+            />
           ) : null}
         </div>
 

@@ -3,6 +3,7 @@ import { BODY_TYPES } from '../data/vehicles'
 import { getArchivedIdSet } from '../utils/archivedVehicles'
 import { getDisplayStatus } from '../utils/vehicleDisplayStatus'
 import { resolveVehicleDisplayImage } from '../utils/vehicleImages'
+import SelectMenu from './SelectMenu'
 import {
   formatRentalFee,
   parseRentalFeeAmount,
@@ -235,23 +236,21 @@ function ChangeVehicleModal({
           </button>
         </header>
 
-        <label className="field dash-change-type-filter">
+        <div className="field dash-change-type-filter">
           <span className="field-label">Vehicle type</span>
-          <select
+          <SelectMenu
             value={bodyType}
-            onChange={(e) => {
-              setBodyType(e.target.value)
+            onChange={(v) => {
+              setBodyType(v)
               setPickedId('')
             }}
-          >
-            <option value="all">All types</option>
-            {typeOptions.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-        </label>
+            ariaLabel="Vehicle type"
+            options={[
+              { value: 'all', label: 'All types' },
+              ...typeOptions.map((t) => ({ value: t, label: t })),
+            ]}
+          />
+        </div>
 
         <div className="dash-change-vehicle-grid">
           {filtered.length === 0 ? (

@@ -12,6 +12,7 @@ import { listActiveOutsideCityDestinations } from '../utils/outsideCityDestinati
 import { buildDriverFeePatch, DRIVER_MIN_HOURS } from '../utils/driverWage'
 import PremiumDatePicker from './PremiumDatePicker'
 import PremiumTimePicker from './PremiumTimePicker'
+import SelectMenu from './SelectMenu'
 
 const DURATIONS = ['5hrs', '12hrs', '24hrs', 'Others']
 
@@ -387,27 +388,26 @@ export default function StepRentalDetails({ data, onChange, errors = {}, vehicle
             </div>
             {errors.coverage && <span className="error-msg">{errors.coverage}</span>}
             {coverage === 'outside_city' ? (
-              <label className="field rental-destination-field">
+              <div className="field rental-destination-field">
                 <span className="field-label">Destination</span>
-                <select
+                <SelectMenu
                   value={data.outsideCityDestinationId || ''}
-                  onChange={(e) => applyDestination(e.target.value)}
-                  className={errors.outsideCityDestinationId ? 'input-error' : ''}
-                >
-                  <option value="">Select destination</option>
-                  {destinations.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name} — {d.priceLabel}
-                    </option>
-                  ))}
-                </select>
+                  onChange={applyDestination}
+                  error={Boolean(errors.outsideCityDestinationId)}
+                  ariaLabel="Destination"
+                  placeholder="Select destination"
+                  options={destinations.map((d) => ({
+                    value: d.id,
+                    label: `${d.name} — ${d.priceLabel}`,
+                  }))}
+                />
                 {destinations.length === 0 ? (
                   <span className="field-hint">Add destinations in Settings → Rates &amp; extras.</span>
                 ) : null}
                 {errors.outsideCityDestinationId && (
                   <span className="error-msg">{errors.outsideCityDestinationId}</span>
                 )}
-              </label>
+              </div>
             ) : null}
           </fieldset>
         </div>

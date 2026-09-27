@@ -55,12 +55,21 @@ function normalizeSelectableRole(role) {
 }
 
 function digitsOnlyPhone(value) {
-  return String(value || '').replace(/\D/g, '').replace(/^63/, '').slice(0, 10)
+  return String(value || '')
+    .replace(/\D/g, '')
+    .replace(/^63/, '')
+    .replace(/^0/, '')
+    .slice(0, 10)
 }
 
 function formatPhoneInput(value) {
   const digits = digitsOnlyPhone(value)
-  return digits
+  return [digits.slice(0, 3), digits.slice(3, 6), digits.slice(6, 10)].filter(Boolean).join(' ')
+}
+
+function formatPhoneDisplay(value) {
+  const digits = digitsOnlyPhone(value)
+  return digits ? `+63 ${formatPhoneInput(digits)}` : ''
 }
 
 function toStoredPhone(digits) {
@@ -194,7 +203,9 @@ export default function EmployeesPanel() {
     const q = search.trim().toLowerCase()
     if (!q) return employees
     return employees.filter((emp) =>
-      `${emp.name} ${emp.username} ${emp.role} ${emp.phone}`.toLowerCase().includes(q),
+      `${emp.name} ${emp.username} ${emp.role} ${emp.phone} ${formatPhoneDisplay(emp.phone)}`
+        .toLowerCase()
+        .includes(q),
     )
   }, [employees, search])
 
@@ -347,9 +358,6 @@ export default function EmployeesPanel() {
         <div className="employees-stats">
           <span className="employees-stat is-active">{activeCount} active</span>
           <span className="employees-stat">{inactiveCount} inactive</span>
-          <button type="button" className="btn-ghost btn-sm" onClick={load} disabled={loading}>
-            Refresh
-          </button>
         </div>
       </div>
 
@@ -381,7 +389,7 @@ export default function EmployeesPanel() {
                   <span className="employees-meta-line">
                     @{emp.username}
                     <span aria-hidden="true"> · </span>
-                    {emp.phone || 'No phone'}
+                    {formatPhoneDisplay(emp.phone) || 'No phone'}
                   </span>
                 </div>
               </div>
@@ -460,8 +468,9 @@ export default function EmployeesPanel() {
                   onChange={(e) =>
                     setForm((prev) => ({ ...prev, phone: formatPhoneInput(e.target.value) }))
                   }
-                  placeholder="9XXXXXXXXX"
+                  placeholder="9XX XXX XXXX"
                   inputMode="numeric"
+                  maxLength={12}
                 />
               </div>
               {formErrors && digitsOnlyPhone(form.phone).length !== 10 && (
@@ -554,7 +563,7 @@ export default function EmployeesPanel() {
                   <p className="employees-manage-sub">
                     @{selected.username}
                     <span aria-hidden="true"> · </span>
-                    {selected.phone || 'No phone'}
+                    {formatPhoneDisplay(selected.phone) || 'No phone'}
                   </p>
                 </div>
               </div>
@@ -644,8 +653,8 @@ export default function EmployeesPanel() {
               </div>
               <button
                 type="button"
-                className={`btn-sm employees-manage-action${
-                  selected.active ? ' btn-danger-outline' : ' btn-outline'
+                className={`btn-outline btn-sm employees-manage-action${
+                  selected.active ? ' btn-danger-outline' : ''
                 }`}
                 disabled={busyId === selected.id}
                 onClick={() => handleToggleActive(selected)}

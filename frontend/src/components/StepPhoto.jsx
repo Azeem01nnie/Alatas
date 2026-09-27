@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { compressImageDataUrl } from '../utils/storage'
+import SelectMenu from './SelectMenu'
 
 const SLOTS = [
   {
@@ -131,17 +132,18 @@ function PhotoSlot({
         {cameraActive ? (
           <>
             {videoDevices && videoDevices.length > 0 && (
-              <select
-                value={selectedDeviceId}
-                onChange={(e) => onDeviceChange(e.target.value)}
-                className="photo-camera-select"
-              >
-                {videoDevices.map((d) => (
-                  <option key={d.deviceId} value={d.deviceId}>
-                    {d.label || `Camera ${d.deviceId.substring(0, 5)}`}
-                  </option>
-                ))}
-              </select>
+              <div className="photo-camera-select">
+                <SelectMenu
+                  value={selectedDeviceId}
+                  onChange={onDeviceChange}
+                  ariaLabel="Camera"
+                  placeholder="Select camera"
+                  options={videoDevices.map((d) => ({
+                    value: d.deviceId,
+                    label: d.label || `Camera ${d.deviceId.substring(0, 5)}`,
+                  }))}
+                />
+              </div>
             )}
             <button type="button" className="btn-primary" disabled={busy} onClick={onCapture}>
               Capture

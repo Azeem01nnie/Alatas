@@ -180,31 +180,43 @@ export default function DamageReports({ rentals = [], vehicles = [], adminName =
                     }
                   }}
                 >
-                  <td>{row.dateLabel}</td>
-                  <td>{row.plate}</td>
-                  <td>{row.vehicleLabel}</td>
-                  <td>{row.renter}</td>
-                  <td>
+                  <td className="damage-cell-date">{row.dateLabel}</td>
+                  <td className="damage-cell-plate">{row.plate}</td>
+                  <td className="damage-cell-vehicle">{row.vehicleLabel}</td>
+                  <td className="damage-cell-renter" data-label="Renter">
+                    {row.renter}
+                  </td>
+                  <td className="damage-cell-damage" data-label="Damage">
                     <span className="damage-reports-loc">{row.location}</span>
                     {row.types !== '—' ? (
                       <span className="damage-reports-types">{row.types}</span>
                     ) : null}
                   </td>
-                  <td>{row.settlement}</td>
+                  <td className="damage-cell-settlement" data-label="Settlement">
+                    {row.settlement}
+                  </td>
                   <td className="damage-reports-actions" onClick={(e) => e.stopPropagation()}>
                     <button
                       type="button"
                       className="btn-ghost"
                       onClick={(e) => handleDownloadRow(e, row)}
                     >
-                      PDF
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-ghost"
-                      onClick={() => setSelected(row)}
-                    >
-                      Open
+                      <svg
+                        viewBox="0 0 24 24"
+                        width="14"
+                        height="14"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M12 4v11" />
+                        <path d="m7 10 5 5 5-5" />
+                        <path d="M5 20h14" />
+                      </svg>
+                      Download report
                     </button>
                   </td>
                 </tr>
