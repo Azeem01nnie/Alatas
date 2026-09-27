@@ -7,6 +7,7 @@ import StepPayment from './StepPayment'
 import StepCarCondition, { CAR_PHOTO_SLOTS } from './StepCarCondition'
 import StepSummary from './StepSummary'
 import LoadingScreen from './LoadingScreen'
+import ConfirmModal from './ConfirmModal'
 import { useVehicles } from '../context/VehicleContext'
 import { compressImageDataUrl, compressSignatureDataUrl } from '../utils/storage'
 import { formatEmergencyContact, isCompletePhMobile } from '../utils/phone'
@@ -102,6 +103,7 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
   const [phase, setPhase] = useState('form') // form | loading
   const [submitError, setSubmitError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [validationAlert, setValidationAlert] = useState(false)
 
   const selectedVehicle = vehicles.find((v) => v.id === vehicleId)
   const quoteTotal = resolveRentalQuoteTotal(rental)
@@ -584,7 +586,7 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
     }
     if (!validateStep(step)) {
       if (step === 1) {
-        window.alert('Please complete all required fields correctly.')
+        setValidationAlert(true)
       }
       return
     }
@@ -755,6 +757,17 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
           {submitting ? 'Saving…' : step === TOTAL_STEPS ? 'Submit' : 'Next'}
         </button>
       </footer>
+
+      {validationAlert && (
+        <ConfirmModal
+          title="Validation Error"
+          message="Please complete all required fields correctly."
+          confirmLabel="OK"
+          hideCancel
+          onConfirm={() => setValidationAlert(false)}
+          onCancel={() => setValidationAlert(false)}
+        />
+      )}
     </div>
   )
 }
