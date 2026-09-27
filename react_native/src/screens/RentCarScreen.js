@@ -464,7 +464,11 @@ export default function RentCarScreen() {
       }
 
       setErrors(nextErrors)
-      return Object.keys(nextErrors).length === 0
+      const isValid = Object.keys(nextErrors).length === 0
+      if (!isValid && desktopStep === 1) {
+        Alert.alert('Validation Error', 'Please complete all required fields correctly.')
+      }
+      return isValid
     },
     [personal, vehicleId, rental, photo, licensePhoto, signature, termsAccepted],
   )

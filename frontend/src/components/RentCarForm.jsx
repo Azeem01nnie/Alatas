@@ -582,7 +582,12 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
       setStep(5)
       return
     }
-    if (!validateStep(step)) return
+    if (!validateStep(step)) {
+      if (step === 1) {
+        window.alert('Please complete all required fields correctly.')
+      }
+      return
+    }
     if (step < TOTAL_STEPS) {
       setStep((s) => s + 1)
     } else {

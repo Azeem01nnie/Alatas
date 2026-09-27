@@ -7829,6 +7829,18 @@ html[data-theme='dark'] .cal-fleet-option.is-selected {
   border-color: rgba(138, 106, 0, 0.22);
 }
 
+.status-cancelled {
+  background: linear-gradient(180deg, #fef1f2 0%, #fde2e4 100%);
+  color: #b91c1c;
+  border-color: rgba(185, 28, 28, 0.22);
+}
+
+.status-completed {
+  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+  color: #334155;
+  border-color: rgba(51, 65, 85, 0.22);
+}
+
 .status-badge.cal-chip-scheduled {
   background: linear-gradient(180deg, #fffcef 0%, #fff3c4 100%);
   color: #8a6a00;
@@ -10221,8 +10233,15 @@ html[data-theme='dark'] .cal-fleet-option.is-selected {
 }
 
 .history-life-completed {
-  background: var(--surface-muted);
-  color: var(--muted);
+  background: rgba(51, 65, 85, 0.1);
+  color: #475569;
+  border-color: rgba(51, 65, 85, 0.22);
+}
+
+.history-life-cancelled {
+  background: rgba(185, 28, 28, 0.1);
+  color: #b91c1c;
+  border-color: rgba(185, 28, 28, 0.22);
 }
 
 .history-life-active {

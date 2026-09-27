@@ -3515,7 +3515,9 @@ export default function AdminPanel() {
                                     ? 'status-rented'
                                     : r.rentalLifecycle === 'scheduled'
                                       ? 'cal-chip-scheduled'
-                                      : 'status-available'
+                                      : r.rentalLifecycle === 'cancelled'
+                                        ? 'status-cancelled'
+                                        : 'status-completed'
                                 }`}
                               >
                                 {r.rentalLifecycle === 'active'

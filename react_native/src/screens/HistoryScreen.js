@@ -30,9 +30,8 @@ function isPendingRental(r) {
 }
 
 function lifecycleLabel(r) {
-  if (r.approvalStatus === 'rejected' || r.rentalLifecycle === 'cancelled') {
-    return 'Rejected'
-  }
+  if (r.rentalLifecycle === 'cancelled') return 'Cancelled'
+  if (r.approvalStatus === 'rejected') return 'Rejected'
   switch (r.rentalLifecycle) {
     case 'completed':
       return 'Completed'
@@ -43,6 +42,13 @@ function lifecycleLabel(r) {
     default:
       return r.approvalStatus || '—'
   }
+}
+
+function badgeColorStyle(r) {
+  const label = lifecycleLabel(r)
+  if (label === 'Completed') return { color: '#475569' }
+  if (label === 'Cancelled' || label === 'Rejected') return { color: '#b91c1c' }
+  return { color: ACCENT }
 }
 
 function sortKey(r) {
@@ -104,7 +110,7 @@ export default function HistoryScreen({ navigation }) {
       >
         <View style={styles.row}>
           <Text style={styles.plate}>{plateFor(item)}</Text>
-          <Text style={styles.badge}>{lifecycleLabel(item)}</Text>
+          <Text style={[styles.badge, badgeColorStyle(item)]}>{lifecycleLabel(item)}</Text>
         </View>
         <Text style={styles.customer}>{customerName(item)}</Text>
         <Text style={styles.meta}>{period}</Text>
