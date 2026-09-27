@@ -135,6 +135,7 @@ export default defineConfig({
     }),
   ],
   base: '/',
+  envDir: resolve(rootDir, '../env'),
   server: {
     port: 5173,
     strictPort: true,

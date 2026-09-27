@@ -1,3 +1,4 @@
+import '../src/load-env.js'
 import {
   getVehicles,
   replaceVehicles,

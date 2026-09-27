@@ -25,7 +25,7 @@ export const supabase = isSupabaseConfigured
 
 export function requireSupabase() {
   if (!supabase) {
-    throw new Error('Supabase is not configured. Check frontend/.env')
+    throw new Error('Supabase is not configured. Check env/.env at the repo root')
   }
   return supabase
 }

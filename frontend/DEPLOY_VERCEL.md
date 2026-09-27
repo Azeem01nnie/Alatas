@@ -34,7 +34,7 @@ git push origin main
 | Name | Value |
 |------|--------|
 | `VITE_SUPABASE_URL` | `https://mgfhomzbykdcuidllysv.supabase.co` |
-| `VITE_SUPABASE_ANON_KEY` | your publishable key (`sb_publishable_…`) from `frontend/.env` |
+| `VITE_SUPABASE_ANON_KEY` | your publishable key (`sb_publishable_…`) from `env/.env` |
 | `VITE_USE_SUPABASE` | `true` |
 | `VITE_CLOUD_SYNC_ENABLED` | `false` |
 

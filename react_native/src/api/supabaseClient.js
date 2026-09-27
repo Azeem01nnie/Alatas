@@ -39,7 +39,7 @@ export const isSupabaseConfigured = Boolean(
 
 if (!isSupabaseConfigured) {
   console.warn(
-    '[alatas] Supabase is not configured. Set real values in react_native/.env (same as frontend/.env), then restart Expo.',
+    '[alatas] Supabase is not configured. Set real values in env/.env at the repo root, then restart Expo.',
   )
 }
 
@@ -58,10 +58,10 @@ export function requireSupabase() {
   if (!supabase) {
     if (isPlaceholderSupabaseConfig()) {
       throw new Error(
-        'Supabase still has placeholder .env values. Copy URL and anon key from frontend/.env into react_native/.env, then restart Expo (Ctrl+C, npx expo start).',
+        'Supabase still has placeholder values. Put the real URL and anon key in env/.env at the repo root, then restart Expo (Ctrl+C, npx expo start).',
       )
     }
-    throw new Error('Supabase is not configured. Check react_native/.env')
+    throw new Error('Supabase is not configured. Check env/.env at the repo root')
   }
   return supabase
 }

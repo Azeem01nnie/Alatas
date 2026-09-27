@@ -25,14 +25,10 @@ Render sets `RENDER=true` automatically — that triggers the API redirect in `e
 
 ## Local apps — point sync at this URL
 
-**backend/.env**
+**env/.env** (repo root — shared by backend and frontend)
 ```env
 RENDER_API_URL=https://alatas-q5ks.onrender.com
 CLOUD_SYNC_ENABLED=1
-```
-
-**frontend/.env**
-```env
 VITE_RENDER_API_URL=https://alatas-q5ks.onrender.com
 VITE_CLOUD_SYNC_ENABLED=true
 ```

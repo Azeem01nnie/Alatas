@@ -11,19 +11,9 @@ Follow [`../supabase/APPLY.md`](../supabase/APPLY.md):
 
 ## 2. Environment variables
 
-| Web (`frontend/.env`) | React Native (`react_native/.env`) |
-|----------------------|-------------------------------------|
-| `VITE_SUPABASE_URL` | `EXPO_PUBLIC_SUPABASE_URL` |
-| `VITE_SUPABASE_ANON_KEY` | `EXPO_PUBLIC_SUPABASE_ANON_KEY` |
-| `VITE_USE_SUPABASE=true` | `EXPO_PUBLIC_USE_SUPABASE=true` |
-
-**Easiest:** from `react_native/` run:
-
-```bash
-npm run env:sync
-```
-
-That copies values from `frontend/.env` into `react_native/.env`.
+All credentials live in **`env/.env`** at the repo root (template: `env/.env.example`).
+The mobile app reads it directly and reuses `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`
+unless you set `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` explicitly.
 
 Get URL and **publishable / anon** key from [Project Settings → API](https://supabase.com/dashboard/project/mgfhomzbykdcuidllysv/settings/api).
 
@@ -32,11 +22,10 @@ Get URL and **publishable / anon** key from [Project Settings → API](https://s
 ```bash
 cd react_native
 npm install
-npm run env:sync
 npx expo start
 ```
 
-After any `.env` change, **restart Expo** (Ctrl+C, then `npx expo start` again).
+After any `env/.env` change, **restart Expo** (Ctrl+C, then `npx expo start` again).
 
 ## 4. Sign in
 
@@ -47,7 +36,7 @@ After any `.env` change, **restart Expo** (Ctrl+C, then `npx expo start` again).
 
 | Symptom | Fix |
 |---------|-----|
-| **Failed to fetch** | `.env` still has `.env.example` placeholders → `npm run env:sync`, restart Expo |
+| **Failed to fetch** | `env/.env` still has `.env.example` placeholders → fill in real values, restart Expo |
 | **Invalid API key** | Use the publishable/anon key from dashboard, not the `service_role` secret |
 | **Empty fleet after login** | Migrations not applied → run `001_init.sql` |
 | **Wrong password** | Re-run or fix admin in `002_seed_admin.sql` or reset in Supabase Auth |

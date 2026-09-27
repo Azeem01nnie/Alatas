@@ -3,7 +3,7 @@
 Your desk app is wired to:
 
 - URL: `https://lspqhbbgvnpygiohcskg.supabase.co`
-- Publishable key in `frontend/.env`
+- Publishable key in `env/.env`
 
 Express + SQLite are no longer started by `npm start` / Electron.
 
@@ -56,7 +56,7 @@ npx supabase functions deploy scan-orcr
 npx supabase secrets set GOOGLE_CLOUD_VISION_API_KEY=YOUR_VISION_API_KEY
 ```
 
-Do **not** put the Vision key in `frontend/.env`.
+Do **not** put the Vision key in `env/.env`.
 
 ## 2e. Vehicle gallery + insurance columns
 

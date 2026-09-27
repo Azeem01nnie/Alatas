@@ -7,13 +7,12 @@ Native Expo twin of the Alatas web fleet desk (`frontend/`). Same Supabase backe
 ```bash
 cd react_native
 npm install
-npm run env:sync    # copies Supabase vars from frontend/.env
 npx expo start
 ```
 
 Full Supabase steps (migrations, admin account, troubleshooting): **[SUPABASE.md](./SUPABASE.md)**.
 
-Use the **same** Supabase URL and anon key as `frontend/.env`. If you copied `.env.example` without editing, sign-in fails with **Failed to fetch** — run `npm run env:sync` and **restart Expo** (Ctrl+C, then `npx expo start` again).
+Credentials come from **`env/.env`** at the repo root (shared with the web app). If it still has `.env.example` placeholders, sign-in fails with **Failed to fetch** — fill in real values and **restart Expo** (Ctrl+C, then `npx expo start` again).
 
 ## Modules (match web desk)
 

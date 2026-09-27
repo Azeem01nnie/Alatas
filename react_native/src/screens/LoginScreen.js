@@ -59,8 +59,8 @@ export default function LoginScreen() {
 
         {configBad ? (
           <Text style={[styles.configWarning, { color: colors.warning }]}>
-            Supabase is not set up. Put your real URL and anon key in react_native/.env (same as
-            frontend/.env), not the .env.example placeholders. Restart Expo after saving.
+            Supabase is not set up. Put your real URL and anon key in env/.env at the repo root,
+            not the .env.example placeholders. Restart Expo after saving.
           </Text>
         ) : null}
 

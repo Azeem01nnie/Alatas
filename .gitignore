@@ -7,7 +7,6 @@ dist-ssr/
 release/
 *.local
 .env
-.env.example
 *.log
 .DS_Store
 .vscode/*
