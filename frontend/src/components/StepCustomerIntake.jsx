@@ -60,7 +60,7 @@ export default function StepCustomerIntake({
             <h3 className="intake-section-title">Signature at pickup</h3>
             <p className="intake-section-hint">
               Save this reservation now. When the customer arrives, open the booking and select
-              Process pickup to verify ID photos, record vehicle photos, and collect the final
+              Use Confirmation to verify ID photos, record vehicle photos, and collect the final
               agreement signature.
             </p>
           </div>

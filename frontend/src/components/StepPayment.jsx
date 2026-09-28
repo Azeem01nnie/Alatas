@@ -6,6 +6,7 @@ import {
   resolveBalanceDue,
   resolveRentalQuoteTotal,
 } from '../utils/rentalFee'
+import SelectMenu from './SelectMenu'
 
 function digitsOnly(value) {
   return String(value ?? '').replace(/[^\d.]/g, '')
@@ -26,6 +27,8 @@ export default function StepPayment({
   onAmountPaidChange,
   discountInput,
   onDiscountChange,
+  paymentMethod,
+  onPaymentMethodChange,
   error,
   discountError,
 }) {
@@ -195,6 +198,22 @@ export default function StepPayment({
             </span>
             {error ? <span className="error-msg">{error}</span> : null}
           </label>
+
+          <div className="field step-payment-method">
+            <span className="field-label">Payment method</span>
+            <SelectMenu
+              value={paymentMethod}
+              onChange={onPaymentMethodChange}
+              ariaLabel="Payment method"
+              options={[
+                { value: 'cash', label: 'Cash' },
+                { value: 'gcash', label: 'GCash' },
+                { value: 'bank', label: 'Bank transfer' },
+                { value: 'card', label: 'Card' },
+              ]}
+            />
+            <span className="field-hint">Used for the amount received now.</span>
+          </div>
 
           <div className="step-payment-quick">
             <button type="button" className="btn-outline" onClick={fillZero}>

@@ -97,6 +97,9 @@ import { CLOUD_SYNC_ENABLED, isCloudConfigured } from '../api/cloudSync'
 import { clearVehicleReportsEverywhere } from '../api/vehicleReportsApi'
 import { describeCloudConnection } from '../config/cloudConnection'
 import { useConnectivity } from '../hooks/useConnectivity'
+import { getOfflineQueueStatus, OFFLINE_QUEUE_EVENT } from '../utils/offlineQueue'
+import { getOfflinePickupStatus, OFFLINE_PICKUP_EVENT } from '../utils/offlinePickupQueue'
+import { ERROR_MONITOR_EVENT, getErrorReport, reportAppError } from '../utils/errorMonitor'
 import { clearLoginAudit, fetchLoginAudit, formatAuditRole, formatAuditStatus } from '../utils/loginAudit'
 import {
   biometricLabel,
@@ -739,9 +742,11 @@ export default function AdminPanel() {
     cancelScheduledRental,
     startBookedRental,
     changeRentalVehicle,
+    recordRentalPayment,
     updateRentalCarPhotos,
     replaceAllData,
     reloadData,
+    syncOfflineNow,
     wipeLocalFleet,
     wipeLocalRentals,
     unlockFleetWrites,
@@ -846,6 +851,32 @@ export default function AdminPanel() {
   const [pendingClearScopes, setPendingClearScopes] = useState([])
   const [syncBusy, setSyncBusy] = useState(false)
   const [syncMessage, setSyncMessage] = useState('')
+  const [syncHealth, setSyncHealth] = useState({ pending: 0, failed: 0, latestError: '', errors: 0 })
+
+  const refreshSyncHealth = useCallback(async () => {
+    const standard = getOfflineQueueStatus()
+    const pickups = await getOfflinePickupStatus()
+    const errors = getErrorReport()
+    setSyncHealth({
+      pending: standard.pending + pickups.pending,
+      failed: standard.failed + pickups.failed,
+      latestError: pickups.latestError || standard.latestError || errors.latest?.message || '',
+      errors: errors.count,
+    })
+  }, [])
+
+  useEffect(() => {
+    void refreshSyncHealth()
+    const refresh = () => void refreshSyncHealth()
+    window.addEventListener(OFFLINE_QUEUE_EVENT, refresh)
+    window.addEventListener(OFFLINE_PICKUP_EVENT, refresh)
+    window.addEventListener(ERROR_MONITOR_EVENT, refresh)
+    return () => {
+      window.removeEventListener(OFFLINE_QUEUE_EVENT, refresh)
+      window.removeEventListener(OFFLINE_PICKUP_EVENT, refresh)
+      window.removeEventListener(ERROR_MONITOR_EVENT, refresh)
+    }
+  }, [refreshSyncHealth])
 
   useEffect(() => {
     try {
@@ -926,6 +957,11 @@ export default function AdminPanel() {
       const life = r.rentalLifecycle || 'completed'
       const who = customerName(r)
       const car = vehicleLabel(r)
+      const deskMode = String(r.deskMode || r.rental?.deskMode || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[\s-]+/g, '_')
+      const isBooking = deskMode === 'booking'
 
       if (systemSettings.notifyOverdue && life === 'active') {
         const due = new Date(r.rental?.periodTo || 0).getTime()
@@ -943,7 +979,28 @@ export default function AdminPanel() {
 
       if (systemSettings.notifyUpcoming && life === 'scheduled') {
         const start = new Date(r.rental?.periodFrom || 0).getTime()
-        if (start && !Number.isNaN(start) && start > now && start - now <= hour) {
+        const timeUntilStart = start - now
+
+        if (
+          isBooking &&
+          start &&
+          !Number.isNaN(start) &&
+          timeUntilStart > 0 &&
+          timeUntilStart <= 5 * hour
+        ) {
+          const tenMinutes = 10 * 60 * 1000
+          const tier = timeUntilStart <= tenMinutes ? '10m' : timeUntilStart <= hour ? '1h' : '5h'
+          const reminderLabel = tier === '10m' ? '10 minutes' : tier === '1h' ? '1 hour' : '5 hours'
+          const phone = String(r.personal?.contactNo || '').trim()
+          list.push({
+            id: `booking-call-${tier}-${r.id}`,
+            kind: 'booking-call',
+            title: `Call booking customer · ${reminderLabel}`,
+            body: `${who} reserved ${car}. Confirm their pickup before the rental starts${phone ? ` · ${phone}` : ' · no contact number saved'}.`,
+            rentalId: r.id,
+            phone,
+          })
+        } else if (!isBooking && start && !Number.isNaN(start) && start > now && timeUntilStart <= hour) {
           const mins = Math.max(1, Math.round((start - now) / 60000))
           list.push({
             id: `upcoming-${r.id}`,
@@ -970,15 +1027,15 @@ export default function AdminPanel() {
     if (typeof Notification === 'undefined') return
     if (Notification.permission !== 'granted') return
 
-    const key = `alatas-browser-notif:${visibleAlerts.map((a) => a.id).join('|')}`
-    if (sessionStorage.getItem(key) === '1') return
-    sessionStorage.setItem(key, '1')
-
-    const top = visibleAlerts[0]
-    try {
-      new Notification(top.title, { body: top.body, tag: top.id })
-    } catch {
-      /* ignore */
+    for (const alert of visibleAlerts) {
+      const key = `alatas-browser-notif:${alert.id}`
+      if (sessionStorage.getItem(key) === '1') continue
+      sessionStorage.setItem(key, '1')
+      try {
+        new Notification(alert.title, { body: alert.body, tag: alert.id })
+      } catch {
+        /* ignore */
+      }
     }
   }, [visibleAlerts, systemSettings.notifyBrowser])
 
@@ -1774,10 +1831,6 @@ export default function AdminPanel() {
   }, [ready, online])
 
   const handleCloudSync = useCallback(async () => {
-    if (!CLOUD_SYNC_ENABLED) {
-      setSyncMessage('Enable VITE_CLOUD_SYNC_ENABLED=true and restart the desk app.')
-      return
-    }
     if (!online) {
       setSyncMessage('You are offline. Connect to the internet and try again.')
       return
@@ -1785,8 +1838,9 @@ export default function AdminPanel() {
     setSyncBusy(true)
     setSyncMessage('')
     try {
-      const result = await runCloudSync()
-      await reloadData()
+      const localResult = await syncOfflineNow()
+      const result = CLOUD_SYNC_ENABLED ? await runCloudSync() : { ok: true }
+      await refreshSyncHealth()
       if (result?.ok === false) {
         setSyncMessage(
           result.message ||
@@ -1794,16 +1848,17 @@ export default function AdminPanel() {
             'Cloud temporarily unavailable. Local desk data is fine — retry Sync shortly.',
         )
       } else {
-        const flushed = result?.flush?.flushed ?? 0
+        const flushed = localResult?.flushed ?? result?.flush?.flushed ?? 0
         const vehicles = result?.pull?.applied?.vehicles ?? 0
         const rentals = result?.pull?.applied?.rentals ?? 0
-        setSyncMessage(
-          `Sync complete — pushed ${flushed} item(s), pulled ${vehicles} vehicle(s) and ${rentals} rental update(s).`,
-        )
+        setSyncMessage(localResult?.remaining
+          ? `Synced ${flushed} item(s); ${localResult.remaining} still pending. ${localResult.latestError || ''}`
+          : `Sync complete — pushed ${flushed} item(s), pulled ${vehicles} vehicle(s) and ${rentals} rental update(s).`)
       }
       const status = await fetchSystemStatus()
       setSystemStatus(status)
     } catch (err) {
+      reportAppError(err, { area: 'sync', operation: 'manual sync' })
       const raw = String(err?.message || 'Cloud sync failed.')
       setSyncMessage(
         raw.includes('<!DOCTYPE') || raw.includes('520') || raw.includes('502')
@@ -1813,7 +1868,7 @@ export default function AdminPanel() {
     } finally {
       setSyncBusy(false)
     }
-  }, [online, reloadData])
+  }, [online, refreshSyncHealth, syncOfflineNow])
 
   const scheduledRentals = useMemo(
     () =>
@@ -3092,6 +3147,14 @@ export default function AdminPanel() {
                           <div>
                             <strong>{alert.title}</strong>
                             <p>{alert.body}</p>
+                            {alert.phone ? (
+                              <a
+                                className="admin-notif-call"
+                                href={`tel:${String(alert.phone).replace(/[^\d+]/g, '')}`}
+                              >
+                                Call {alert.phone}
+                              </a>
+                            ) : null}
                           </div>
                           <button
                             type="button"
@@ -3317,13 +3380,19 @@ export default function AdminPanel() {
                     onCompleteRental={requestRentCompleted}
                     onProcessPickup={async (rental, pickup) => {
                       try {
-                        await startBookedRental(rental.id, pickup)
-                        upsertCustomerFromPersonal(rental.personal, {
-                          holdingPhoto: pickup.photo,
-                          licensePhoto: pickup.licensePhoto,
-                          optionalPhoto: pickup.optionalPhoto,
+                        const started = await startBookedRental(rental.id, pickup)
+                        const securePhoto = (value) =>
+                          typeof value === 'string' && !value.startsWith('data:') ? value : undefined
+                        upsertCustomerFromPersonal(started?.personal || rental.personal, {
+                          holdingPhoto: securePhoto(started?.photo),
+                          licensePhoto: securePhoto(started?.licensePhoto),
+                          optionalPhoto: securePhoto(started?.personal?.optionalPhoto),
                         })
-                        setMessage('Booking signed. Rental is now active.')
+                        setMessage(
+                          started?.syncPending
+                            ? 'Pickup saved offline. It will sync automatically when internet returns.'
+                            : 'Booking signed. Rental is now active.',
+                        )
                         setTimeout(() => setMessage(''), 3000)
                       } catch (err) {
                         setMessage(err?.message || 'Could not process this booking pickup.')
@@ -3346,6 +3415,14 @@ export default function AdminPanel() {
                         setTimeout(() => setMessage(''), 4000)
                         throw err
                       }
+                    }}
+                    onRecordPayment={async (rental, entry) => {
+                      await recordRentalPayment(rental.id, {
+                        ...entry,
+                        recordedBy: sessionDisplayName,
+                      })
+                      setMessage(entry.type === 'refund' ? 'Refund recorded.' : 'Payment recorded.')
+                      setTimeout(() => setMessage(''), 2500)
                     }}
                     pendingSlot={
                       <PendingApprovals
@@ -3884,6 +3961,23 @@ export default function AdminPanel() {
                     .filter((v) => v.ownerId === ownerId)
                     .forEach((v) => updateVehicle(v.id, { ownerName: patch.name }))
                 }
+              }}
+              onOwnerDelete={(owner) => {
+                vehicles
+                  .filter(
+                    (vehicle) =>
+                      String(vehicle.ownerId || '') === String(owner.id) ||
+                      (!vehicle.ownerId &&
+                        String(vehicle.ownerName || '').trim().toLowerCase() ===
+                          String(owner.name || '').trim().toLowerCase()),
+                  )
+                  .forEach((vehicle) =>
+                    updateVehicle(vehicle.id, {
+                      ownerId: '',
+                      ownerName: '',
+                      ownershipType: 'company',
+                    }),
+                  )
               }}
             />
           )}
@@ -4443,10 +4537,10 @@ export default function AdminPanel() {
 
                       <label className="settings-toggle-row">
                         <span className="settings-toggle-copy">
-                          <strong>Upcoming rental (1 hour)</strong>
+                          <strong>Upcoming rentals and booking calls</strong>
                           <span>
-                            Notify about 1 hour before a scheduled rental starts so the car is
-                            ready.
+                            Remind staff to call booking customers 5 hours, 1 hour, and 10 minutes
+                            before pickup. Check-ins receive the standard 1-hour reminder.
                           </span>
                         </span>
                         <input
@@ -4857,8 +4951,24 @@ export default function AdminPanel() {
                             </li>
                             <li>
                               <strong>Pending sync queue</strong>
-                              <span>{systemStatus?.pendingSyncCount ?? '—'}</span>
+                              <span>{syncHealth.pending}</span>
                             </li>
+                            <li>
+                              <strong>Failed sync attempts</strong>
+                              <span>{syncHealth.failed}</span>
+                            </li>
+                            <li>
+                              <strong>Captured app errors</strong>
+                              <span>{syncHealth.errors}</span>
+                            </li>
+                            {syncHealth.latestError ? (
+                              <li>
+                                <strong>Latest issue</strong>
+                                <span title={syncHealth.latestError}>
+                                  {syncHealth.latestError.slice(0, 120)}
+                                </span>
+                              </li>
+                            ) : null}
                             <li>
                               <strong>Waiting for approval</strong>
                               <span>
@@ -4871,7 +4981,7 @@ export default function AdminPanel() {
                             <button
                               type="button"
                               className="btn-primary"
-                              disabled={syncBusy || !online || !CLOUD_SYNC_ENABLED}
+                              disabled={syncBusy || !online}
                               onClick={() => void handleCloudSync()}
                             >
                               {syncBusy ? 'Syncing…' : 'Sync now'}

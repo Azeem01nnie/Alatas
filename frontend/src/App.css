@@ -990,6 +990,10 @@ body {
   margin: 0.75rem 0 1rem;
 }
 
+.step-payment-method {
+  margin-top: 0.75rem;
+}
+
 .step-payment-balance {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -6345,6 +6349,42 @@ html[data-theme='dark'] .conn-status.is-offline {
   min-width: 0;
 }
 
+.dash-attn-renter {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+}
+
+.dash-attn-renter > span:first-child {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-attn-mode-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: 0.54rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.dash-attn-mode-badge.is-booking {
+  border-color: color-mix(in srgb, var(--brand) 38%, var(--border));
+  background: color-mix(in srgb, var(--brand-soft) 65%, var(--surface));
+  color: var(--brand);
+}
+
 .dash-attn-cell-time > span {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6364,7 +6404,7 @@ html[data-theme='dark'] .conn-status.is-offline {
 .dash-attn-actions-col {
   width: 18%;
   white-space: nowrap;
-  text-align: right;
+  text-align: center;
 }
 
 .dash-attn-actions {
@@ -6394,11 +6434,14 @@ html[data-theme='dark'] .conn-status.is-offline {
 }
 
 .dash-attn-table .dash-attn-actions {
-  display: inline-grid;
+  display: grid;
   grid-auto-flow: row;
-  grid-template-columns: minmax(4.75rem, max-content);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.3rem;
-  margin-left: 0;
+  width: 100%;
+  min-width: 10.5rem;
+  max-width: 12rem;
+  margin: 0 auto;
   justify-items: stretch;
 }
 
@@ -6410,6 +6453,10 @@ html[data-theme='dark'] .conn-status.is-offline {
   justify-content: center;
   text-align: center;
   padding: 0.3rem 0.5rem;
+}
+
+.dash-attn-table .dash-attn-actions > :last-child:nth-child(odd) {
+  grid-column: 1 / -1;
 }
 
 .dash-attn-table .dash-attn-thumb {
@@ -6560,8 +6607,10 @@ html[data-theme='dark'] .dash-attn-balance.is-due {
 
   .dash-attn-table .dash-attn-actions {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(4.75rem, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     width: 100%;
+    min-width: 0;
+    max-width: none;
     gap: 0.5rem;
   }
 
@@ -6582,10 +6631,14 @@ html[data-theme='dark'] .dash-attn-balance.is-due {
 }
 
 .booking-pickup-modal {
-  width: min(900px, 100%);
+  width: min(900px, calc(100vw - 1rem));
+  max-width: 100%;
+  box-sizing: border-box;
   max-height: min(94vh, 980px);
   overflow: auto;
+  overflow-x: hidden;
   padding: 1rem 1.1rem;
+  container: booking-pickup / inline-size;
 }
 
 .booking-pickup-head {
@@ -6630,6 +6683,47 @@ html[data-theme='dark'] .dash-attn-balance.is-due {
   animation: none;
 }
 
+.booking-pickup-modal .photo-upload-card,
+.booking-pickup-modal .photo-upload-grid,
+.booking-pickup-modal .photo-upload-grid-4 {
+  min-width: 0;
+}
+
+.booking-pickup-modal .photo-upload-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+}
+
+@container booking-pickup (max-width: 42rem) {
+  .booking-pickup-modal .photo-upload-grid-4,
+  .booking-pickup-modal .photo-upload-grid-customer {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.65rem;
+  }
+
+  .booking-pickup-modal .photo-upload-card {
+    padding: 0.75rem;
+  }
+
+  .booking-pickup-modal .photo-upload-stage {
+    aspect-ratio: 16 / 10;
+  }
+}
+
+@container booking-pickup (max-width: 26rem) {
+  .booking-pickup-modal .photo-upload-grid-4,
+  .booking-pickup-modal .photo-upload-grid-customer {
+    grid-template-columns: 1fr;
+  }
+
+  .booking-pickup-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .booking-pickup-actions .btn-primary {
+    grid-row: 1;
+  }
+}
+
 .booking-pickup-actions {
   position: sticky;
   bottom: -1rem;
@@ -6638,11 +6732,96 @@ html[data-theme='dark'] .dash-attn-balance.is-due {
   padding: 0.8rem 1.1rem !important;
   border-top: 1px solid var(--border) !important;
   background: var(--surface) !important;
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem !important;
 }
 
 .booking-pickup-error {
-  flex: 1 0 100%;
+  grid-column: 1 / -1;
   margin: 0;
+}
+
+.payment-entry-modal {
+  width: min(460px, calc(100vw - 1rem));
+  padding: 1.15rem;
+}
+
+.payment-entry-customer {
+  margin: 0.3rem 0 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.payment-entry-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin: 0 0 0.85rem;
+}
+
+.payment-entry-summary > div {
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-muted);
+}
+
+.payment-entry-summary dt {
+  margin-bottom: 0.2rem;
+  color: var(--muted);
+  font-size: 0.6rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.payment-entry-summary dd {
+  margin: 0;
+  color: var(--metal);
+  font-size: 0.92rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.payment-entry-summary dd.is-due {
+  color: #b42318;
+}
+
+.payment-entry-example {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-top: 0.2rem;
+  padding: 0.65rem 0.7rem;
+  border-left: 3px solid var(--brand);
+  background: var(--brand-soft);
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.payment-entry-example strong {
+  color: var(--metal);
+  font-size: 0.64rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.payment-entry-modal .modal-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.payment-entry-modal .modal-actions button {
+  width: 100%;
+  justify-content: center;
+}
+
+.booking-pickup-actions .btn-outline,
+.booking-pickup-actions .btn-primary {
+  width: 100%;
+  justify-content: center;
 }
 
 .dash-attn-detail-head {
@@ -6706,6 +6885,73 @@ html[data-theme='dark'] .dash-attn-balance.is-due {
   font-weight: 600;
 }
 
+.dash-attn-payment-ledger {
+  margin-top: 0.8rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--border);
+}
+
+.dash-attn-payment-ledger > h4 {
+  margin-bottom: 0.5rem;
+}
+
+.dash-attn-payment-ledger ul {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dash-attn-payment-ledger li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.dash-attn-ledger-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.08rem;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--metal);
+}
+
+.dash-attn-ledger-label strong {
+  overflow: hidden;
+  font-size: 0.76rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-attn-ledger-label small {
+  color: var(--muted);
+  font-size: 0.64rem;
+  font-weight: 500;
+}
+
+.dash-attn-ledger-amount {
+  flex-shrink: 0;
+  color: #067647;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.dash-attn-payment-ledger li.is-refund .dash-attn-ledger-amount,
+.dash-attn-payment-ledger li.is-discount .dash-attn-ledger-amount,
+.dash-attn-payment-ledger li.is-additional_charge .dash-attn-ledger-amount {
+  color: #b42318;
+}
+
 .dash-attn-detail-vehicle {
   display: flex;
   align-items: center;
@@ -6742,6 +6988,36 @@ html[data-theme='dark'] .dash-attn-balance.is-due {
   margin: 0.3rem 0 0;
   font-size: 0.82rem;
   color: var(--muted);
+}
+
+.dash-change-confirm-summary {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.dash-change-confirm-summary > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.dash-change-confirm-summary dt {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.dash-change-confirm-summary dd {
+  margin: 0;
+  color: var(--metal);
+  font-size: 0.78rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
 }
 
 .dash-change-type-filter {
@@ -9558,6 +9834,16 @@ html[data-theme='dark'] .cal-fleet-option.is-selected {
   background: rgba(245, 196, 0, 0.1);
 }
 
+.admin-notif-item.is-booking-call {
+  border-left-color: #2563eb;
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.admin-notif-item > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
 .admin-notif-item strong {
   display: block;
   font-size: 0.82rem;
@@ -9569,6 +9855,32 @@ html[data-theme='dark'] .cal-fleet-option.is-selected {
   font-size: 0.78rem;
   line-height: 1.4;
   color: var(--muted);
+}
+
+.admin-notif-call {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 0.45rem;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid color-mix(in srgb, #2563eb 48%, var(--border));
+  border-radius: 5px;
+  color: #1d4ed8;
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1.2;
+  text-decoration: none;
+}
+
+.admin-notif-call:hover {
+  background: rgba(37, 99, 235, 0.1);
+}
+
+html[data-theme='dark'] .admin-notif-item.is-booking-call {
+  background: rgba(96, 165, 250, 0.12);
+}
+
+html[data-theme='dark'] .admin-notif-call {
+  color: #93c5fd;
 }
 
 .admin-notif-dismiss {
@@ -10610,18 +10922,131 @@ html[data-theme='dark'] .cal-fleet-option.is-selected {
 }
 
 .transaction-toolbar {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(17rem, 20rem);
+  align-items: stretch;
   justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
+  gap: 1.5rem;
+  padding: 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: linear-gradient(145deg, var(--surface) 0%, var(--surface-muted) 100%);
+  box-shadow: 0 8px 24px rgba(31, 24, 24, 0.06);
+}
+
+.transaction-toolbar-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1.5rem;
+}
+
+.transaction-toolbar-main > .btn-ghost {
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
 }
 
 .transaction-toolbar-actions {
   display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.6rem;
+  width: 100%;
+}
+
+.transaction-toolbar-actions .transaction-id {
+  padding: 0 0.15rem;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.transaction-contract-print-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.65rem;
+  width: min(100%, 20rem);
+}
+
+.transaction-contract-print-actions button {
+  width: 100%;
+  min-height: 2.65rem;
+  display: inline-flex;
   align-items: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.7rem 1.15rem;
+  border-radius: 0.7rem;
+  letter-spacing: 0.065em;
+  line-height: 1.2;
+  box-shadow: 0 3px 10px rgba(31, 24, 24, 0.08);
+}
+
+.transaction-contract-print-actions button svg {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.transaction-contract-print-actions .btn-outline {
+  background: linear-gradient(180deg, var(--surface) 0%, var(--surface-muted) 100%);
+  border-color: var(--border-strong);
+}
+
+.transaction-contract-print-actions .btn-outline:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(96, 0, 0, 0.12);
+}
+
+.transaction-contract-print-actions button:focus-visible {
+  outline: 3px solid rgba(160, 0, 0, 0.2);
+  outline-offset: 2px;
+}
+
+.transaction-contract-print-actions.is-compact {
+  justify-content: flex-end;
+  align-items: stretch;
+}
+
+@media (max-width: 680px) {
+  .transaction-toolbar {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+    padding: 0.9rem;
+  }
+
+  .transaction-toolbar-main {
+    gap: 1rem;
+  }
+
+  .transaction-toolbar-actions,
+  .transaction-contract-print-actions {
+    width: 100%;
+  }
+
+  .transaction-contract-print-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .transaction-contract-print-actions button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .contract-heading-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 
 .contract-heading-row {
@@ -10642,8 +11067,11 @@ html[data-theme='dark'] .cal-fleet-option.is-selected {
 }
 
 .transaction-header {
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 0.75rem;
+  width: 100%;
+}
+
+.transaction-header .step-title {
+  margin-bottom: 0.35rem;
 }
 
 .transaction-header .step-subtitle {
@@ -10697,6 +11125,67 @@ html[data-theme='dark'] .cal-fleet-option.is-selected {
   font-weight: 500;
   color: var(--text);
   word-break: break-word;
+}
+
+.transaction-payment-history {
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+}
+
+.transaction-payment-history h4 {
+  margin: 0 0 0.55rem;
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.transaction-payment-history ul {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.transaction-payment-history li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+}
+
+.transaction-payment-history li > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.transaction-payment-history li strong {
+  color: var(--text);
+  font-size: 0.76rem;
+}
+
+.transaction-payment-history li small {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.transaction-payment-history li b {
+  flex-shrink: 0;
+  color: #067647;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.transaction-payment-history li b.is-out {
+  color: #b42318;
 }
 
 .transaction-contract {
@@ -12236,6 +12725,30 @@ html[data-theme='dark'] .vehicle-thumb-ghost {
   gap: 1.25rem;
 }
 
+.reports-owner-toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.reports-owner-toolbar .reports-search-field {
+  flex: 1;
+  margin: 0;
+}
+
+.reports-owner-toolbar > .btn-outline {
+  min-height: 2.65rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.reports-owner-toolbar > .btn-outline svg {
+  width: 1rem;
+  height: 1rem;
+}
+
 .reports-owner-card {
   position: relative;
   display: flex;
@@ -12285,6 +12798,27 @@ html[data-theme='dark'] .vehicle-thumb-ghost {
   flex-shrink: 0;
   align-self: flex-start;
   margin: 1rem 1rem 0 0;
+}
+
+.reports-owner-card-actions {
+  flex-shrink: 0;
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 1rem 1rem 0 0;
+}
+
+.reports-owner-card-actions .icon-btn {
+  margin: 0;
+}
+
+.reports-owner-card.is-archived {
+  background: var(--surface-muted);
+}
+
+.reports-owner-card.is-archived .reports-owner-card-main {
+  cursor: default;
 }
 
 .reports-owner-card-body {

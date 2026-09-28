@@ -7,6 +7,8 @@ import { collectPhotographerCredits, formatTakenByLabel, mergePhotographerCredit
 import { downloadRentalAgreementPdf } from '../utils/rentalAgreementPdf'
 import {
   formatRentalFee,
+  resolveAmountPaid,
+  resolveBalanceDue,
   resolveOverdueCharge,
   resolveOverdueHours,
   resolveRentalChargeBreakdown,
@@ -51,8 +53,63 @@ function fullName(personal = {}) {
     .join(' ')
 }
 
+function formatPaymentMethod(value) {
+  const methods = {
+    cash: 'Cash',
+    gcash: 'GCash',
+    bank: 'Bank transfer',
+    card: 'Card',
+    adjustment: 'Adjustment',
+  }
+  return methods[String(value || '').toLowerCase()] || String(value || 'Not recorded')
+}
+
+function paymentEntryLabel(type) {
+  return {
+    additional_charge: 'Additional charge',
+    overdue_collection: 'Overdue collection',
+    deposit: 'Deposit',
+    payment: 'Payment',
+    refund: 'Refund',
+    discount: 'Discount',
+  }[type] || 'Payment'
+}
+
+function ContractActionIcon({ type }) {
+  if (type === 'download') {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 3v11m0 0 4-4m-4 4-4-4M5 20h14" />
+      </svg>
+    )
+  }
+
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M7 9V3h10v6M7 18H5a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M7 14h10v7H7z" />
+    </svg>
+  )
+}
+
+async function printContractPdf(transaction, lessorName = '', includeAppendix = true) {
+  const printWindow = window.open('', '_blank')
+  if (printWindow) {
+    printWindow.document.title = 'Preparing contract…'
+    printWindow.document.body.innerHTML = '<p style="font-family:Arial,sans-serif;padding:24px">Preparing contract for printing…</p>'
+  }
+  await downloadRentalAgreementPdf(transaction, {
+    lessorName,
+    includeAppendix,
+    print: true,
+    printWindow,
+  })
+}
+
 async function downloadContractPdf(transaction, lessorName = '') {
-  await downloadRentalAgreementPdf(transaction, { lessorName })
+  await downloadRentalAgreementPdf(transaction, {
+    lessorName,
+    includeAppendix: true,
+  })
 }
 
 export default function TransactionPage({
@@ -89,6 +146,9 @@ export default function TransactionPage({
             (charges.driver || 0) +
             overdueAmount,
         )
+  const amountPaid = resolveAmountPaid(transaction)
+  const balanceDue = resolveBalanceDue(transaction)
+  const paymentLedger = Array.isArray(rental.paymentLedger) ? rental.paymentLedger : []
 
   const [carPhotos, setCarPhotos] = useState(() => normalizeCarPhotos(transaction.carPhotos))
   const [photoBusy, setPhotoBusy] = useState('')
@@ -280,31 +340,55 @@ export default function TransactionPage({
   return (
     <section className="transaction-page">
       <div className="transaction-toolbar">
-        <button type="button" className="btn-ghost" onClick={onBack}>
-          {backLabel}
-        </button>
+        <div className="transaction-toolbar-main">
+          <button type="button" className="btn-ghost" onClick={onBack}>
+            {backLabel}
+          </button>
+          <header className="transaction-header">
+            <h2 className="step-title">Rental Transaction</h2>
+            <p className="step-subtitle">
+              Encoded {formatDateTime(transaction.encodedAt)} · Contract accepted:{' '}
+              {transaction.termsAccepted ? 'Yes' : 'No'}
+              {signature ? ' · Signed' : ''}
+            </p>
+          </header>
+        </div>
         <div className="transaction-toolbar-actions">
           <span className="transaction-id">Transaction ID: {transaction.id}</span>
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={() => {
-              void downloadContractPdf({ ...transaction, carPhotos }, sessionPhotographer)
-            }}
-          >
-            Download Contract PDF
-          </button>
+          <div className="transaction-contract-print-actions">
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => {
+                void downloadContractPdf({ ...transaction, carPhotos }, sessionPhotographer)
+              }}
+            >
+              <ContractActionIcon type="download" />
+              Download contract PDF
+            </button>
+            <button
+              type="button"
+              className="btn-outline"
+              onClick={() => {
+                void printContractPdf({ ...transaction, carPhotos }, sessionPhotographer, false)
+              }}
+            >
+              <ContractActionIcon type="print" />
+              Print contract without appendix
+            </button>
+            <button
+              type="button"
+              className="btn-outline"
+              onClick={() => {
+                void printContractPdf({ ...transaction, carPhotos }, sessionPhotographer, true)
+              }}
+            >
+              <ContractActionIcon type="print" />
+              Print contract with appendix
+            </button>
+          </div>
         </div>
       </div>
-
-      <header className="transaction-header">
-        <h2 className="step-title">Rental Transaction</h2>
-        <p className="step-subtitle">
-          Encoded {formatDateTime(transaction.encodedAt)} · Contract accepted:{' '}
-          {transaction.termsAccepted ? 'Yes' : 'No'}
-          {signature ? ' · Signed' : ''}
-        </p>
-      </header>
 
       <section className={`transaction-collapse${customerPhotosOpen ? ' is-open' : ''}`}>
         <button
@@ -657,22 +741,81 @@ export default function TransactionPage({
                 <strong>{formatRentalFee(overallTotal)}</strong>
               </dd>
             </div>
+            <div>
+              <dt>Amount received</dt>
+              <dd>{formatRentalFee(amountPaid)}</dd>
+            </div>
+            <div>
+              <dt>Balance due</dt>
+              <dd>{formatRentalFee(balanceDue)}</dd>
+            </div>
+            {amountPaid > 0 ? (
+              <div>
+                <dt>Initial payment method</dt>
+                <dd>{formatPaymentMethod(rental.paymentMethod || paymentLedger.find((entry) => entry.type === 'deposit' || entry.type === 'payment')?.method)}</dd>
+              </div>
+            ) : null}
           </dl>
+          {paymentLedger.length ? (
+            <div className="transaction-payment-history">
+              <h4>Payment activity</h4>
+              <ul>
+                {[...paymentLedger].reverse().map((entry) => (
+                  <li key={entry.id}>
+                    <span>
+                      <strong>{paymentEntryLabel(entry.type)}</strong>
+                      <small>
+                        {entry.type === 'additional_charge' || entry.type === 'discount'
+                          ? 'Adjustment'
+                          : formatPaymentMethod(entry.method)}
+                      </small>
+                    </span>
+                    <b className={entry.direction === 'out' || entry.type === 'additional_charge' ? 'is-out' : 'is-in'}>
+                      {entry.direction === 'out' ? '−' : '+'}&nbsp;{formatRentalFee(entry.amount)}
+                    </b>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </article>
       </div>
 
       <article className="transaction-contract">
         <div className="contract-heading-row">
           <h3>Rental Contract</h3>
-          <button
-            type="button"
-            className="btn-outline btn-sm"
-            onClick={() => {
-              void downloadContractPdf({ ...transaction, carPhotos }, sessionPhotographer)
-            }}
-          >
-            Download PDF
-          </button>
+          <div className="transaction-contract-print-actions is-compact">
+            <button
+              type="button"
+              className="btn-primary btn-sm"
+              onClick={() => {
+                void downloadContractPdf({ ...transaction, carPhotos }, sessionPhotographer)
+              }}
+            >
+              <ContractActionIcon type="download" />
+              Download PDF
+            </button>
+            <button
+              type="button"
+              className="btn-outline btn-sm"
+              onClick={() => {
+                void printContractPdf({ ...transaction, carPhotos }, sessionPhotographer, false)
+              }}
+            >
+              <ContractActionIcon type="print" />
+              Without appendix
+            </button>
+            <button
+              type="button"
+              className="btn-outline btn-sm"
+              onClick={() => {
+                void printContractPdf({ ...transaction, carPhotos }, sessionPhotographer, true)
+              }}
+            >
+              <ContractActionIcon type="print" />
+              With appendix
+            </button>
+          </div>
         </div>
         <p className="contract-intro">
           This agreement was acknowledged by <strong>{fullName(personal)}</strong> for the rental

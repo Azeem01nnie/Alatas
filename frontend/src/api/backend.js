@@ -1,6 +1,95 @@
 import { isSupabaseConfigured, requireSupabase } from './supabaseClient'
 import { collectPhotographerCredits, mergePhotographerCredits } from '../utils/photoCredits'
 import { assertSafeDbId } from '../utils/security'
+import { appendPaymentEntry, createPaymentEntry } from '../utils/paymentLedger'
+
+const RENTAL_MEDIA_BUCKET = 'rentals'
+const RENTAL_MEDIA_PREFIX = `storage://${RENTAL_MEDIA_BUCKET}/`
+const signedRentalMediaCache = new Map()
+
+function rentalMediaPath(value) {
+  const raw = String(value || '').trim()
+  if (!raw || raw.startsWith('data:')) return ''
+  if (raw.startsWith(RENTAL_MEDIA_PREFIX)) return raw.slice(RENTAL_MEDIA_PREFIX.length)
+  try {
+    const decoded = decodeURIComponent(new URL(raw).pathname)
+    for (const marker of [
+      `/storage/v1/object/public/${RENTAL_MEDIA_BUCKET}/`,
+      `/storage/v1/object/sign/${RENTAL_MEDIA_BUCKET}/`,
+      `/storage/v1/object/authenticated/${RENTAL_MEDIA_BUCKET}/`,
+    ]) {
+      const index = decoded.indexOf(marker)
+      if (index >= 0) return decoded.slice(index + marker.length)
+    }
+  } catch {
+    /* not a storage URL */
+  }
+  return ''
+}
+
+function rentalMediaRef(value) {
+  const path = rentalMediaPath(value)
+  return path ? `${RENTAL_MEDIA_PREFIX}${path}` : value
+}
+
+function transformRentalMedia(rental, transform) {
+  if (!rental) return rental
+  const next = { ...rental }
+  next.photo = transform(next.photo)
+  next.licensePhoto = transform(next.licensePhoto)
+  next.signature = transform(next.signature)
+  if (next.personal && typeof next.personal === 'object') {
+    next.personal = { ...next.personal, optionalPhoto: transform(next.personal.optionalPhoto) }
+  }
+  if (next.carPhotos && typeof next.carPhotos === 'object') {
+    const photos = { ...next.carPhotos }
+    for (const key of ['front', 'rear', 'left', 'right']) photos[key] = transform(photos[key])
+    if (Array.isArray(photos.extras)) {
+      photos.extras = photos.extras.map((item) =>
+        item && typeof item === 'object' ? { ...item, uri: transform(item.uri) } : item,
+      )
+    }
+    next.carPhotos = photos
+  }
+  return next
+}
+
+async function hydrateRentalMedia(rental) {
+  const sb = requireSupabase()
+  const cache = new Map()
+  const sign = async (value) => {
+    const path = rentalMediaPath(value)
+    if (!path) return value || ''
+    const cached = signedRentalMediaCache.get(path)
+    if (cached && cached.expiresAt > Date.now() + 60_000) return cached.url
+    if (!cache.has(path)) {
+      cache.set(path, sb.storage.from(RENTAL_MEDIA_BUCKET).createSignedUrl(path, 60 * 60 * 24))
+    }
+    const { data, error } = await cache.get(path)
+    if (error) throwSb(error, 'Could not authorize customer media')
+    const url = data?.signedUrl || ''
+    if (url) signedRentalMediaCache.set(path, { url, expiresAt: Date.now() + 23 * 60 * 60 * 1000 })
+    return url
+  }
+  const next = { ...rental }
+  next.photo = await sign(next.photo)
+  next.licensePhoto = await sign(next.licensePhoto)
+  next.signature = await sign(next.signature)
+  if (next.personal && typeof next.personal === 'object') {
+    next.personal = { ...next.personal, optionalPhoto: await sign(next.personal.optionalPhoto) }
+  }
+  if (next.carPhotos && typeof next.carPhotos === 'object') {
+    const photos = { ...next.carPhotos }
+    await Promise.all(['front', 'rear', 'left', 'right'].map(async (key) => { photos[key] = await sign(photos[key]) }))
+    if (Array.isArray(photos.extras)) {
+      photos.extras = await Promise.all(photos.extras.map(async (item) =>
+        item && typeof item === 'object' ? { ...item, uri: await sign(item.uri) } : item,
+      ))
+    }
+    next.carPhotos = photos
+  }
+  return next
+}
 
 /** Parse gallery URLs from legacy `image` text (single URL or JSON array). */
 function unpackImageField(raw) {
@@ -152,6 +241,7 @@ function toTimestampOrNull(value) {
 }
 
 function toRentalRow(rental) {
+  rental = transformRentalMedia(rental, rentalMediaRef)
   const now = new Date().toISOString()
   const vehicleId = rental.vehicleId || rental.vehicle?.id || null
   return {
@@ -367,6 +457,19 @@ export async function completeVehicleRental(
         rentalJson.overdueFeeValue = paid
         rentalJson.overdueFee = peso(paid)
         rentalJson.overduePaidAt = now
+        if (paid > 0) {
+          rentalJson.paymentLedger = appendPaymentEntry(
+            rentalJson.paymentLedger,
+            createPaymentEntry('overdue_collection', paid, {
+              id: overduePay.ledgerEntryId,
+              method: overduePay.method || 'cash',
+              reference: overduePay.reference || '',
+              note: `Overdue collection (${hours} hour${hours === 1 ? '' : 's'})`,
+              recordedBy: overduePay.recordedBy || returnMeta.recordedBy,
+              occurredAt: now,
+            }),
+          )
+        }
       }
       const { data: one, error } = await sb
         .from('rentals')
@@ -450,7 +553,7 @@ export async function completeVehicleRental(
 
   return {
     vehicle: null,
-    rentals: completedRentals.map(mapRental),
+    rentals: await Promise.all(completedRentals.map((row) => hydrateRentalMedia(mapRental(row)))),
   }
 }
 
@@ -514,7 +617,7 @@ export function fetchRentals() {
     .order('created_at', { ascending: false })
     .then(({ data, error }) => {
       if (error) throwSb(error)
-      return (data || []).map(mapRental)
+      return Promise.all((data || []).map((row) => hydrateRentalMedia(mapRental(row))))
     })
 }
 
@@ -640,7 +743,7 @@ async function materializeVehicleRow(row) {
   }
 }
 
-/** Upload a data-URL image into the public `rentals` bucket; return a stable public URL. */
+/** Upload customer media into private Storage; return a non-expiring internal reference. */
 async function uploadRentalImage(rentalId, fileKey, dataUrl) {
   if (!dataUrl || typeof dataUrl !== 'string') return ''
   if (!dataUrl.startsWith('data:')) return dataUrl
@@ -657,8 +760,7 @@ async function uploadRentalImage(rentalId, fileKey, dataUrl) {
   })
   if (error) throwSb(error)
 
-  const { data } = sb.storage.from('rentals').getPublicUrl(path)
-  return data?.publicUrl || ''
+  return `${RENTAL_MEDIA_PREFIX}${path}`
 }
 
 /** Convert embedded data-URLs in carPhotos to Storage URLs so the DB row stays small. */
@@ -893,7 +995,7 @@ export async function addRental(rental) {
       .eq('id', String(desiredId))
   }
 
-  return mapRental(data)
+  return hydrateRentalMedia(mapRental(data))
 }
 
 /** Finalize an advance booking at the counter after the customer signs. */
@@ -913,6 +1015,13 @@ export async function startBookedRental(rentalId, pickup = {}) {
     .maybeSingle()
   if (existingErr) throwSb(existingErr)
   if (!existing) throw new Error('Booking not found')
+  if (
+    existing.rental_lifecycle === 'active' &&
+    existing.signature &&
+    existing.terms_accepted
+  ) {
+    return hydrateRentalMedia(mapRental(existing))
+  }
   if (existing.rental_lifecycle !== 'scheduled') {
     throw new Error('Only a scheduled booking can be processed for pickup')
   }
@@ -968,7 +1077,7 @@ export async function startBookedRental(rentalId, pickup = {}) {
       .eq('id', String(data.vehicle_id))
   }
 
-  return mapRental(data)
+  return hydrateRentalMedia(mapRental(data))
 }
 
 /**
@@ -1056,6 +1165,16 @@ export async function changeRentalVehicle(rentalId, nextVehicle, extraPayment = 
     extraCharge: extra,
   })
   rentalJson.vehicleChanges = changes
+  if (extra > 0) {
+    rentalJson.paymentLedger = appendPaymentEntry(
+      rentalJson.paymentLedger,
+      createPaymentEntry('additional_charge', extra, {
+        method: 'adjustment',
+        note: `Vehicle change to ${snap.make || ''} ${snap.series || ''}`.trim(),
+        occurredAt: new Date().toISOString(),
+      }),
+    )
+  }
 
   const vehicleIds = await knownVehicleIdSet(sb)
   const row = withSafeVehicleFk(
@@ -1090,7 +1209,67 @@ export async function changeRentalVehicle(rentalId, nextVehicle, extraPayment = 
     await sb.from('vehicles').update({ status: 'Rented', updated_at: now }).eq('id', newId)
   }
 
-  return mapRental(data)
+  return hydrateRentalMedia(mapRental(data))
+}
+
+/** Append a cash movement without replacing prior payment history. */
+export async function addRentalPaymentEntry(rentalId, input = {}) {
+  const sb = requireSupabase()
+  const id = String(rentalId || '').trim()
+  if (!id) throw new Error('Rental id is required')
+  const type = input.type === 'refund' ? 'refund' : 'payment'
+  const amount = Math.max(0, Number(input.amount) || 0)
+  if (!amount) throw new Error('Enter a payment amount greater than zero')
+
+  const { data: existing, error: fetchErr } = await sb
+    .from('rentals')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle()
+  if (fetchErr) throwSb(fetchErr)
+  if (!existing) throw new Error('Rental not found')
+
+  const rentalJson =
+    existing.rental && typeof existing.rental === 'object' ? { ...existing.rental } : {}
+  const paid = Number(
+    String(rentalJson.amountPaidValue ?? rentalJson.amountPaid ?? 0).replace(/[^\d.]/g, ''),
+  ) || 0
+  if (type === 'refund' && amount > paid) throw new Error('Refund cannot exceed total payments')
+  const total = Number(
+    String(rentalJson.totalAmountValue ?? rentalJson.totalAmount ?? rentalJson.rentalFee ?? 0)
+      .replace(/[^\d.]/g, ''),
+  ) || 0
+  const currentBalance = Math.max(0, total - paid)
+  if (type === 'payment' && amount > currentBalance + 0.009) {
+    throw new Error('Payment cannot exceed the remaining balance')
+  }
+  const nextPaid = type === 'refund' ? paid - amount : paid + amount
+  const balance = Math.max(0, total - nextPaid)
+  const peso = (value) => `â‚±${Number(value || 0).toLocaleString('en-PH', { maximumFractionDigits: 2 })}`
+  const now = new Date().toISOString()
+  rentalJson.amountPaidValue = nextPaid
+  rentalJson.amountPaid = peso(nextPaid)
+  rentalJson.balanceDueValue = balance
+  rentalJson.balanceDue = peso(balance)
+  rentalJson.paymentLedger = appendPaymentEntry(
+    rentalJson.paymentLedger,
+    createPaymentEntry(type, amount, {
+      method: input.method,
+      reference: input.reference,
+      note: input.note || (type === 'refund' ? 'Customer refund' : 'Additional payment'),
+      recordedBy: input.recordedBy,
+      occurredAt: now,
+    }),
+  )
+
+  const { data, error } = await sb
+    .from('rentals')
+    .update({ rental: rentalJson, updated_at: now })
+    .eq('id', id)
+    .select('*')
+    .single()
+  if (error) throwSb(error)
+  return hydrateRentalMedia(mapRental(data))
 }
 
 /** Targeted car-photo update — uploads images to Storage, then patches only this rental. */
@@ -1139,7 +1318,7 @@ export async function patchRentalCarPhotos(rentalId, carPhotos, addedBy = '') {
 
   if (error) throwSb(error)
   if (!data) throw new Error('Rental not found — could not save photos')
-  return mapRental(data)
+  return hydrateRentalMedia(mapRental(data))
 }
 
 export async function submitPendingRental(rental) {
@@ -1158,15 +1337,16 @@ export function fetchPendingRentals() {
     .select('*')
     .eq('approval_status', 'pending')
     .order('created_at', { ascending: false })
-    .then(({ data, error }) => {
+    .then(async ({ data, error }) => {
       if (error) throwSb(error)
-      return (data || [])
+      const rows = (data || [])
         .map(mapRental)
         .filter(
           (r) =>
             r.approvalStatus === 'pending' &&
             (r.rentalLifecycle === 'pending_approval' || !r.rentalLifecycle),
         )
+      return Promise.all(rows.map(hydrateRentalMedia))
     })
 }
 
@@ -1185,7 +1365,7 @@ export async function acceptPendingRental(id) {
   // remain scheduled until Process pickup captures the in-shop customer signature.
   if (deskMode !== 'booking') {
     const { data, error } = await sb.rpc('accept_pending_rental', { p_id: key })
-    if (!error) return mapRental(data)
+    if (!error) return hydrateRentalMedia(mapRental(data))
   }
 
   // Fallback when RPC is missing/outdated, and the intentional booking path.
@@ -1216,7 +1396,7 @@ export async function acceptPendingRental(id) {
   if (lifecycle === 'active' && row.vehicle_id) {
     await sb.from('vehicles').update({ status: 'Rented', updated_at: now }).eq('id', row.vehicle_id)
   }
-  return mapRental(updated)
+  return hydrateRentalMedia(mapRental(updated))
 }
 
 export async function rejectPendingRental(id, reason = '') {
@@ -1226,7 +1406,7 @@ export async function rejectPendingRental(id, reason = '') {
     p_id: key,
     p_reason: reason || '',
   })
-  if (!error) return mapRental(data)
+  if (!error) return hydrateRentalMedia(mapRental(data))
 
   const now = new Date().toISOString()
   const { data: updated, error: updErr } = await sb
@@ -1241,7 +1421,7 @@ export async function rejectPendingRental(id, reason = '') {
     .select('*')
     .single()
   if (updErr) throwSb(error)
-  return mapRental(updated)
+  return hydrateRentalMedia(mapRental(updated))
 }
 
 export async function fetchSystemStatus() {

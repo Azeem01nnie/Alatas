@@ -2,7 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { resolveVehicleDisplayImage } from '../utils/vehicleImages'
 import { jsPDF } from 'jspdf'
 import * as XLSX from 'xlsx'
-import { addOwner, loadOwners, normalizeInvestorSharePercent } from '../utils/owners'
+import {
+  addOwner,
+  archiveOwner,
+  deleteArchivedOwner,
+  loadOwners,
+  normalizeInvestorSharePercent,
+  restoreOwner,
+} from '../utils/owners'
 import {
   REPORT_CATEGORIES,
   REPORT_STATUSES,
@@ -68,6 +75,16 @@ function IconDelete() {
       <path d="M19 6v13.5A1.5 1.5 0 0 1 17.5 21h-11A1.5 1.5 0 0 1 5 19.5V6" />
       <path d="M10 11v6" />
       <path d="M14 11v6" />
+    </svg>
+  )
+}
+
+function IconArchive() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 7h16v13H4z" />
+      <path d="M3 4h18v3H3z" />
+      <path d="M9 11h6" />
     </svg>
   )
 }
@@ -496,7 +513,14 @@ function ReportTableRow({ row, onEdit, onDelete, onOpenRental, formatPeso }) {
 }
 
 // ── Delete confirm modal ──────────────────────────────────────────
-function DeleteConfirmModal({ onConfirm, onCancel }) {
+function DeleteConfirmModal({
+  onConfirm,
+  onCancel,
+  title = 'Delete Entry',
+  message = 'Are you sure you want to delete this entry? This action cannot be undone.',
+  confirmLabel = 'Delete',
+  danger = true,
+}) {
   return (
     <div className="modal-overlay confirm-modal-overlay" role="presentation" onClick={onCancel}>
       <div
@@ -505,14 +529,16 @@ function DeleteConfirmModal({ onConfirm, onCancel }) {
         aria-modal="true"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="modal-title">Delete Entry</h3>
-        <p className="confirm-message">
-          Are you sure you want to delete this entry? This action cannot be undone.
-        </p>
+        <h3 className="modal-title">{title}</h3>
+        <p className="confirm-message">{message}</p>
         <div className="modal-actions">
           <button type="button" className="btn-outline confirm-cancel-btn" onClick={onCancel}>Cancel</button>
-          <button type="button" className="btn-primary" style={{ background: 'linear-gradient(180deg,#b32025,#7a0000)' }} onClick={onConfirm}>
-            Delete
+          <button
+            type="button"
+            className={danger ? 'btn-primary btn-danger-solid' : 'btn-primary'}
+            onClick={onConfirm}
+          >
+            {confirmLabel}
           </button>
         </div>
       </div>
@@ -554,14 +580,16 @@ export default function VehicleReports({
   adminName = 'Admin',
   dataReady = true,
   onOwnerUpdate,
+  onOwnerDelete,
   onOpenRental,
 }) {
-  const [owners, setOwners] = useState(() => loadOwners())
+  const [owners, setOwners] = useState(() => loadOwners({ includeArchived: true }))
   const [storeVersion, setStoreVersion] = useState(0)
   const store = useMemo(() => loadReportStore(), [storeVersion])
 
   const initialNav = useMemo(() => loadReportsNav(), [])
   const [ownerSearch, setOwnerSearch] = useState('')
+  const [showArchivedOwners, setShowArchivedOwners] = useState(false)
   const [selectedOwnerId, setSelectedOwnerId] = useState(initialNav.ownerId)
   const [selectedVehicleId, setSelectedVehicleId] = useState(initialNav.vehicleId)
   const [rangePreset, setRangePreset] = useState('month')
@@ -574,6 +602,8 @@ export default function VehicleReports({
   const [editOwner, setEditOwner] = useState(null) // owner object or null
   const [investorModal, setInvestorModal] = useState(false)
   const [deleteRow, setDeleteRow] = useState(null) // entry object or null
+  const [deleteOwner, setDeleteOwner] = useState(null)
+  const [ownerAction, setOwnerAction] = useState(null)
   const [entriesExpanded, setEntriesExpanded] = useState(false)
 
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false)
@@ -589,7 +619,7 @@ export default function VehicleReports({
       } catch {
         /* offline */
       }
-      if (mounted) setOwners(loadOwners())
+      if (mounted) setOwners(loadOwners({ includeArchived: true }))
     })()
     return () => {
       mounted = false
@@ -625,11 +655,19 @@ export default function VehicleReports({
 
   const ownersFromVehicles = useMemo(() => {
     const map = new Map()
+    const archivedIds = new Set(
+      owners.filter((owner) => owner.archivedAt).map((owner) => String(owner.id)),
+    )
+    const archivedNames = new Set(
+      owners
+        .filter((owner) => owner.archivedAt)
+        .map((owner) => String(owner.name || '').trim().toLowerCase()),
+    )
 
     // Include owners from the store so newly added names appear before a vehicle is saved.
     owners.forEach((o) => {
       const id = String(o?.id || '').trim()
-      if (!id) return
+      if (!id || o.archivedAt) return
       map.set(id, {
         id,
         name: o.name || 'Unknown owner',
@@ -643,6 +681,9 @@ export default function VehicleReports({
     })
 
     vehicles.forEach((v) => {
+      const vehicleOwnerId = String(v.ownerId || '').trim()
+      const vehicleOwnerName = String(v.ownerName || '').trim().toLowerCase()
+      if (archivedIds.has(vehicleOwnerId) || archivedNames.has(vehicleOwnerName)) return
       const ownerKey =
         String(v.ownerId || '').trim() ||
         (v.ownerName ? `name:${String(v.ownerName).trim().toLowerCase()}` : '')
@@ -667,6 +708,23 @@ export default function VehicleReports({
 
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name))
   }, [owners, vehicles])
+
+  const archivedOwners = useMemo(() => {
+    const q = ownerSearch.trim().toLowerCase()
+    return owners
+      .filter((owner) => owner.archivedAt)
+      .map((owner) => ({
+        ...owner,
+        vehicleCount: vehicles.filter((vehicle) =>
+          String(vehicle.ownerId || '') === String(owner.id) ||
+          (!vehicle.ownerId &&
+            String(vehicle.ownerName || '').trim().toLowerCase() ===
+              String(owner.name || '').trim().toLowerCase()),
+        ).length,
+      }))
+      .filter((owner) => !q || owner.name.toLowerCase().includes(q))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [owners, ownerSearch, vehicles])
 
   const filteredOwners = useMemo(() => {
     const q = ownerSearch.trim().toLowerCase()
@@ -817,8 +875,28 @@ export default function VehicleReports({
   const handleOwnerSave = (newName) => {
     if (!editOwner?.id) return
     onOwnerUpdate?.(editOwner.id, { name: newName })
-    setOwners(loadOwners())
+    setOwners(loadOwners({ includeArchived: true }))
     setEditOwner(null)
+  }
+
+  const handleArchiveOwner = (owner) => {
+    archiveOwner(owner.id)
+    setOwners(loadOwners({ includeArchived: true }))
+    setOwnerAction(null)
+  }
+
+  const handleRestoreOwner = (owner) => {
+    restoreOwner(owner.id)
+    setOwners(loadOwners({ includeArchived: true }))
+    setOwnerAction(null)
+  }
+
+  const handleDeleteOwner = () => {
+    if (!deleteOwner?.id) return
+    deleteArchivedOwner(deleteOwner.id)
+    onOwnerDelete?.(deleteOwner)
+    setOwners(loadOwners({ includeArchived: true }))
+    setDeleteOwner(null)
   }
 
   const handleInvestorSave = (sharePercent) => {
@@ -838,7 +916,7 @@ export default function VehicleReports({
           ownershipType: 'thirdParty',
           investorSharePercent: sharePercent,
         })
-        setOwners(loadOwners())
+        setOwners(loadOwners({ includeArchived: true }))
         if (created?.id) setSelectedOwnerId(created.id)
         setInvestorModal(false)
         return
@@ -848,7 +926,7 @@ export default function VehicleReports({
       ownershipType: 'thirdParty',
       investorSharePercent: sharePercent,
     })
-    setOwners(loadOwners())
+    setOwners(loadOwners({ includeArchived: true }))
     setInvestorModal(false)
   }
 
@@ -1013,32 +1091,49 @@ export default function VehicleReports({
       {/* ── Owner list ── */}
       {!selectedOwnerId && (
         <>
-          <label className="field search-field reports-search-field">
-            <span className="field-label">Search</span>
-            <input
-              type="search"
-              value={ownerSearch}
-              onChange={(e) => setOwnerSearch(e.target.value)}
-              placeholder="Search owner, plate, or vehicle…"
-            />
-          </label>
+          <div className="reports-owner-toolbar">
+            <label className="field search-field reports-search-field">
+              <span className="field-label">Search</span>
+              <input
+                type="search"
+                value={ownerSearch}
+                onChange={(e) => setOwnerSearch(e.target.value)}
+                placeholder="Search owner, plate, or vehicle…"
+              />
+            </label>
+            <button
+              type="button"
+              className={`btn-outline${showArchivedOwners ? ' is-active' : ''}`}
+              onClick={() => setShowArchivedOwners((value) => !value)}
+            >
+              <IconArchive />
+              {showArchivedOwners ? 'Active owners' : `Archive (${owners.filter((owner) => owner.archivedAt).length})`}
+            </button>
+          </div>
 
           <div className="reports-owner-grid">
-            {filteredOwners.length === 0 && (
+            {(showArchivedOwners ? archivedOwners : filteredOwners).length === 0 && (
               <p className="empty-state">
-                {ownerSearch.trim()
-                  ? 'No matching owners or vehicles.'
-                  : 'No owners yet. Add an owner when creating a vehicle in Manage Vehicle.'}
+                {showArchivedOwners
+                  ? 'No archived owners.'
+                  : ownerSearch.trim()
+                    ? 'No matching owners or vehicles.'
+                    : 'No owners yet. Add an owner when creating a vehicle in Manage Vehicle.'}
               </p>
             )}
-            {filteredOwners.map((owner) => {
+            {(showArchivedOwners ? archivedOwners : filteredOwners).map((owner) => {
               const isThird = owner.ownershipType === 'thirdParty'
               return (
-                <div key={owner.id} className="reports-owner-card">
+                <div key={owner.id} className={`reports-owner-card${showArchivedOwners ? ' is-archived' : ''}`}>
                   <button
                     type="button"
                     className="reports-owner-card-main"
-                    onClick={() => { setSelectedOwnerId(owner.id); setSelectedVehicleId('') }}
+                    onClick={() => {
+                      if (showArchivedOwners) return
+                      setSelectedOwnerId(owner.id)
+                      setSelectedVehicleId('')
+                    }}
+                    disabled={showArchivedOwners}
                   >
                     <span className="reports-owner-card-body">
                       <strong className="reports-owner-name">{owner.name}</strong>
@@ -1052,15 +1147,27 @@ export default function VehicleReports({
                       </span>
                     </span>
                   </button>
-                  <button
-                    type="button"
-                    className="icon-btn reports-owner-edit-btn"
-                    aria-label={`Edit ${owner.name}`}
-                    title="Edit owner name"
-                    onClick={() => setEditOwner(owner)}
-                  >
-                    <IconEdit />
-                  </button>
+                  <div className="reports-owner-card-actions">
+                    {showArchivedOwners ? (
+                      <>
+                        <button type="button" className="btn-outline btn-sm" onClick={() => setOwnerAction({ type: 'restore', owner })}>
+                          Restore
+                        </button>
+                        <button type="button" className="btn-outline btn-sm btn-danger-outline" onClick={() => setDeleteOwner(owner)}>
+                          Delete
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button type="button" className="icon-btn" aria-label={`Edit ${owner.name}`} title="Edit owner name" onClick={() => setEditOwner(owner)}>
+                          <IconEdit />
+                        </button>
+                        <button type="button" className="icon-btn" aria-label={`Archive ${owner.name}`} title="Archive owner" onClick={() => setOwnerAction({ type: 'archive', owner })}>
+                          <IconArchive />
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
               )
             })}
@@ -1347,6 +1454,31 @@ export default function VehicleReports({
           onConfirm={handleDeleteConfirm}
         />
       )}
+      {deleteOwner && (
+        <DeleteConfirmModal
+          title="Permanently delete owner?"
+          message={`Delete ${deleteOwner.name}? This will unlink ${deleteOwner.vehicleCount || 0} assigned vehicle(s) and cannot be undone.`}
+          onCancel={() => setDeleteOwner(null)}
+          onConfirm={handleDeleteOwner}
+        />
+      )}
+      {ownerAction?.owner ? (
+        <DeleteConfirmModal
+          title={ownerAction.type === 'archive' ? 'Archive owner?' : 'Restore owner?'}
+          message={
+            ownerAction.type === 'archive'
+              ? `${ownerAction.owner.name} will be moved to Archived Owners. Assigned vehicles will remain linked and the owner can be restored later.`
+              : `${ownerAction.owner.name} will return to the active owner list and become available in owner selections again.`
+          }
+          confirmLabel={ownerAction.type === 'archive' ? 'Archive owner' : 'Restore owner'}
+          danger={ownerAction.type === 'archive'}
+          onCancel={() => setOwnerAction(null)}
+          onConfirm={() => {
+            if (ownerAction.type === 'archive') handleArchiveOwner(ownerAction.owner)
+            else handleRestoreOwner(ownerAction.owner)
+          }}
+        />
+      ) : null}
     </section>
   )
 }

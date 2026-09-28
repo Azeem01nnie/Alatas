@@ -10,6 +10,9 @@ import {
 import { getArchivedIdSet, ARCHIVE_EVENT } from '../utils/archivedVehicles'
 import { isScheduledWindow } from '../utils/vehicleDisplayStatus'
 import { flushOfflineQueue } from '../utils/offlineQueue'
+import { enqueueOfflinePickup, flushOfflinePickups } from '../utils/offlinePickupQueue'
+import { appendPaymentEntry, createPaymentEntry } from '../utils/paymentLedger'
+import { reportAppError } from '../utils/errorMonitor'
 import {
   replaceVehicles as apiReplaceVehicles,
   replaceRentals as apiReplaceRentals,
@@ -17,6 +20,7 @@ import {
   startBookedRental as startBookedRentalApi,
   completeVehicleRental as completeVehicleRentalApi,
   changeRentalVehicle as changeRentalVehicleApi,
+  addRentalPaymentEntry as addRentalPaymentEntryApi,
   reconcileDuplicateOpenRentals as reconcileDuplicateOpenRentalsApi,
 } from '../api/backend'
 import { isSupabaseConfigured, requireSupabase } from '../api/supabaseClient'
@@ -103,6 +107,7 @@ export function VehicleProvider({ children }) {
           'rentals-add': (payload) => apiAddRental(payload),
           'pending-rental': (payload) => submitPendingRentalApi(payload),
         })
+        await flushOfflinePickups(startBookedRentalApi)
 
         const [vehiclesData, rentalsData] = await Promise.all([
           loadVehicles(),
@@ -256,6 +261,33 @@ export function VehicleProvider({ children }) {
       rentals: nextRentals,
     }
   }, [])
+
+  const syncOfflineNow = useCallback(async () => {
+    const standard = await flushOfflineQueue({
+      vehicles: (payload) => apiReplaceVehicles(payload, { prune: false }),
+      rentals: (payload) => apiReplaceRentals(payload, { prune: false }),
+      'rentals-add': (payload) => apiAddRental(payload),
+      'pending-rental': (payload) => submitPendingRentalApi(payload),
+    })
+    const pickups = await flushOfflinePickups(startBookedRentalApi)
+    if (navigator.onLine) await reloadData()
+    return {
+      flushed: standard.flushed + pickups.flushed,
+      remaining: standard.remaining + pickups.remaining,
+      failed: standard.failed + pickups.failed,
+      latestError: pickups.latestError || standard.latestError || '',
+    }
+  }, [reloadData])
+
+  useEffect(() => {
+    const reconnect = () => {
+      void syncOfflineNow().catch((err) =>
+        reportAppError(err, { area: 'sync', operation: 'automatic reconnect' }),
+      )
+    }
+    window.addEventListener('online', reconnect)
+    return () => window.removeEventListener('online', reconnect)
+  }, [syncOfflineNow])
 
   // Refresh rentals for mobile approvals — do not replace vehicles here (avoids
   // overwriting a desk photo edit with a stale cloud/local snapshot mid-save).
@@ -475,6 +507,19 @@ export function VehicleProvider({ children }) {
             rentalJson.overdueFeeValue = paid
             rentalJson.overdueFee = peso(paid)
             rentalJson.overduePaidAt = now
+            if (paid > 0) {
+              rentalJson.paymentLedger = appendPaymentEntry(
+                rentalJson.paymentLedger,
+                createPaymentEntry('overdue_collection', paid, {
+                  id: overduePay.ledgerEntryId,
+                  method: overduePay.method,
+                  reference: overduePay.reference,
+                  recordedBy: overduePay.recordedBy || returnMeta.recordedBy,
+                  note: `Overdue collection (${hours} hour${hours === 1 ? '' : 's'})`,
+                  occurredAt: now,
+                }),
+              )
+            }
           }
         }
         return {
@@ -616,6 +661,16 @@ export function VehicleProvider({ children }) {
             extraCharge: extra,
           })
           rentalJson.vehicleChanges = changes
+          if (extra > 0) {
+            rentalJson.paymentLedger = appendPaymentEntry(
+              rentalJson.paymentLedger,
+              createPaymentEntry('additional_charge', extra, {
+                method: 'adjustment',
+                note: `Vehicle change to ${nextVehicle.make || ''} ${nextVehicle.series || ''}`.trim(),
+                occurredAt: now,
+              }),
+            )
+          }
           return {
             ...r,
             vehicleId: newId,
@@ -693,8 +748,34 @@ export function VehicleProvider({ children }) {
     const key = String(rentalId || '').trim()
     if (!key) throw new Error('Booking id is required')
 
-    const saved = await startBookedRentalApi(key, pickup)
-    const normalized = normalizeRental(saved)
+    let normalized
+    try {
+      const saved = await startBookedRentalApi(key, pickup)
+      normalized = normalizeRental(saved)
+    } catch (err) {
+      const networkFailure =
+        navigator.onLine === false || /fetch|network|offline|load failed/i.test(String(err?.message || err))
+      if (!networkFailure) throw err
+      await enqueueOfflinePickup(key, pickup)
+      const current = rentalsRef.current.find((r) => String(r.id) === key)
+      if (!current) throw new Error('Booking not found')
+      const now = new Date().toISOString()
+      normalized = normalizeRental({
+        ...current,
+        personal: { ...current.personal, optionalPhoto: pickup.optionalPhoto || current.personal?.optionalPhoto || '' },
+        photo: pickup.photo,
+        licensePhoto: pickup.licensePhoto,
+        signature: pickup.signature,
+        carPhotos: pickup.carPhotos || {},
+        termsAccepted: true,
+        rental: { ...current.rental, pickupSignedAt: now, signatureStatus: 'signed' },
+        rentalLifecycle: 'active',
+        startedAt: now,
+        updatedAt: now,
+        syncPending: true,
+      })
+      reportAppError(err, { area: 'sync', operation: `queued offline pickup ${key}`, severity: 'warning' })
+    }
     const vehicleId = normalized.vehicleId || normalized.vehicle?.id
 
     skipRentalAutosave.current = true
@@ -711,6 +792,17 @@ export function VehicleProvider({ children }) {
         ),
       )
     }
+    return normalized
+  }, [])
+
+  const recordRentalPayment = useCallback(async (rentalId, input) => {
+    const saved = await addRentalPaymentEntryApi(rentalId, input)
+    const normalized = normalizeRental(saved)
+    skipRentalAutosave.current = true
+    rentalSaveGen.current += 1
+    setRentals((prev) => prev.map((row) =>
+      String(row.id) === String(normalized.id) ? normalized : row,
+    ))
     return normalized
   }, [])
 
@@ -961,8 +1053,10 @@ export function VehicleProvider({ children }) {
         cancelScheduledRental,
         startBookedRental,
         changeRentalVehicle,
+        recordRentalPayment,
         updateRentalCarPhotos,
         reloadData,
+        syncOfflineNow,
         replaceAllData,
         wipeLocalFleet,
         wipeLocalRentals,

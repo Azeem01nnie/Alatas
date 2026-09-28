@@ -5,6 +5,7 @@ import {
   getContractClauseNumber,
 } from '../data/contract'
 import { formatEmergencyContact } from '../utils/phone'
+import { parseRentalFeeAmount } from '../utils/rentalFee'
 import letterheadLogoUrl from '../assets/alatas-letterhead-logo.jpeg'
 
 /** Official ALATAS Vehicle Rental Agreement PDF — matches Vehicle_Rental_Agreement.docx */
@@ -42,6 +43,15 @@ async function loadLetterheadLogo() {
 
 function val(v) {
   return String(v ?? '').trim()
+}
+
+function formatPdfAmount(value) {
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) return ''
+  return amount.toLocaleString('en-PH', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })
 }
 
 function toPdfText(text) {
@@ -438,7 +448,35 @@ export async function downloadRentalAgreementPdf(transaction = {}, options = {})
 
   // RENTAL FEES
   y = sectionTitle(doc, 'Rental Fees & Payment', y)
-  y = fillBlank(doc, 'Rental Fee: PHP', rental.rentalFee, y, { underline: false })
+  const baseRentalFee = parseRentalFeeAmount(rental.rentalFee)
+  const outsideCityFee =
+    String(rental.coverage || '').toLowerCase() === 'outside_city'
+      ? parseRentalFeeAmount(rental.outsideCityFee)
+      : 0
+
+  if (outsideCityFee > 0) {
+    y = fillBlank(doc, 'Base Rental Fee: PHP', formatPdfAmount(baseRentalFee), y, {
+      underline: false,
+    })
+    y = fillBlank(
+      doc,
+      rental.outsideCityDestinationName
+        ? `Outside-City Fee (${rental.outsideCityDestinationName}): PHP`
+        : 'Outside-City Fee: PHP',
+      formatPdfAmount(outsideCityFee),
+      y,
+      { underline: false },
+    )
+    y = fillBlank(
+      doc,
+      'Total Rental Fee: PHP',
+      formatPdfAmount(baseRentalFee + outsideCityFee),
+      y,
+      { underline: false },
+    )
+  } else {
+    y = fillBlank(doc, 'Rental Fee: PHP', rental.rentalFee, y, { underline: false })
+  }
 
   // TERMS start on a new page with letterhead
   y = forceNewPage(doc)
@@ -560,7 +598,8 @@ export async function downloadRentalAgreementPdf(transaction = {}, options = {})
   )
   y += 16
 
-  // Photo appendix (customer + car) — after official form body
+  // Optional photo appendix (customer + car) — after official form body.
+  if (options.includeAppendix !== false) {
   const customerCandidates = []
   if (isUsableImageSrc(photo)) customerCandidates.push({ src: photo, label: 'Holding license' })
   if (isUsableImageSrc(licensePhoto)) {
@@ -631,7 +670,19 @@ export async function downloadRentalAgreementPdf(transaction = {}, options = {})
 
   drawAppendix('CUSTOMER PHOTOS (APPENDIX)', customerImages)
   drawAppendix('PRE-RENTAL CAR PHOTOS (APPENDIX)', carImages)
+  }
 
   const safeName = name.replace(/[^\w\-]+/g, '_').slice(0, 40) || 'contract'
+  if (options.print === true) {
+    if (typeof doc.autoPrint === 'function') doc.autoPrint({ variant: 'non-conform' })
+    const pdfUrl = doc.output('bloburl')
+    const printWindow = options.printWindow
+    if (!printWindow || printWindow.closed) {
+      doc.save(`Vehicle_Rental_Agreement_${safeName}_${transaction.id || 'report'}.pdf`)
+      return { printed: false, downloaded: true, popupBlocked: true }
+    }
+    printWindow.location.replace(pdfUrl)
+    return { printed: true, window: printWindow }
+  }
   doc.save(`Vehicle_Rental_Agreement_${safeName}_${transaction.id || 'report'}.pdf`)
 }

@@ -4,6 +4,9 @@ import { registerSW } from 'virtual:pwa-register'
 import './index.css'
 import App from './App.jsx'
 import { VehicleProvider } from './context/VehicleContext.jsx'
+import { installGlobalErrorMonitoring } from './utils/errorMonitor'
+
+installGlobalErrorMonitoring()
 
 // Force new SW so OR/CR scanner (same-origin Tesseract) is not stuck behind a stale precache
 registerSW({

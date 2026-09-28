@@ -7,6 +7,7 @@ import SelectMenu from './SelectMenu'
 import StepPhoto from './StepPhoto'
 import StepTerms from './StepTerms'
 import StepCarCondition from './StepCarCondition'
+import ConfirmModal from './ConfirmModal'
 import {
   formatRentalFee,
   parseRentalFeeAmount,
@@ -51,11 +52,43 @@ function customerName(r) {
   return [p.firstName, p.middleName, p.lastName].filter(Boolean).join(' ').trim() || '—'
 }
 
+function deskModeLabel(rental) {
+  const mode = String(rental?.deskMode || rental?.rental?.deskMode || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_')
+  return mode === 'booking' ? 'Booking' : 'Check-in'
+}
+
 function formatPeso(amount) {
   return `₱${Number(amount || 0).toLocaleString('en-PH', {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   })}`
+}
+
+function paymentEntryLabel(type) {
+  const labels = {
+    additional_charge: 'Additional charge',
+    overdue_collection: 'Overdue collection',
+    deposit: 'Deposit',
+    payment: 'Payment',
+    refund: 'Refund',
+    discount: 'Discount',
+  }
+  return labels[type] || 'Payment'
+}
+
+function paymentMethodLabel(entry) {
+  if (entry?.type === 'additional_charge' || entry?.type === 'discount') return 'Adjustment'
+  const methods = {
+    cash: 'Cash',
+    gcash: 'GCash',
+    bank: 'Bank transfer',
+    card: 'Card',
+    adjustment: 'Adjustment',
+  }
+  return methods[String(entry?.method || '').toLowerCase()] || 'Method not recorded'
 }
 
 function VehicleThumb({ vehicle }) {
@@ -141,6 +174,24 @@ function DetailModal({ rental, vehicle, onClose }) {
                 <dd className={bal > 0 ? 'is-due' : ''}>{formatPeso(bal)}</dd>
               </div>
             </dl>
+            {Array.isArray(rental?.rental?.paymentLedger) && rental.rental.paymentLedger.length ? (
+              <div className="dash-attn-payment-ledger">
+                <h4>Ledger entries</h4>
+                <ul>
+                  {[...rental.rental.paymentLedger].reverse().map((entry) => (
+                    <li key={entry.id} className={`is-${entry.type || 'payment'}`}>
+                      <span className="dash-attn-ledger-label">
+                        <strong>{paymentEntryLabel(entry.type)}</strong>
+                        <small>{paymentMethodLabel(entry)}</small>
+                      </span>
+                      <strong className="dash-attn-ledger-amount">
+                        {entry.direction === 'out' ? '−' : '+'}&nbsp;{formatPeso(entry.amount)}
+                      </strong>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </section>
         </div>
       </div>
@@ -180,7 +231,7 @@ function ProcessPickupModal({ rental, vehicle, onClose, onConfirm, busy, submitE
         <header className="dash-attn-detail-head booking-pickup-head">
           <div>
             <p className="dash-attn-detail-eyebrow">Advance booking</p>
-            <h3 id="booking-pickup-title" className="modal-title">Process pickup</h3>
+            <h3 id="booking-pickup-title" className="modal-title">Confirmation</h3>
             <p className="booking-pickup-subtitle">
               {customerName(rental)} · {vehicle?.make} {vehicle?.series} ({vehicle?.plateNo || '—'})
             </p>
@@ -245,7 +296,7 @@ function ProcessPickupModal({ rental, vehicle, onClose, onConfirm, busy, submitE
             Cancel
           </button>
           <button type="button" className="btn-primary" onClick={submit} disabled={busy}>
-            {busy ? 'Starting rental…' : 'Confirm signature & start rental'}
+            {busy ? 'Starting rental…' : 'Confirm & start rental'}
           </button>
         </div>
       </div>
@@ -267,6 +318,7 @@ function ChangeVehicleModal({
   const [pickedId, setPickedId] = useState('')
   const [extraPay, setExtraPay] = useState('')
   const [error, setError] = useState('')
+  const [confirmPayload, setConfirmPayload] = useState(null)
 
   const available = useMemo(() => {
     const booked = new Set(bookedVehicleIds || [])
@@ -317,18 +369,19 @@ function ChangeVehicleModal({
       setError('Additional charge cannot be negative')
       return
     }
-    onConfirm({ vehicle: picked, extraPayment: extra })
+    setConfirmPayload({ vehicle: picked, extraPayment: extra })
   }
 
   return (
-    <div className="modal-overlay confirm-modal-overlay" role="presentation" onClick={onClose}>
-      <div
-        className="modal-panel confirm-modal dash-change-vehicle-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="change-vehicle-title"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <>
+      <div className="modal-overlay confirm-modal-overlay" role="presentation" onClick={onClose}>
+        <div
+          className="modal-panel confirm-modal dash-change-vehicle-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="change-vehicle-title"
+          onClick={(e) => e.stopPropagation()}
+        >
         <header className="dash-change-vehicle-head">
           <div>
             <p className="dash-attn-detail-eyebrow">Swap unit</p>
@@ -441,6 +494,116 @@ function ChangeVehicleModal({
             {busy ? 'Saving…' : 'Confirm change'}
           </button>
         </div>
+        </div>
+      </div>
+      {confirmPayload ? (
+        <ConfirmModal
+          title="Confirm vehicle change"
+          message={`Change from ${currentVehicle?.make || ''} ${currentVehicle?.series || ''} (${currentVehicle?.plateNo || '—'}) to ${confirmPayload.vehicle.make || ''} ${confirmPayload.vehicle.series || ''} (${confirmPayload.vehicle.plateNo || '—'})?`}
+          confirmLabel="Yes, change vehicle"
+          cancelLabel="Go back"
+          confirmDisabled={busy}
+          onCancel={() => setConfirmPayload(null)}
+          onConfirm={() => {
+            const payload = confirmPayload
+            setConfirmPayload(null)
+            onConfirm(payload)
+          }}
+        >
+          <dl className="dash-change-confirm-summary">
+            <div>
+              <dt>Additional charge</dt>
+              <dd>{formatRentalFee(confirmPayload.extraPayment)}</dd>
+            </div>
+            <div>
+              <dt>New total</dt>
+              <dd>{formatRentalFee(currentTotal + confirmPayload.extraPayment)}</dd>
+            </div>
+            <div>
+              <dt>Balance due</dt>
+              <dd>{formatRentalFee(Math.max(0, currentTotal + confirmPayload.extraPayment - resolveAmountPaid(rental)))}</dd>
+            </div>
+          </dl>
+        </ConfirmModal>
+      ) : null}
+    </>
+  )
+}
+
+function PaymentEntryModal({ rental, onClose, onConfirm, busy, submitError }) {
+  const [type, setType] = useState('payment')
+  const [amount, setAmount] = useState('')
+  const [method, setMethod] = useState('cash')
+  const [error, setError] = useState('')
+  const balance = resolveBalanceDue(rental)
+  const paid = resolveAmountPaid(rental)
+  const isRefund = type === 'refund'
+
+  const submit = () => {
+    const value = parseRentalFeeAmount(amount)
+    if (!value) {
+      setError('Enter an amount greater than zero')
+      return
+    }
+    if (isRefund && value > paid) {
+      setError(`Refund cannot exceed ${formatPeso(paid)} already paid`)
+      return
+    }
+    if (!isRefund && value > balance) {
+      setError(`Payment cannot exceed the ${formatPeso(balance)} balance`)
+      return
+    }
+    onConfirm({ type, amount: value, method })
+  }
+
+  return (
+    <div className="modal-overlay confirm-modal-overlay" role="presentation" onClick={onClose}>
+      <div className="modal-panel confirm-modal payment-entry-modal" role="dialog" aria-modal="true" aria-labelledby="payment-entry-title" onClick={(e) => e.stopPropagation()}>
+        <header className="dash-attn-detail-head">
+          <div>
+            <p className="dash-attn-detail-eyebrow">Payment ledger</p>
+            <h3 id="payment-entry-title" className="modal-title">Record payment or refund</h3>
+            <p className="payment-entry-customer">{customerName(rental)}</p>
+          </div>
+          <button type="button" className="btn-ghost" onClick={onClose} disabled={busy}>Close</button>
+        </header>
+        <div className="field">
+          <span className="field-label">Entry type</span>
+          <SelectMenu value={type} onChange={setType} ariaLabel="Entry type" options={[
+            { value: 'payment', label: 'Additional payment' },
+            { value: 'refund', label: 'Refund', disabled: paid <= 0 },
+          ]} />
+        </div>
+        <dl className="payment-entry-summary">
+          <div><dt>Total paid</dt><dd>{formatPeso(paid)}</dd></div>
+          <div><dt>Balance due</dt><dd className={balance > 0 ? 'is-due' : ''}>{formatPeso(balance)}</dd></div>
+        </dl>
+        <label className="field">
+          <span className="field-label">{isRefund ? 'Refund amount' : 'Amount received'}</span>
+          <input inputMode="decimal" value={amount} onChange={(e) => { setAmount(e.target.value.replace(/[^\d.]/g, '')); setError('') }} placeholder="Example: 1,000" />
+        </label>
+        <div className="field">
+          <span className="field-label">{isRefund ? 'Refund method' : 'Payment method'}</span>
+          <SelectMenu value={method} onChange={setMethod} ariaLabel="Payment method" options={[
+            { value: 'cash', label: 'Cash' },
+            { value: 'gcash', label: 'GCash' },
+            { value: 'bank', label: 'Bank transfer' },
+            { value: 'card', label: 'Card' },
+          ]} />
+        </div>
+        <div className="payment-entry-example" role="note">
+          <strong>Example</strong>
+          <span>
+            {isRefund
+              ? `Refunding ${formatPeso(Math.min(500, paid))} reduces total paid and increases the balance by the same amount.`
+              : `Receiving ${formatPeso(Math.min(1000, balance))} reduces the balance from ${formatPeso(balance)} to ${formatPeso(Math.max(0, balance - Math.min(1000, balance)))}.`}
+          </span>
+        </div>
+        {error || submitError ? <p className="error-msg">{error || submitError}</p> : null}
+        <div className="modal-actions">
+          <button type="button" className="btn-outline" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="button" className="btn-primary" onClick={submit} disabled={busy}>{busy ? 'Saving…' : 'Save entry'}</button>
+        </div>
       </div>
     </div>
   )
@@ -462,6 +625,7 @@ export default function NeedsAttentionPanel({
   onCompleteRental,
   onProcessPickup,
   onChangeVehicle,
+  onRecordPayment,
   onManage,
 }) {
   const [detail, setDetail] = useState(null)
@@ -470,12 +634,16 @@ export default function NeedsAttentionPanel({
   const [pickupTarget, setPickupTarget] = useState(null)
   const [pickupBusy, setPickupBusy] = useState(false)
   const [pickupError, setPickupError] = useState('')
+  const [paymentTarget, setPaymentTarget] = useState(null)
+  const [paymentBusy, setPaymentBusy] = useState(false)
+  const [paymentError, setPaymentError] = useState('')
 
   useEffect(() => {
     setDetail(null)
     setChangeTarget(null)
     setPickupTarget(null)
     setPickupError('')
+    setPaymentTarget(null)
   }, [attentionFilter])
 
   const openDetail = (rental, vehicle) => setDetail({ rental, vehicle })
@@ -509,6 +677,20 @@ export default function NeedsAttentionPanel({
       setPickupError(err?.message || 'Could not process this booking pickup.')
     } finally {
       setPickupBusy(false)
+    }
+  }
+
+  const handlePaymentConfirm = async (entry) => {
+    if (!paymentTarget || !onRecordPayment) return
+    setPaymentBusy(true)
+    setPaymentError('')
+    try {
+      await onRecordPayment(paymentTarget.rental, entry)
+      setPaymentTarget(null)
+    } catch (err) {
+      setPaymentError(err?.message || 'Could not save this payment entry.')
+    } finally {
+      setPaymentBusy(false)
     }
   }
 
@@ -607,7 +789,14 @@ export default function NeedsAttentionPanel({
                             </div>
                           </div>
                         </td>
-                        <td data-label="Renter" className="dash-attn-cell-wide">{customerName(rental)}</td>
+                        <td data-label="Renter" className="dash-attn-cell-wide">
+                          <div className="dash-attn-renter">
+                            <span>{customerName(rental)}</span>
+                            <span className={`dash-attn-mode-badge is-${deskModeLabel(rental).toLowerCase()}`}>
+                              {deskModeLabel(rental)}
+                            </span>
+                          </div>
+                        </td>
                         <td data-label="Starts" className="dash-attn-cell-wide">
                           <div className="dash-attn-cell-time">
                             <span>{startLabel}</span>
@@ -629,7 +818,7 @@ export default function NeedsAttentionPanel({
                           </span>
                         </td>
                         <td className="dash-attn-actions-col" onClick={stop}>
-                          {isAdminUser || (isUnsignedBooking && onProcessPickup) ? (
+                          {isAdminUser || (bal > 0 && onRecordPayment) || (isUnsignedBooking && onProcessPickup) ? (
                             <div className="dash-attn-actions">
                               {isUnsignedBooking && onProcessPickup ? (
                                 <button
@@ -640,9 +829,10 @@ export default function NeedsAttentionPanel({
                                     setPickupTarget({ rental, vehicle })
                                   }}
                                 >
-                                  Process pickup
+                                  Confirmation
                                 </button>
                               ) : null}
+                              {bal > 0 && onRecordPayment ? <button type="button" className="btn-outline btn-sm" onClick={() => setPaymentTarget({ rental, vehicle })}>Payment</button> : null}
                               {isAdminUser ? (
                                 <>
                                   <button
@@ -722,7 +912,14 @@ export default function NeedsAttentionPanel({
                             </div>
                           </div>
                         </td>
-                        <td data-label="Renter" className="dash-attn-cell-wide">{customerName(rental)}</td>
+                        <td data-label="Renter" className="dash-attn-cell-wide">
+                          <div className="dash-attn-renter">
+                            <span>{customerName(rental)}</span>
+                            <span className={`dash-attn-mode-badge is-${deskModeLabel(rental).toLowerCase()}`}>
+                              {deskModeLabel(rental)}
+                            </span>
+                          </div>
+                        </td>
                         <td data-label="Until" className="dash-attn-cell-wide">
                           <div className="dash-attn-cell-time">
                             <span>{untilLabel}</span>
@@ -766,6 +963,7 @@ export default function NeedsAttentionPanel({
                               >
                                 Complete
                               </button>
+                              {bal > 0 && onRecordPayment ? <button type="button" className="btn-outline btn-sm" onClick={() => setPaymentTarget({ rental, vehicle })}>Payment</button> : null}
                               {isAdminUser ? (
                                 <button
                                   type="button"
@@ -835,6 +1033,9 @@ export default function NeedsAttentionPanel({
 
         {attentionFilter === 'pending' ? pendingSlot : null}
       </div>
+      {paymentTarget ? (
+        <PaymentEntryModal rental={paymentTarget.rental} onClose={() => !paymentBusy && setPaymentTarget(null)} onConfirm={handlePaymentConfirm} busy={paymentBusy} submitError={paymentError} />
+      ) : null}
 
       {detail ? (
         <DetailModal

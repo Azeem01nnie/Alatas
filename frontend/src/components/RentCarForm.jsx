@@ -28,6 +28,7 @@ import {
   resolveRentalQuoteTotal,
 } from '../utils/rentalFee'
 import { isCustomerBlacklisted, upsertCustomerFromPersonal } from '../utils/customers'
+import { createPaymentEntry } from '../utils/paymentLedger'
 
 const TOTAL_STEPS = 5
 
@@ -99,6 +100,7 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
   const [termsAccepted, setTermsAccepted] = useState(false)
   const [amountPaidInput, setAmountPaidInput] = useState('')
   const [discountInput, setDiscountInput] = useState('')
+  const [paymentMethod, setPaymentMethod] = useState('cash')
   const [errors, setErrors] = useState({})
   const [phase, setPhase] = useState('form') // form | loading
   const [submitError, setSubmitError] = useState('')
@@ -379,6 +381,7 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
     setTermsAccepted(false)
     setAmountPaidInput('')
     setDiscountInput('')
+    setPaymentMethod('cash')
     setErrors({})
     setSubmitError('')
     setSubmitting(false)
@@ -470,6 +473,24 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
       const periodToLabel = formatPeriodLabel(rental.toDate, toTime, rental.toMeridiem)
 
       const encoder = String(encodedByName || '').trim() || 'Unknown'
+      const encodedAt = new Date().toISOString()
+      const paymentLedger = []
+      if (discountAmount > 0) {
+        paymentLedger.push(createPaymentEntry('discount', discountAmount, {
+          method: 'adjustment',
+          note: 'Initial rental discount',
+          recordedBy: encoder,
+          occurredAt: encodedAt,
+        }))
+      }
+      if (amountPaid > 0) {
+        paymentLedger.push(createPaymentEntry(deskMode === 'booking' ? 'deposit' : 'payment', amountPaid, {
+          method: paymentMethod,
+          note: deskMode === 'booking' ? 'Reservation deposit' : 'Initial check-in payment',
+          recordedBy: encoder,
+          occurredAt: encodedAt,
+        }))
+      }
       const safe = (value) => String(value ?? '').trim()
       const isMobileClient =
         typeof window !== 'undefined' &&
@@ -544,6 +565,8 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
           initialPaymentValue: amountPaid,
           balanceDue: formatRentalFee(balanceDue),
           balanceDueValue: balanceDue,
+          paymentMethod,
+          paymentLedger,
           fromDate: rental.fromDate,
           fromHour: rental.fromHour,
           fromMinute: rental.fromMinute,
@@ -565,18 +588,20 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
         carPhotos: compressedCarPhotos,
         termsAccepted: deskMode === 'booking' ? false : termsAccepted,
         deskMode,
-        encodedAt: new Date().toISOString(),
+        encodedAt,
         encodedBy: encoder,
         autoApprove: Boolean(autoApprove),
         source: isMobileClient ? 'mobile' : 'desktop',
       }
 
-      await addRental(record)
+      const savedRecord = await addRental(record)
       try {
-        upsertCustomerFromPersonal(record.personal, {
-          holdingPhoto: compressedPhoto,
-          licensePhoto: compressedLicense,
-          optionalPhoto: compressedOptional,
+        const securePhoto = (value) =>
+          typeof value === 'string' && !value.startsWith('data:') ? value : undefined
+        upsertCustomerFromPersonal(savedRecord?.personal || record.personal, {
+          holdingPhoto: securePhoto(savedRecord?.photo),
+          licensePhoto: securePhoto(savedRecord?.licensePhoto),
+          optionalPhoto: securePhoto(savedRecord?.personal?.optionalPhoto),
         })
       } catch (custErr) {
         console.warn('Could not save customer profile', custErr)
@@ -733,6 +758,8 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
               setErrors((prev) => ({ ...prev, amountPaid: '' }))
             }}
             discountInput={discountInput}
+            paymentMethod={paymentMethod}
+            onPaymentMethodChange={setPaymentMethod}
             onDiscountChange={(next) => {
               setDiscountInput(next)
               setErrors((prev) => ({ ...prev, discount: '' }))

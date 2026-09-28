@@ -21,6 +21,7 @@ function withOwnerFields(o) {
     name: autoCapitalizeWords(String(o?.name || '').trim()),
     ownershipType,
     createdAt: o?.createdAt || new Date().toISOString(),
+    archivedAt: o?.archivedAt || null,
   }
   if (ownershipType === 'thirdParty') {
     next.investorSharePercent = normalizeInvestorSharePercent(o?.investorSharePercent)
@@ -28,7 +29,7 @@ function withOwnerFields(o) {
   return next
 }
 
-export function loadOwners() {
+function readOwners() {
   try {
     const raw = localStorage.getItem(OWNERS_KEY)
     if (!raw) return []
@@ -37,6 +38,11 @@ export function loadOwners() {
   } catch {
     return []
   }
+}
+
+export function loadOwners({ includeArchived = false } = {}) {
+  const owners = readOwners()
+  return includeArchived ? owners : owners.filter((owner) => !owner.archivedAt)
 }
 
 function saveOwners(owners) {
@@ -90,7 +96,7 @@ export async function pullOwnersFromCloud() {
   try {
     const { fetchOwnersRemote } = await import('../api/backend')
     const remote = await fetchOwnersRemote()
-    const merged = mergeOwnerLists(loadOwners(), remote)
+    const merged = mergeOwnerLists(readOwners(), remote)
     safeSetItem(OWNERS_KEY, JSON.stringify(merged))
     return merged
   } catch (err) {
@@ -103,11 +109,18 @@ export function addOwner({ name, ownershipType = 'company', investorSharePercent
   const trimmed = autoCapitalizeWords(String(name || '').trim())
   if (!trimmed) throw new Error('Owner name is required')
 
-  const owners = loadOwners()
+  const owners = readOwners()
   const existing = owners.find(
     (o) => o.name.toLowerCase() === trimmed.toLowerCase(),
   )
-  if (existing) return existing
+  if (existing) {
+    if (existing.archivedAt) {
+      const restored = { ...existing, archivedAt: null }
+      saveOwners(owners.map((owner) => owner.id === existing.id ? restored : owner))
+      return restored
+    }
+    return existing
+  }
 
   const type = ownershipType === 'thirdParty' ? 'thirdParty' : 'company'
   const owner = {
@@ -125,7 +138,7 @@ export function addOwner({ name, ownershipType = 'company', investorSharePercent
 }
 
 export function updateOwner(id, patch) {
-  const owners = loadOwners()
+  const owners = readOwners()
   const next = owners.map((o) => {
     if (o.id !== id) return o
     const ownershipType =
@@ -156,11 +169,39 @@ export function updateOwner(id, patch) {
 }
 
 export function getOwnerById(id) {
-  return loadOwners().find((o) => o.id === id) || null
+  return readOwners().find((o) => o.id === id) || null
 }
 
 export function removeOwner(id) {
-  const next = loadOwners().filter((o) => o.id !== id)
+  const next = readOwners().filter((o) => o.id !== id)
+  saveOwners(next)
+  return next
+}
+
+export function archiveOwner(id) {
+  const owners = readOwners()
+  const now = new Date().toISOString()
+  const next = owners.map((owner) =>
+    String(owner.id) === String(id) ? { ...owner, archivedAt: now } : owner,
+  )
+  saveOwners(next)
+  return next.find((owner) => String(owner.id) === String(id)) || null
+}
+
+export function restoreOwner(id) {
+  const owners = readOwners()
+  const next = owners.map((owner) =>
+    String(owner.id) === String(id) ? { ...owner, archivedAt: null } : owner,
+  )
+  saveOwners(next)
+  return next.find((owner) => String(owner.id) === String(id)) || null
+}
+
+export function deleteArchivedOwner(id) {
+  const owners = readOwners()
+  const target = owners.find((owner) => String(owner.id) === String(id))
+  if (!target?.archivedAt) throw new Error('Only archived owners can be permanently deleted')
+  const next = owners.filter((owner) => String(owner.id) !== String(id))
   saveOwners(next)
   return next
 }
@@ -170,7 +211,7 @@ export function removeOwner(id) {
  * Vehicle Reports (which derives owners from vehicle ownerId/ownerName).
  */
 export function syncOwnersFromVehicles(vehicles = []) {
-  let owners = loadOwners()
+  let owners = readOwners()
   let changed = false
 
   for (const v of vehicles) {
@@ -282,9 +323,12 @@ export function purgeOrphanOwners({
       .map((n) => String(n || '').trim().toLowerCase())
       .filter(Boolean),
   )
-  const owners = loadOwners()
+  const owners = readOwners()
   const next = owners.filter(
-    (o) => keepIds.has(o.id) || keepNames.has(String(o.name || '').trim().toLowerCase()),
+    (o) =>
+      Boolean(o.archivedAt) ||
+      keepIds.has(o.id) ||
+      keepNames.has(String(o.name || '').trim().toLowerCase()),
   )
   if (next.length !== owners.length) saveOwners(next)
   return next

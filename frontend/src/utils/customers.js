@@ -8,11 +8,26 @@ export function loadCustomers() {
     const raw = localStorage.getItem(STORE_KEY)
     if (!raw) return []
     const parsed = JSON.parse(raw)
-    return Array.isArray(parsed?.customers)
+    const rows = Array.isArray(parsed?.customers)
       ? parsed.customers
       : Array.isArray(parsed)
         ? parsed
         : []
+    // Legacy versions cached sensitive base64 ID photos in localStorage. Remove those
+    // copies; current records keep only short-lived authenticated Storage URLs.
+    let scrubbed = false
+    const customers = rows.map((row) => {
+      const next = { ...row }
+      for (const key of ['holdingPhoto', 'licensePhoto', 'optionalPhoto']) {
+        if (String(next[key] || '').startsWith('data:')) {
+          next[key] = ''
+          scrubbed = true
+        }
+      }
+      return next
+    })
+    if (scrubbed) safeSetItem(STORE_KEY, JSON.stringify({ customers }))
+    return customers
   } catch {
     return []
   }
