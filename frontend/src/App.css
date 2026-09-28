@@ -6442,6 +6442,20 @@ html[data-theme='dark'] .dash-attn-balance.is-due {
     width: 100%;
   }
 
+  /* Rental cards become a swipeable horizontal carousel in narrow panels. */
+  .dash-attn-table:not(.dash-attn-table--maintenance) tbody {
+    display: flex;
+    gap: 0.65rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.05rem 1.25rem 0.55rem 0.05rem;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 0.05rem;
+    scrollbar-width: thin;
+    overscroll-behavior-inline: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
   .dash-attn-table thead {
     position: absolute;
     width: 1px;
@@ -6462,8 +6476,18 @@ html[data-theme='dark'] .dash-attn-balance.is-due {
     background: var(--surface);
   }
 
+  .dash-attn-table:not(.dash-attn-table--maintenance) .dash-attn-tr {
+    flex: 0 0 min(25rem, calc(100% - 1.25rem));
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+  }
+
   .dash-attn-tr + .dash-attn-tr {
     margin-top: 0.65rem;
+  }
+
+  .dash-attn-table:not(.dash-attn-table--maintenance) .dash-attn-tr + .dash-attn-tr {
+    margin-top: 0;
   }
 
   .dash-attn-table .dash-attn-tr > td {

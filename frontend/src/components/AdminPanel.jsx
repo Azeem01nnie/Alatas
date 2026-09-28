@@ -5730,7 +5730,7 @@ function VehicleFields({
               }}
             />
           ) : null}
-        </div>
+          </div>
 
         <div className="edit-image-preview-wrap">
           <div

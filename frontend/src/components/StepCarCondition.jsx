@@ -18,6 +18,12 @@ async function readAndCompress(file) {
   return compressImageDataUrl(dataUrl, 960, 0.8)
 }
 
+/** Phones/tablets: use the native camera app for reliable rear-camera access. */
+function prefersNativeCamera() {
+  if (typeof window === 'undefined') return false
+  return Boolean(window.matchMedia?.('(pointer: coarse)').matches) && 'ontouchstart' in window
+}
+
 function CarPhotoSlot({
   title,
   hint,
@@ -32,6 +38,7 @@ function CarPhotoSlot({
   onClear,
   onUploadClick,
   inputRef,
+  captureInputRef,
 }) {
   return (
     <article className={`photo-upload-card${preview ? ' has-preview' : ''}${error ? ' has-error' : ''}`}>
@@ -56,6 +63,13 @@ function CarPhotoSlot({
       <div className="photo-upload-actions">
         <input
           ref={inputRef}
+          type="file"
+          accept="image/*"
+          className="sr-only"
+          onChange={onPick}
+        />
+        <input
+          ref={captureInputRef}
           type="file"
           accept="image/*"
           capture="environment"
@@ -101,7 +115,9 @@ function CarPhotoSlot({
 
 export default function StepCarCondition({ photos, onChange }) {
   const inputRefs = useRef({})
+  const captureInputRefs = useRef({})
   const extraInputRef = useRef(null)
+  const extraCaptureInputRef = useRef(null)
   const videoRefs = useRef({})
   const streamRef = useRef(null)
   const [busyKey, setBusyKey] = useState('')
@@ -297,9 +313,21 @@ export default function StepCarCondition({ photos, onChange }) {
             inputRef={(el) => {
               inputRefs.current[slot.key] = el
             }}
-            onToggleCamera={() =>
-              cameraKey === slot.key ? stopCamera() : startCamera(slot.key)
-            }
+            captureInputRef={(el) => {
+              captureInputRefs.current[slot.key] = el
+            }}
+            onToggleCamera={() => {
+              if (cameraKey === slot.key) {
+                stopCamera()
+                return
+              }
+              if (prefersNativeCamera() && captureInputRefs.current[slot.key]) {
+                stopCamera()
+                captureInputRefs.current[slot.key].click()
+                return
+              }
+              startCamera(slot.key)
+            }}
             onCapture={() => captureFromCamera(slot.key)}
             onPick={(e) => handleFile(slot.key, e.target.files?.[0], e.target)}
             onUploadClick={() => inputRefs.current[slot.key]?.click()}
@@ -337,6 +365,14 @@ export default function StepCarCondition({ photos, onChange }) {
               ref={extraInputRef}
               type="file"
               accept="image/*"
+              className="sr-only"
+              onChange={(e) => addExtraFile(e.target.files?.[0], e.target)}
+            />
+            <input
+              ref={extraCaptureInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
               className="sr-only"
               onChange={(e) => addExtraFile(e.target.files?.[0], e.target)}
             />
@@ -386,7 +422,14 @@ export default function StepCarCondition({ photos, onChange }) {
                   type="button"
                   className="btn-outline"
                   disabled={extraBusy}
-                  onClick={() => startCamera('extra')}
+                  onClick={() => {
+                    if (prefersNativeCamera() && extraCaptureInputRef.current) {
+                      stopCamera()
+                      extraCaptureInputRef.current.click()
+                      return
+                    }
+                    startCamera('extra')
+                  }}
                 >
                   Take photo
                 </button>
