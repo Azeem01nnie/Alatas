@@ -12,6 +12,7 @@ import logo from '../assets/logonobg.png'
 import { useVehicles } from '../context/VehicleContext'
 import { BODY_TYPES } from '../data/vehicles'
 import { compressImageDataUrl } from '../utils/storage'
+import { upsertCustomerFromPersonal } from '../utils/customers'
 import {
   archiveVehicleSnapshot,
   loadArchivedVehicles,
@@ -736,6 +737,7 @@ export default function AdminPanel() {
     updateVehicleStatus,
     completeRentalForVehicle,
     cancelScheduledRental,
+    startBookedRental,
     changeRentalVehicle,
     updateRentalCarPhotos,
     replaceAllData,
@@ -3313,6 +3315,22 @@ export default function AdminPanel() {
                     bookedVehicleIds={bookedVehicleIds}
                     onCancelRental={requestCancelRental}
                     onCompleteRental={requestRentCompleted}
+                    onProcessPickup={async (rental, pickup) => {
+                      try {
+                        await startBookedRental(rental.id, pickup)
+                        upsertCustomerFromPersonal(rental.personal, {
+                          holdingPhoto: pickup.photo,
+                          licensePhoto: pickup.licensePhoto,
+                          optionalPhoto: pickup.optionalPhoto,
+                        })
+                        setMessage('Booking signed. Rental is now active.')
+                        setTimeout(() => setMessage(''), 3000)
+                      } catch (err) {
+                        setMessage(err?.message || 'Could not process this booking pickup.')
+                        setTimeout(() => setMessage(''), 4500)
+                        throw err
+                      }
+                    }}
                     onManage={() => setTab('manage')}
                     onChangeVehicle={async ({ rental, toVehicle, extraPayment }) => {
                       try {

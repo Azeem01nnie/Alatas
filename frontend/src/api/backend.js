@@ -896,6 +896,81 @@ export async function addRental(rental) {
   return mapRental(data)
 }
 
+/** Finalize an advance booking at the counter after the customer signs. */
+export async function startBookedRental(rentalId, pickup = {}) {
+  const sb = requireSupabase()
+  const id = String(rentalId || '').trim()
+  if (!id) throw new Error('Booking id is required')
+  if (!pickup.photo) throw new Error('Customer holding-license photo is required')
+  if (!pickup.licensePhoto) throw new Error('Customer photo is required')
+  if (!pickup.signature) throw new Error('Customer signature is required')
+  if (!pickup.termsAccepted) throw new Error('Customer must accept the rental agreement')
+
+  const { data: existing, error: existingErr } = await sb
+    .from('rentals')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle()
+  if (existingErr) throwSb(existingErr)
+  if (!existing) throw new Error('Booking not found')
+  if (existing.rental_lifecycle !== 'scheduled') {
+    throw new Error('Only a scheduled booking can be processed for pickup')
+  }
+
+  const mode = String(existing.rental?.deskMode || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_')
+  if (mode !== 'booking') throw new Error('This record is not an advance booking')
+
+  const prepared = await materializeRentalMedia({
+    id,
+    photo: pickup.photo,
+    licensePhoto: pickup.licensePhoto,
+    signature: pickup.signature,
+    carPhotos: pickup.carPhotos || {},
+    personal: {
+      ...(existing.personal || {}),
+      optionalPhoto: pickup.optionalPhoto || existing.personal?.optionalPhoto || '',
+    },
+  })
+  const now = new Date().toISOString()
+  const rentalJson = {
+    ...(existing.rental || {}),
+    pickupSignedAt: now,
+    signatureStatus: 'signed',
+  }
+
+  const { data, error } = await sb
+    .from('rentals')
+    .update({
+      personal: prepared.personal,
+      photo: prepared.photo,
+      license_photo: prepared.licensePhoto,
+      signature: prepared.signature,
+      car_photos: prepared.carPhotos,
+      terms_accepted: true,
+      rental: rentalJson,
+      rental_lifecycle: 'active',
+      started_at: now,
+      updated_at: now,
+    })
+    .eq('id', id)
+    .select('*')
+    .maybeSingle()
+  if (error) throwSb(error)
+  if (!data) throw new Error('Booking not found')
+
+  if (data.vehicle_id) {
+    await sb
+      .from('vehicles')
+      .update({ status: 'Rented', updated_at: now })
+      .eq('id', String(data.vehicle_id))
+  }
+
+  return mapRental(data)
+}
+
 /**
  * Swap the vehicle on an open rental and optionally record additional payment received.
  * Frees the old unit and marks the new one Rented when the rental is active.
@@ -1098,19 +1173,24 @@ export function fetchPendingRentals() {
 export async function acceptPendingRental(id) {
   const sb = requireSupabase()
   const key = String(id)
-  const { data, error } = await sb.rpc('accept_pending_rental', { p_id: key })
-  if (!error) return mapRental(data)
-
-  // Fallback when RPC is missing / outdated — still clear the pending queue.
-  const now = new Date().toISOString()
   const { data: row, error: fetchErr } = await sb.from('rentals').select('*').eq('id', key).maybeSingle()
-  if (fetchErr) throwSb(error)
-  if (!row) throwSb(error)
-  const periodFrom = row.rental?.periodFrom ? new Date(row.rental.periodFrom).getTime() : NaN
+  if (fetchErr) throwSb(fetchErr)
+  if (!row) throw new Error('Pending rental not found')
   const deskMode = String(row.desk_mode || row.rental?.deskMode || '')
     .trim()
     .toLowerCase()
     .replace(/[\s-]+/g, '_')
+
+  // The original database RPC starts any past-due row immediately. Advance bookings must
+  // remain scheduled until Process pickup captures the in-shop customer signature.
+  if (deskMode !== 'booking') {
+    const { data, error } = await sb.rpc('accept_pending_rental', { p_id: key })
+    if (!error) return mapRental(data)
+  }
+
+  // Fallback when RPC is missing/outdated, and the intentional booking path.
+  const now = new Date().toISOString()
+  const periodFrom = row.rental?.periodFrom ? new Date(row.rental.periodFrom).getTime() : NaN
   let startNow = Number.isNaN(periodFrom) || periodFrom <= Date.now()
   let lifecycle = startNow ? 'active' : 'scheduled'
   if (deskMode === 'check_in' || deskMode === 'checkin') {

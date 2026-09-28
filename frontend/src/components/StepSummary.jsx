@@ -52,6 +52,7 @@ export default function StepSummary({
   signature,
   carPhotos = {},
   termsAccepted,
+  bookingMode = false,
 }) {
   const fullName = [personal.firstName, personal.middleName, personal.lastName]
     .filter(Boolean)
@@ -80,16 +81,22 @@ export default function StepSummary({
           <div className="summary-status-strip">
             <div className="summary-status-pill">
               <span className="summary-status-label">Terms</span>
-              <strong>{termsAccepted ? 'Accepted' : 'Pending'}</strong>
+              <strong>{bookingMode ? 'At pickup' : termsAccepted ? 'Accepted' : 'Pending'}</strong>
             </div>
             <div className="summary-status-pill">
               <span className="summary-status-label">Signature</span>
-              <strong>{signature ? 'Signed' : 'Missing'}</strong>
+              <strong>{bookingMode ? 'At pickup' : signature ? 'Signed' : 'Missing'}</strong>
             </div>
             <div className="summary-status-pill">
               <span className="summary-status-label">Photos</span>
               <strong>
-                {photosReady ? (optionalPhoto ? 'Ready + optional' : 'Ready') : 'Incomplete'}
+                {photosReady
+                  ? optionalPhoto
+                    ? 'Ready + optional'
+                    : 'Ready'
+                  : bookingMode
+                    ? 'At pickup'
+                    : 'Incomplete'}
               </strong>
             </div>
             <div className="summary-status-pill">
@@ -99,7 +106,7 @@ export default function StepSummary({
                   const sides = CAR_PHOTO_SLOTS.filter((slot) => Boolean(carPhotos?.[slot.key])).length
                   const extras = Array.isArray(carPhotos?.extras) ? carPhotos.extras.length : 0
                   const total = sides + extras
-                  if (!total) return 'Optional · none yet'
+                  if (!total) return bookingMode ? 'At pickup' : 'Optional · none yet'
                   if (carSidesReady) return `4 sides${extras ? ` · ${extras} extra` : ''}`
                   return `${total} attached`
                 })()}

@@ -4,6 +4,9 @@ import { getArchivedIdSet } from '../utils/archivedVehicles'
 import { getDisplayStatus } from '../utils/vehicleDisplayStatus'
 import { resolveVehicleDisplayImage } from '../utils/vehicleImages'
 import SelectMenu from './SelectMenu'
+import StepPhoto from './StepPhoto'
+import StepTerms from './StepTerms'
+import StepCarCondition from './StepCarCondition'
 import {
   formatRentalFee,
   parseRentalFeeAmount,
@@ -139,6 +142,111 @@ function DetailModal({ rental, vehicle, onClose }) {
               </div>
             </dl>
           </section>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ProcessPickupModal({ rental, vehicle, onClose, onConfirm, busy, submitError }) {
+  const [photo, setPhoto] = useState(rental?.photo || '')
+  const [licensePhoto, setLicensePhoto] = useState(rental?.licensePhoto || '')
+  const [optionalPhoto, setOptionalPhoto] = useState(rental?.personal?.optionalPhoto || '')
+  const [carPhotos, setCarPhotos] = useState(rental?.carPhotos || {})
+  const [signature, setSignature] = useState('')
+  const [termsAccepted, setTermsAccepted] = useState(false)
+  const [errors, setErrors] = useState({})
+
+  const submit = () => {
+    const next = {}
+    if (!photo) next.photo = 'Add a photo of the customer holding their license'
+    if (!licensePhoto) next.licensePhoto = 'Add a clear customer photo'
+    if (!signature) next.signature = 'Customer signature is required'
+    if (!termsAccepted) next.terms = 'Customer must accept the agreement'
+    setErrors(next)
+    if (Object.keys(next).length) return
+    onConfirm({ photo, licensePhoto, optionalPhoto, carPhotos, signature, termsAccepted })
+  }
+
+  return (
+    <div className="modal-overlay confirm-modal-overlay" role="presentation" onClick={onClose}>
+      <div
+        className="modal-panel confirm-modal booking-pickup-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="booking-pickup-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="dash-attn-detail-head booking-pickup-head">
+          <div>
+            <p className="dash-attn-detail-eyebrow">Advance booking</p>
+            <h3 id="booking-pickup-title" className="modal-title">Process pickup</h3>
+            <p className="booking-pickup-subtitle">
+              {customerName(rental)} · {vehicle?.make} {vehicle?.series} ({vehicle?.plateNo || '—'})
+            </p>
+          </div>
+          <button type="button" className="btn-ghost" onClick={onClose} disabled={busy}>
+            Close
+          </button>
+        </header>
+
+        <div className="booking-pickup-body">
+          <section className="booking-pickup-section">
+            <h4>1. Verify customer ID</h4>
+            <StepPhoto
+              holdingPreview={photo}
+              licensePreview={licensePhoto}
+              optionalPreview={optionalPhoto}
+              onHoldingChange={(value) => {
+                setPhoto(value)
+                setErrors((prev) => ({ ...prev, photo: '' }))
+              }}
+              onLicenseChange={(value) => {
+                setLicensePhoto(value)
+                setErrors((prev) => ({ ...prev, licensePhoto: '' }))
+              }}
+              onOptionalChange={setOptionalPhoto}
+              errors={errors}
+              compact
+            />
+          </section>
+
+          <section className="booking-pickup-section">
+            <h4>2. Record vehicle condition</h4>
+            <StepCarCondition
+              photos={carPhotos}
+              onChange={(key, value) => setCarPhotos((prev) => ({ ...prev, [key]: value }))}
+            />
+          </section>
+
+          <section className="booking-pickup-section">
+            <h4>3. Review and sign agreement</h4>
+            <StepTerms
+              accepted={termsAccepted}
+              onAcceptedChange={(value) => {
+                setTermsAccepted(value)
+                setErrors((prev) => ({ ...prev, terms: '' }))
+              }}
+              signature={signature}
+              onSignatureChange={(value) => {
+                setSignature(value)
+                setErrors((prev) => ({ ...prev, signature: '', terms: '' }))
+              }}
+              error={errors.terms}
+              signatureError={errors.signature}
+              compact
+            />
+          </section>
+        </div>
+
+        <div className="modal-actions booking-pickup-actions">
+          {submitError ? <span className="error-msg booking-pickup-error">{submitError}</span> : null}
+          <button type="button" className="btn-outline" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button type="button" className="btn-primary" onClick={submit} disabled={busy}>
+            {busy ? 'Starting rental…' : 'Confirm signature & start rental'}
+          </button>
         </div>
       </div>
     </div>
@@ -352,16 +460,22 @@ export default function NeedsAttentionPanel({
   bookedVehicleIds,
   onCancelRental,
   onCompleteRental,
+  onProcessPickup,
   onChangeVehicle,
   onManage,
 }) {
   const [detail, setDetail] = useState(null)
   const [changeTarget, setChangeTarget] = useState(null)
   const [changeBusy, setChangeBusy] = useState(false)
+  const [pickupTarget, setPickupTarget] = useState(null)
+  const [pickupBusy, setPickupBusy] = useState(false)
+  const [pickupError, setPickupError] = useState('')
 
   useEffect(() => {
     setDetail(null)
     setChangeTarget(null)
+    setPickupTarget(null)
+    setPickupError('')
   }, [attentionFilter])
 
   const openDetail = (rental, vehicle) => setDetail({ rental, vehicle })
@@ -383,6 +497,20 @@ export default function NeedsAttentionPanel({
   }
 
   const stop = (e) => e.stopPropagation()
+
+  const handlePickupConfirm = async (pickup) => {
+    if (!pickupTarget || !onProcessPickup) return
+    setPickupBusy(true)
+    setPickupError('')
+    try {
+      await onProcessPickup(pickupTarget.rental, pickup)
+      setPickupTarget(null)
+    } catch (err) {
+      setPickupError(err?.message || 'Could not process this booking pickup.')
+    } finally {
+      setPickupBusy(false)
+    }
+  }
 
   return (
     <section className="dash-panel dash-attention">
@@ -440,6 +568,12 @@ export default function NeedsAttentionPanel({
                 </thead>
                 <tbody>
                   {upcomingScheduled.map(({ rental, vehicle, isPastDue }) => {
+                    const isUnsignedBooking =
+                      String(rental?.deskMode || rental?.rental?.deskMode || '')
+                        .trim()
+                        .toLowerCase()
+                        .replace(/[\s-]+/g, '_') === 'booking' &&
+                      (!rental.signature || !rental.termsAccepted)
                     const startLabel =
                       rental.rental?.periodFromLabel || formatDateTime(rental.rental?.periodFrom)
                     const remaining = isPastDue
@@ -478,7 +612,9 @@ export default function NeedsAttentionPanel({
                           <div className="dash-attn-cell-time">
                             <span>{startLabel}</span>
                             {isPastDue ? (
-                              <span className="dash-attn-remaining">activating…</span>
+                              <span className="dash-attn-remaining">
+                                {isUnsignedBooking ? 'awaiting pickup' : 'activating…'}
+                              </span>
                             ) : remaining ? (
                               <span className="dash-attn-remaining">{remaining}</span>
                             ) : null}
@@ -493,22 +629,38 @@ export default function NeedsAttentionPanel({
                           </span>
                         </td>
                         <td className="dash-attn-actions-col" onClick={stop}>
-                          {isAdminUser ? (
+                          {isAdminUser || (isUnsignedBooking && onProcessPickup) ? (
                             <div className="dash-attn-actions">
-                              <button
-                                type="button"
-                                className="btn-outline btn-sm btn-danger-outline"
-                                onClick={() => onCancelRental(rental, vehicle)}
-                              >
-                                Cancel
-                              </button>
-                              <button
-                                type="button"
-                                className="btn-outline btn-sm"
-                                onClick={() => setChangeTarget({ rental, vehicle })}
-                              >
-                                Change
-                              </button>
+                              {isUnsignedBooking && onProcessPickup ? (
+                                <button
+                                  type="button"
+                                  className="btn-primary btn-sm"
+                                  onClick={() => {
+                                    setPickupError('')
+                                    setPickupTarget({ rental, vehicle })
+                                  }}
+                                >
+                                  Process pickup
+                                </button>
+                              ) : null}
+                              {isAdminUser ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="btn-outline btn-sm btn-danger-outline"
+                                    onClick={() => onCancelRental(rental, vehicle)}
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn-outline btn-sm"
+                                    onClick={() => setChangeTarget({ rental, vehicle })}
+                                  >
+                                    Change
+                                  </button>
+                                </>
+                              ) : null}
                             </div>
                           ) : (
                             '—'
@@ -667,7 +819,7 @@ export default function NeedsAttentionPanel({
                       <td data-label="Plate">{v.plateNo || '—'}</td>
                       <td className="dash-attn-actions-col">
                         {isAdminUser ? (
-                          <button type="button" className="btn-ghost btn-sm" onClick={onManage}>
+                          <button type="button" className="btn-outline btn-sm" onClick={onManage}>
                             Manage
                           </button>
                         ) : (
@@ -689,6 +841,19 @@ export default function NeedsAttentionPanel({
           rental={detail.rental}
           vehicle={detail.vehicle}
           onClose={() => setDetail(null)}
+        />
+      ) : null}
+
+      {pickupTarget ? (
+        <ProcessPickupModal
+          rental={pickupTarget.rental}
+          vehicle={pickupTarget.vehicle}
+          busy={pickupBusy}
+          submitError={pickupError}
+          onClose={() => {
+            if (!pickupBusy) setPickupTarget(null)
+          }}
+          onConfirm={handlePickupConfirm}
         />
       ) : null}
 

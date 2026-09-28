@@ -16,6 +16,7 @@ export default function StepCustomerIntake({
   signature,
   onSignatureChange,
   errors,
+  bookingMode = false,
 }) {
   const applySavedPhotos = (customer) => {
     if (!customer || customer.blacklisted) {
@@ -35,7 +36,9 @@ export default function StepCustomerIntake({
         <div>
           <h2 className="step-title">Customer</h2>
           <p className="step-subtitle">
-            Details, license photos, and signature — one short form.
+            {bookingMode
+              ? 'Enter the customer information for this advance reservation.'
+              : 'Details, license photos, and signature — one short form.'}
           </p>
         </div>
       </header>
@@ -52,6 +55,17 @@ export default function StepCustomerIntake({
           />
         </div>
 
+        {bookingMode ? (
+          <div className="intake-section intake-booking-notice">
+            <h3 className="intake-section-title">Signature at pickup</h3>
+            <p className="intake-section-hint">
+              Save this reservation now. When the customer arrives, open the booking and select
+              Process pickup to verify ID photos, record vehicle photos, and collect the final
+              agreement signature.
+            </p>
+          </div>
+        ) : (
+          <>
         <div className="intake-section intake-photos">
           <h3 className="intake-section-title">ID photos</h3>
           <p className="intake-section-hint">
@@ -82,6 +96,8 @@ export default function StepCustomerIntake({
             compact
           />
         </div>
+          </>
+        )}
       </div>
     </section>
   )

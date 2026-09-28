@@ -14,6 +14,7 @@ import {
   replaceVehicles as apiReplaceVehicles,
   replaceRentals as apiReplaceRentals,
   addRental as apiAddRental,
+  startBookedRental as startBookedRentalApi,
   completeVehicleRental as completeVehicleRentalApi,
   changeRentalVehicle as changeRentalVehicleApi,
   reconcileDuplicateOpenRentals as reconcileDuplicateOpenRentalsApi,
@@ -688,6 +689,31 @@ export function VehicleProvider({ children }) {
     return normalized
   }, [])
 
+  const startBookedRental = useCallback(async (rentalId, pickup) => {
+    const key = String(rentalId || '').trim()
+    if (!key) throw new Error('Booking id is required')
+
+    const saved = await startBookedRentalApi(key, pickup)
+    const normalized = normalizeRental(saved)
+    const vehicleId = normalized.vehicleId || normalized.vehicle?.id
+
+    skipRentalAutosave.current = true
+    rentalSaveGen.current += 1
+    setRentals((prev) =>
+      prev.map((r) => (String(r.id) === key ? normalized : r)),
+    )
+    if (vehicleId) {
+      setVehicles((prev) =>
+        prev.map((v) =>
+          String(v.id) === String(vehicleId)
+            ? { ...v, status: 'Rented', updatedAt: normalized.updatedAt }
+            : v,
+        ),
+      )
+    }
+    return normalized
+  }, [])
+
   useEffect(() => {
     const activateDueRentals = () => {
       if (!hasLoaded.current || fleetWriteLocked.current) return
@@ -698,6 +724,13 @@ export function VehicleProvider({ children }) {
       const due = prev.filter((r) => {
         if (r.rentalLifecycle !== 'scheduled') return false
         if (r.approvalStatus === 'pending' || r.approvalStatus === 'rejected') return false
+        const mode = String(r.deskMode || r.rental?.deskMode || '')
+          .trim()
+          .toLowerCase()
+          .replace(/[\s-]+/g, '_')
+        // Advance bookings remain scheduled until staff verifies the customer and captures
+        // the in-shop signature through Process pickup.
+        if (mode === 'booking' && (!r.signature || !r.termsAccepted)) return false
         return isDue(r.rental?.periodFrom)
       })
       if (!due.length) return
@@ -926,6 +959,7 @@ export function VehicleProvider({ children }) {
         addRental,
         completeRentalForVehicle,
         cancelScheduledRental,
+        startBookedRental,
         changeRentalVehicle,
         updateRentalCarPhotos,
         reloadData,

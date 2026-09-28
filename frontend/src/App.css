@@ -570,6 +570,11 @@ body {
   line-height: 1.35;
 }
 
+.intake-booking-notice {
+  border-color: color-mix(in srgb, var(--brand) 28%, var(--border));
+  background: color-mix(in srgb, var(--brand-soft) 45%, var(--surface));
+}
+
 .step-personal-embedded,
 .step-photo-compact,
 .step-terms-compact {
@@ -6373,6 +6378,7 @@ html[data-theme='dark'] .conn-status.is-offline {
 
 .dash-attn-actions .btn-outline,
 .dash-attn-actions .btn-ghost,
+.dash-attn-actions .btn-primary,
 .dash-attn-actions .btn-sm {
   min-height: 0;
   padding: 0.2rem 0.4rem;
@@ -6398,6 +6404,7 @@ html[data-theme='dark'] .conn-status.is-offline {
 
 .dash-attn-table .dash-attn-actions .btn-outline,
 .dash-attn-table .dash-attn-actions .btn-ghost,
+.dash-attn-table .dash-attn-actions .btn-primary,
 .dash-attn-table .dash-attn-actions .btn-sm {
   width: 100%;
   justify-content: center;
@@ -6443,7 +6450,7 @@ html[data-theme='dark'] .dash-attn-balance.is-due {
   }
 
   /* Rental cards become a swipeable horizontal carousel in narrow panels. */
-  .dash-attn-table:not(.dash-attn-table--maintenance) tbody {
+  .dash-attn-table tbody {
     display: flex;
     gap: 0.65rem;
     overflow-x: auto;
@@ -6476,7 +6483,7 @@ html[data-theme='dark'] .dash-attn-balance.is-due {
     background: var(--surface);
   }
 
-  .dash-attn-table:not(.dash-attn-table--maintenance) .dash-attn-tr {
+  .dash-attn-table .dash-attn-tr {
     flex: 0 0 min(25rem, calc(100% - 1.25rem));
     scroll-snap-align: start;
     scroll-snap-stop: always;
@@ -6486,7 +6493,7 @@ html[data-theme='dark'] .dash-attn-balance.is-due {
     margin-top: 0.65rem;
   }
 
-  .dash-attn-table:not(.dash-attn-table--maintenance) .dash-attn-tr + .dash-attn-tr {
+  .dash-attn-table .dash-attn-tr + .dash-attn-tr {
     margin-top: 0;
   }
 
@@ -6572,6 +6579,70 @@ html[data-theme='dark'] .dash-attn-balance.is-due {
 .dash-attn-detail-modal {
   width: min(560px, 100%);
   padding: 1rem 1.1rem;
+}
+
+.booking-pickup-modal {
+  width: min(900px, 100%);
+  max-height: min(94vh, 980px);
+  overflow: auto;
+  padding: 1rem 1.1rem;
+}
+
+.booking-pickup-head {
+  position: sticky;
+  top: -1rem;
+  z-index: 5;
+  margin: -1rem -1.1rem 0.85rem;
+  padding: 1rem 1.1rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.booking-pickup-subtitle {
+  margin: 0.3rem 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.booking-pickup-body {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.booking-pickup-section {
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.booking-pickup-section > h4 {
+  margin: 0 0 0.7rem;
+  color: var(--metal);
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.booking-pickup-section > .step-panel {
+  margin: 0;
+  padding: 0;
+  animation: none;
+}
+
+.booking-pickup-actions {
+  position: sticky;
+  bottom: -1rem;
+  z-index: 5;
+  margin: 0.85rem -1.1rem -1rem !important;
+  padding: 0.8rem 1.1rem !important;
+  border-top: 1px solid var(--border) !important;
+  background: var(--surface) !important;
+}
+
+.booking-pickup-error {
+  flex: 1 0 100%;
+  margin: 0;
 }
 
 .dash-attn-detail-head {

@@ -268,10 +268,12 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
       if (isCustomerBlacklisted(personal)) {
         nextErrors.contactNo = 'This customer is blacklisted and cannot be rented to'
       }
-      if (!photo) nextErrors.photo = 'Add a photo of the customer holding their license'
-      if (!licensePhoto) nextErrors.licensePhoto = 'Add a clear photo of the customer'
-      if (!signature) nextErrors.signature = 'Customer signature is required'
-      if (!termsAccepted) nextErrors.terms = 'You must accept the terms to continue'
+      if (deskMode === 'check_in') {
+        if (!photo) nextErrors.photo = 'Add a photo of the customer holding their license'
+        if (!licensePhoto) nextErrors.licensePhoto = 'Add a clear photo of the customer'
+        if (!signature) nextErrors.signature = 'Customer signature is required'
+        if (!termsAccepted) nextErrors.terms = 'You must accept the terms to continue'
+      }
     }
 
     if (currentStep === 2) {
@@ -500,6 +502,7 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
         },
         rental: {
           deskMode,
+          signatureStatus: deskMode === 'booking' ? 'pending' : 'signed',
           duration:
             rental.duration === 'Others' ? rental.durationOther : rental.duration,
           rentalType: rental.rentalType,
@@ -558,9 +561,9 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
         },
         photo: compressedPhoto,
         licensePhoto: compressedLicense,
-        signature: compressedSignature,
+        signature: deskMode === 'booking' ? '' : compressedSignature,
         carPhotos: compressedCarPhotos,
-        termsAccepted,
+        termsAccepted: deskMode === 'booking' ? false : termsAccepted,
         deskMode,
         encodedAt: new Date().toISOString(),
         encodedBy: encoder,
@@ -637,7 +640,8 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
     return <LoadingScreen onDone={handleReset} />
   }
 
-  const nextDisabled = step === 1 && (!termsAccepted || !signature)
+  const nextDisabled =
+    deskMode === 'check_in' && step === 1 && (!termsAccepted || !signature)
 
   return (
     <div className="encoder-card rent-car-panel">
@@ -670,6 +674,7 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
       <div className="encoder-body" ref={stepBodyRef}>
         {step === 1 && (
           <StepCustomerIntake
+            bookingMode={deskMode === 'booking'}
             personal={personal}
             onPersonalChange={updatePersonal}
             photo={photo}
@@ -745,6 +750,7 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
         )}
         {step === 5 && (
           <StepSummary
+            bookingMode={deskMode === 'booking'}
             personal={personal}
             vehicle={selectedVehicle}
             rental={{
@@ -780,7 +786,13 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
           onClick={handleNext}
           disabled={nextDisabled || submitting}
         >
-          {submitting ? 'Saving…' : step === TOTAL_STEPS ? 'Submit' : 'Next'}
+          {submitting
+            ? 'Saving…'
+            : step === TOTAL_STEPS
+              ? deskMode === 'booking'
+                ? 'Save booking'
+                : 'Start rental'
+              : 'Next'}
         </button>
       </footer>
 
