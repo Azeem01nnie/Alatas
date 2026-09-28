@@ -1,3 +1,4 @@
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import AddressAutocomplete from './AddressAutocomplete'
 import SelectMenu from './SelectMenu'
 import { ensurePhMobilePrefix, formatPhMobile } from '../utils/phone'
@@ -78,8 +79,148 @@ function PhoneInput({ name, value, onChange, error, autoComplete = 'tel' }) {
   )
 }
 
+const MAX_CUSTOMER_SUGGESTIONS = 8
+
+function searchCustomers(customers, query) {
+  const q = String(query || '').trim().toLowerCase()
+  if (!q) return []
+  const scored = []
+  for (const c of customers) {
+    const first = String(c.firstName || '').toLowerCase()
+    const full = customerDisplayName(c).toLowerCase()
+    let score = -1
+    if (first.startsWith(q)) score = 0
+    else if (full.split(/\s+/).some((part) => part.startsWith(q))) score = 1
+    else if (full.includes(q)) score = 2
+    if (score >= 0) scored.push({ c, score, full })
+  }
+  scored.sort((a, b) => a.score - b.score || a.full.localeCompare(b.full))
+  return scored.slice(0, MAX_CUSTOMER_SUGGESTIONS).map((s) => s.c)
+}
+
+function FirstNameAutocomplete({ value, onChange, error, customers, onPick }) {
+  const listId = useId()
+  const wrapRef = useRef(null)
+  const [open, setOpen] = useState(false)
+  const [activeIndex, setActiveIndex] = useState(-1)
+
+  const suggestions = useMemo(() => searchCustomers(customers, value), [customers, value])
+  const showList = open && suggestions.length > 0
+
+  useEffect(() => {
+    setActiveIndex(suggestions.findIndex((c) => !c.blacklisted))
+  }, [suggestions])
+
+  useEffect(() => {
+    const onPointerDown = (e) => {
+      if (!wrapRef.current?.contains(e.target)) setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [])
+
+  const pick = (customer) => {
+    if (!customer || customer.blacklisted) return
+    onPick(customer)
+    setOpen(false)
+    setActiveIndex(-1)
+  }
+
+  const step = (from, dir) => {
+    for (let n = 1; n <= suggestions.length; n += 1) {
+      const i = (from + dir * n + suggestions.length) % suggestions.length
+      if (!suggestions[i].blacklisted) return i
+    }
+    return from
+  }
+
+  const onKeyDown = (e) => {
+    if (!showList) {
+      if (e.key === 'ArrowDown' && suggestions.length) setOpen(true)
+      return
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setActiveIndex((i) => step(i, 1))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setActiveIndex((i) => step(i < 0 ? 0 : i, -1))
+    } else if (e.key === 'Enter' && activeIndex >= 0) {
+      e.preventDefault()
+      pick(suggestions[activeIndex])
+    } else if (e.key === 'Escape') {
+      setOpen(false)
+    }
+  }
+
+  return (
+    <div className="field customer-name-autocomplete" ref={wrapRef}>
+      <label className="field-label" htmlFor={`${listId}-input`}>
+        First Name
+        <span className="required">*</span>
+      </label>
+      <input
+        id={`${listId}-input`}
+        type="text"
+        name="firstName"
+        value={value}
+        role="combobox"
+        aria-expanded={showList}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        aria-activedescendant={
+          showList && activeIndex >= 0 ? `${listId}-opt-${activeIndex}` : undefined
+        }
+        autoComplete="off"
+        autoCapitalize="characters"
+        className={error ? 'input-error' : ''}
+        onChange={(e) => {
+          onChange(e.target.value)
+          setOpen(true)
+        }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={onKeyDown}
+      />
+      {showList && (
+        <ul id={listId} className="address-suggestions customer-suggestions" role="listbox">
+          <li className="customer-suggestions-head" aria-hidden="true">
+            Returning customers
+          </li>
+          {suggestions.map((c, index) => (
+            <li key={c.id}>
+              <button
+                type="button"
+                id={`${listId}-opt-${index}`}
+                role="option"
+                aria-selected={index === activeIndex}
+                aria-disabled={c.blacklisted || undefined}
+                disabled={Boolean(c.blacklisted)}
+                className={`address-suggestion customer-suggestion${
+                  index === activeIndex ? ' is-active' : ''
+                }${c.blacklisted ? ' is-blacklisted' : ''}`}
+                onMouseEnter={() => !c.blacklisted && setActiveIndex(index)}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => pick(c)}
+              >
+                <span className="address-suggestion-main">
+                  <strong>{customerDisplayName(c)}</strong>
+                  <span className="customer-suggestion-meta">
+                    {formatPhMobile(c.contactNo) || c.contactNo || 'No contact'}
+                    {c.blacklisted ? ' · Blacklisted' : ''}
+                  </span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {error && <span className="error-msg">{error}</span>}
+    </div>
+  )
+}
+
 export default function StepPersonalInfo({ data, onChange, errors, embedded = false, onCustomerLoaded }) {
-  const customers = loadCustomers()
+  const customers = useMemo(() => loadCustomers(), [])
   const matched = findCustomerByContact(data.contactNo)
 
   const nameFields = [
@@ -127,40 +268,29 @@ export default function StepPersonalInfo({ data, onChange, errors, embedded = fa
         </>
       ) : null}
 
-      {customers.length > 0 ? (
-        <div className="field field-full returning-customer-field">
-          <span className="field-label">Returning customer</span>
-          <SelectMenu
-            value=""
-            onChange={(id) => {
-              if (!id) return
-              const c = customers.find((row) => String(row.id) === String(id))
-              applyCustomer(c)
-            }}
-            ariaLabel="Returning customer"
-            placeholder="Select saved customer to autofill…"
-            options={customers.map((c) => ({
-              value: c.id,
-              label: customerDisplayName(c),
-              hint: c.blacklisted ? `${c.contactNo} · Blacklisted` : c.contactNo,
-              disabled: Boolean(c.blacklisted),
-            }))}
-          />
-          {matched?.blacklisted ? (
-            <span className="error-msg">
-              This contact is blacklisted
-              {matched.blacklistReason ? ` — ${matched.blacklistReason}` : ''}. Rentals are blocked.
-            </span>
-          ) : matched ? (
-            <span className="returning-customer-hint">
-              Returning customer matched by contact — form autofilled.
-            </span>
-          ) : null}
-        </div>
+      {matched?.blacklisted ? (
+        <p className="error-msg returning-customer-note">
+          This contact is blacklisted
+          {matched.blacklistReason ? ` — ${matched.blacklistReason}` : ''}. Rentals are blocked.
+        </p>
+      ) : matched ? (
+        <p className="returning-customer-hint returning-customer-note">
+          Returning customer — details and ID photos filled from their last rental.
+        </p>
       ) : null}
 
       <div className="form-grid">
-        {nameFields.map(({ key, label, required }) => (
+        {nameFields.map(({ key, label, required }) =>
+          key === 'firstName' ? (
+            <FirstNameAutocomplete
+              key={key}
+              value={data.firstName}
+              onChange={(val) => onChange('firstName', val)}
+              error={errors.firstName}
+              customers={customers}
+              onPick={applyCustomer}
+            />
+          ) : (
           <label key={key} className="field">
             <span className="field-label">
               {label}
@@ -177,7 +307,8 @@ export default function StepPersonalInfo({ data, onChange, errors, embedded = fa
             />
             {errors[key] && <span className="error-msg">{errors[key]}</span>}
           </label>
-        ))}
+          ),
+        )}
 
         <AddressAutocomplete
           value={data.address}

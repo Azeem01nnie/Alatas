@@ -578,10 +578,6 @@ body {
   padding: 0;
 }
 
-.step-personal-embedded .returning-customer-field {
-  margin-bottom: 0.65rem;
-}
-
 .step-personal-embedded .form-grid {
   gap: 0.65rem 0.85rem;
 }
@@ -9482,11 +9478,15 @@ html[data-theme='dark'] .cal-fleet-option.is-selected {
 
 .admin-notif-dismiss {
   flex-shrink: 0;
-  width: 1.5rem;
-  height: 1.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  min-height: 0;
   padding: 0;
-  font-size: 1.1rem;
-  line-height: 1;
+  line-height: 0;
   color: var(--muted);
 }
 
@@ -16169,15 +16169,50 @@ html[data-theme='dark'] .damage-modal select {
   }
 }
 
-.returning-customer-field {
-  margin-bottom: 1rem;
-}
-
 .returning-customer-hint {
   display: block;
   margin-top: 0.35rem;
   font-size: 0.78rem;
   color: #1f6b3a;
+}
+
+html[data-theme='dark'] .returning-customer-hint {
+  color: #6fd49a;
+}
+
+.returning-customer-note {
+  margin: 0 0 0.75rem;
+}
+
+.customer-name-autocomplete {
+  position: relative;
+}
+
+.customer-suggestions-head {
+  padding: 0.35rem 0.75rem 0.3rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.customer-suggestion-meta {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.customer-suggestion.is-blacklisted {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.customer-suggestion.is-blacklisted .customer-suggestion-meta {
+  color: var(--error);
+}
+
+.customer-suggestion:disabled:hover {
+  background: transparent;
 }
 
 .damage-media-block {
