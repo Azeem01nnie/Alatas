@@ -15,6 +15,21 @@ function normalizeMinute(value) {
   return String(Math.min(59, Math.max(0, n))).padStart(2, '0')
 }
 
+function nowDraft() {
+  const d = new Date()
+  const h24 = d.getHours()
+  return {
+    hour: String(h24 % 12 || 12),
+    minute: pad2(d.getMinutes()),
+    meridiem: h24 >= 12 ? 'PM' : 'AM',
+  }
+}
+
+function draftFrom(hour, minute, meridiem) {
+  if (!hour || minute === '' || minute == null || !meridiem) return nowDraft()
+  return { hour, minute: normalizeMinute(minute), meridiem }
+}
+
 function formatDisplayTime(hour, minute, meridiem) {
   if (!hour || minute === '' || minute == null || !meridiem) return 'Select time'
   return `${hour}:${pad2(minute)} ${meridiem}`
@@ -72,19 +87,11 @@ export default function PremiumTimePicker({
   title = 'Select time',
 }) {
   const [open, setOpen] = useState(false)
-  const [draft, setDraft] = useState({
-    hour: hour || '12',
-    minute: normalizeMinute(minute || '0'),
-    meridiem: meridiem || 'AM',
-  })
+  const [draft, setDraft] = useState(() => draftFrom(hour, minute, meridiem))
 
   const openModal = () => {
     if (disabled) return
-    setDraft({
-      hour: hour || '12',
-      minute: normalizeMinute(minute === '' || minute == null ? '0' : minute),
-      meridiem: meridiem || 'AM',
-    })
+    setDraft(draftFrom(hour, minute, meridiem))
     setOpen(true)
   }
 

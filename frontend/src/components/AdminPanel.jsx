@@ -5183,6 +5183,7 @@ export default function AdminPanel() {
         hours={overduePrompt?.hours || 0}
         chargedAmount={overduePrompt?.chargedAmount || 0}
         exceedRate={overduePrompt?.exceedRate || 0}
+        dueAt={overduePrompt?.rental?.rental?.periodTo || ''}
         busy={overdueBusy}
         onCancel={() => {
           if (overdueBusy) return

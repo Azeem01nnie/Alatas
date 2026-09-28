@@ -194,6 +194,32 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
 
   // Car photos are optional — never keep required-slot errors around.
   useEffect(() => {
+    if (step !== 2 || deskMode !== 'check_in') return
+    const hasStart =
+      rental.fromDate &&
+      isValidHour(rental.fromHour) &&
+      isValidMinute(rental.fromMinute) &&
+      rental.fromMeridiem
+    if (hasStart) {
+      const startMs = toPeriodDate(
+        rental.fromDate,
+        composeTime(rental.fromHour, rental.fromMinute),
+        rental.fromMeridiem,
+      )?.getTime()
+      if (Number.isFinite(startMs) && startMs >= Date.now() - 15 * 60_000) return
+    }
+    const now = new Date()
+    const h24 = now.getHours()
+    updateRental({
+      fromDate: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`,
+      fromHour: String(h24 % 12 || 12),
+      fromMinute: String(now.getMinutes()).padStart(2, '0'),
+      fromMeridiem: h24 >= 12 ? 'PM' : 'AM',
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, deskMode])
+
+  useEffect(() => {
     if (step !== 4) return
     setErrors((prev) => {
       const next = { ...prev }
