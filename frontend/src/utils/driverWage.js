@@ -6,24 +6,37 @@ const STORE_KEY = 'alatas-driver-wage'
 /** With-driver is always billed at least this many hours. */
 export const DRIVER_MIN_HOURS = 12
 
-export function loadDriverWageSettings() {
-  try {
-    const raw = localStorage.getItem(STORE_KEY)
-    if (!raw) return { wagePerHour: 0 }
-    const parsed = JSON.parse(raw)
-    const wage = Number(parsed?.wagePerHour)
-    return {
-      wagePerHour: Number.isFinite(wage) && wage > 0 ? wage : 0,
-      updatedAt: parsed?.updatedAt || null,
-    }
-  } catch {
-    return { wagePerHour: 0 }
+function normalizeRate(value) {
+  const rate = Number(value)
+  return Number.isFinite(rate) && rate > 0 ? rate : 0
+}
+
+function normalizeSettings(settings = {}) {
+  // Older installs stored a single wage. Use it for both coverages until the
+  // admin saves the new, separate rates.
+  const legacyRate = normalizeRate(settings?.wagePerHour)
+  return {
+    withinCityWagePerHour: normalizeRate(settings?.withinCityWagePerHour) || legacyRate,
+    outsideCityWagePerHour: normalizeRate(settings?.outsideCityWagePerHour) || legacyRate,
+    updatedAt: settings?.updatedAt || null,
   }
 }
 
-export function saveDriverWageSettings({ wagePerHour } = {}) {
+export function loadDriverWageSettings() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY)
+    if (!raw) return normalizeSettings()
+    return normalizeSettings(JSON.parse(raw))
+  } catch {
+    return normalizeSettings()
+  }
+}
+
+export function saveDriverWageSettings(settings = {}) {
+  const normalized = normalizeSettings(settings)
   const next = {
-    wagePerHour: Math.max(0, Number(wagePerHour) || 0),
+    withinCityWagePerHour: normalized.withinCityWagePerHour,
+    outsideCityWagePerHour: normalized.outsideCityWagePerHour,
     updatedAt: new Date().toISOString(),
   }
   safeSetItem(STORE_KEY, JSON.stringify(next))
@@ -61,6 +74,7 @@ export function computeDriverWageCharge(wagePerHour, rentalHours) {
 export function buildDriverFeePatch(
   rentalType,
   rentalHours,
+  coverage = 'within_city',
   settings = loadDriverWageSettings(),
 ) {
   if (String(rentalType || '') !== 'With-driver') {
@@ -72,7 +86,12 @@ export function buildDriverFeePatch(
     }
   }
 
-  const rate = Math.max(0, Number(settings?.wagePerHour) || 0)
+  const normalized = normalizeSettings(settings)
+  const isOutsideCity = String(coverage || '') === 'outside_city'
+  const rate = isOutsideCity
+    ? normalized.outsideCityWagePerHour
+    : normalized.withinCityWagePerHour
+  const coverageLabel = isOutsideCity ? 'outside-city' : 'in-city'
   const hours = Number(rentalHours) || 0
 
   if (rate <= 0) {
@@ -80,7 +99,7 @@ export function buildDriverFeePatch(
       driverWagePerHour: '',
       driverBillableHours: hours > 0 ? resolveDriverBillableHours(hours) : DRIVER_MIN_HOURS,
       driverFee: '',
-      driverFeeNote: 'Set driver wage/hour in Settings',
+      driverFeeNote: `Set ${coverageLabel} driver wage/hour in Settings`,
     }
   }
 
@@ -89,7 +108,7 @@ export function buildDriverFeePatch(
       driverWagePerHour: formatRentalFee(rate),
       driverBillableHours: DRIVER_MIN_HOURS,
       driverFee: '',
-      driverFeeNote: `Driver · ₱${rate.toLocaleString('en-PH')}/hr · min ${DRIVER_MIN_HOURS} hrs (select duration)`,
+      driverFeeNote: `Driver (${coverageLabel}) · ₱${rate.toLocaleString('en-PH')}/hr · min ${DRIVER_MIN_HOURS} hrs (select duration)`,
     }
   }
 

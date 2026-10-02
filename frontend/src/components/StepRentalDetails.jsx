@@ -105,7 +105,7 @@ export default function StepRentalDetails({ data, onChange, errors = {}, vehicle
       feeHours ??
       parseDurationHours(nextData.duration, nextData.durationOther) ??
       nextData.feeHours
-    return buildDriverFeePatch(nextData.rentalType, hrs)
+    return buildDriverFeePatch(nextData.rentalType, hrs, nextData.coverage)
   }
 
   const keepRentalInView = () => {
@@ -124,15 +124,17 @@ export default function StepRentalDetails({ data, onChange, errors = {}, vehicle
   }
 
   const applyCoverage = (nextCoverage) => {
+    const driver = syncDriverPatch({ ...data, coverage: nextCoverage })
     if (nextCoverage === 'within_city') {
       onChange({
         coverage: 'within_city',
         outsideCityDestinationId: '',
         outsideCityDestinationName: '',
         outsideCityFee: '',
+        ...driver,
       })
     } else {
-      onChange({ coverage: 'outside_city' })
+      onChange({ coverage: 'outside_city', ...driver })
     }
     keepRentalInView()
   }
@@ -215,6 +217,7 @@ export default function StepRentalDetails({ data, onChange, errors = {}, vehicle
     data.fromMinute,
     data.fromMeridiem,
     data.rentalType,
+    data.coverage,
     ratesKey,
   ])
 

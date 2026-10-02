@@ -31,7 +31,7 @@ export const DATA_SCOPE_OPTIONS = [
   {
     id: 'rates',
     label: 'Rates & extras',
-    description: 'Outside-city destinations and driver wage',
+    description: 'Outside-city destinations and in/outside-city driver wages',
   },
   {
     id: 'settings',

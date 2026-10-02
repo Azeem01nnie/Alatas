@@ -1,6 +1,17 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 
 const MENU_MAX_HEIGHT = 288
+const MENU_GAP = 6
+
+function findVerticalClipParent(element) {
+  let parent = element?.parentElement
+  while (parent && parent !== document.body) {
+    const { overflow, overflowY } = window.getComputedStyle(parent)
+    if (/(auto|scroll|hidden|clip)/.test(`${overflow} ${overflowY}`)) return parent
+    parent = parent.parentElement
+  }
+  return null
+}
 
 function IconChevron({ open }) {
   return (
@@ -76,9 +87,20 @@ export default function SelectMenu({
   useLayoutEffect(() => {
     if (!open || !wrapRef.current) return
     const rect = wrapRef.current.getBoundingClientRect()
-    const spaceBelow = window.innerHeight - rect.bottom
-    const spaceAbove = rect.top
-    setDropUp(spaceBelow < Math.min(MENU_MAX_HEIGHT, 220) && spaceAbove > spaceBelow)
+    const clipParent = findVerticalClipParent(wrapRef.current)
+    const clipRect = clipParent?.getBoundingClientRect()
+    const boundaryTop = Math.max(0, clipRect?.top ?? 0)
+    const boundaryBottom = Math.min(window.innerHeight, clipRect?.bottom ?? window.innerHeight)
+    const spaceBelow = Math.max(0, boundaryBottom - rect.bottom - MENU_GAP)
+    const spaceAbove = Math.max(0, rect.top - boundaryTop - MENU_GAP)
+    const menuHeight = Math.min(
+      MENU_MAX_HEIGHT,
+      listRef.current?.scrollHeight || MENU_MAX_HEIGHT,
+    )
+
+    // A modal or drawer can clip the menu before the viewport edge. Prefer the
+    // side that can show the full list, then fall back to the roomier side.
+    setDropUp(spaceBelow < menuHeight && spaceAbove > spaceBelow)
   }, [open])
 
   useEffect(() => {

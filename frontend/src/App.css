@@ -1874,10 +1874,14 @@ body {
 
 .driver-wage-form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.65rem 0.75rem;
   align-items: end;
   margin-top: 0.85rem;
+}
+
+.driver-wage-form .btn-primary {
+  grid-column: 1 / -1;
 }
 
 .driver-wage-examples {

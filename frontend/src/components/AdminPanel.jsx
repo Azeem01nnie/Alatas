@@ -4800,7 +4800,7 @@ export default function AdminPanel() {
                       Rates &amp; extras
                     </h3>
                     <p className="settings-section-copy">
-                      Outside-city destinations and With-driver hourly wage.
+                      Outside-city destinations and in/outside-city With-driver hourly wages.
                     </p>
                   </header>
                   <div className="settings-section-grid">

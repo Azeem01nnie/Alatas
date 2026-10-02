@@ -19,68 +19,98 @@ function formatPriceInput(value) {
 }
 
 export default function DriverWagePanel() {
-  const [wageInput, setWageInput] = useState('')
+  const [withinCityInput, setWithinCityInput] = useState('')
+  const [outsideCityInput, setOutsideCityInput] = useState('')
   const [message, setMessage] = useState('')
-  const [savedRate, setSavedRate] = useState(0)
+  const [savedRates, setSavedRates] = useState({
+    withinCityWagePerHour: 0,
+    outsideCityWagePerHour: 0,
+  })
 
   useEffect(() => {
     const loaded = loadDriverWageSettings()
-    setSavedRate(loaded.wagePerHour || 0)
-    setWageInput(loaded.wagePerHour > 0 ? formatRentalFee(loaded.wagePerHour) : '')
+    setSavedRates(loaded)
+    setWithinCityInput(
+      loaded.withinCityWagePerHour > 0 ? formatRentalFee(loaded.withinCityWagePerHour) : '',
+    )
+    setOutsideCityInput(
+      loaded.outsideCityWagePerHour > 0 ? formatRentalFee(loaded.outsideCityWagePerHour) : '',
+    )
   }, [])
 
   const handleSave = (e) => {
     e.preventDefault()
-    const wagePerHour = parseRentalFeeAmount(wageInput)
-    const next = saveDriverWageSettings({ wagePerHour })
-    setSavedRate(next.wagePerHour)
-    setWageInput(next.wagePerHour > 0 ? formatRentalFee(next.wagePerHour) : '')
-    setMessage(
-      next.wagePerHour > 0
-        ? `Saved · ${formatRentalFee(next.wagePerHour)}/hr · min ${DRIVER_MIN_HOURS} hrs`
-        : 'Driver wage cleared.',
+    const next = saveDriverWageSettings({
+      withinCityWagePerHour: parseRentalFeeAmount(withinCityInput),
+      outsideCityWagePerHour: parseRentalFeeAmount(outsideCityInput),
+    })
+    setSavedRates(next)
+    setWithinCityInput(
+      next.withinCityWagePerHour > 0 ? formatRentalFee(next.withinCityWagePerHour) : '',
     )
+    setOutsideCityInput(
+      next.outsideCityWagePerHour > 0 ? formatRentalFee(next.outsideCityWagePerHour) : '',
+    )
+    setMessage('Driver wages saved.')
     window.setTimeout(() => setMessage(''), 2200)
   }
 
-  const example12 = savedRate > 0 ? formatRentalFee(savedRate * DRIVER_MIN_HOURS) : null
-  const example24 = savedRate > 0 ? formatRentalFee(savedRate * 24) : null
+  const hasSavedRate =
+    savedRates.withinCityWagePerHour > 0 || savedRates.outsideCityWagePerHour > 0
 
   return (
     <article className="settings-card settings-driver-wage-card">
       <div className="settings-card-head">
-        <h4 className="settings-card-title">Driver wage</h4>
+        <h4 className="settings-card-title">Driver wages</h4>
         <p className="settings-card-copy">
-          Hourly wage for With-driver rentals. Always billed at least {DRIVER_MIN_HOURS}{' '}
-          hours (even on a 5-hour package).
+          Separate hourly wages for in-city and outside-city With-driver rentals. Always billed
+          at least {DRIVER_MIN_HOURS} hours (even on a 5-hour package).
         </p>
       </div>
 
       <form className="driver-wage-form" onSubmit={handleSave}>
         <label className="field">
-          <span className="field-label">Wage / hour (₱)</span>
+          <span className="field-label">In city / hour (₱)</span>
           <input
             type="text"
             inputMode="decimal"
-            value={wageInput}
-            onChange={(e) => setWageInput(formatPriceInput(e.target.value))}
+            value={withinCityInput}
+            onChange={(e) => setWithinCityInput(formatPriceInput(e.target.value))}
+            placeholder="₱0"
+          />
+        </label>
+        <label className="field">
+          <span className="field-label">Outside city / hour (₱)</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={outsideCityInput}
+            onChange={(e) => setOutsideCityInput(formatPriceInput(e.target.value))}
             placeholder="₱0"
           />
         </label>
         <button type="submit" className="btn-primary">
-          Save wage
+          Save wages
         </button>
       </form>
 
-      {savedRate > 0 ? (
+      {hasSavedRate ? (
         <ul className="driver-wage-examples">
           <li>
-            <span>Min charge ({DRIVER_MIN_HOURS} hrs)</span>
-            <strong>{example12}</strong>
+            <span>In-city min charge ({DRIVER_MIN_HOURS} hrs)</span>
+            <strong>
+              {savedRates.withinCityWagePerHour > 0
+                ? formatRentalFee(savedRates.withinCityWagePerHour * DRIVER_MIN_HOURS)
+                : 'Not set'}
+            </strong>
           </li>
           <li>
-            <span>24-hour rental</span>
-            <strong>{example24}</strong>
+            <span>Outside-city min charge ({DRIVER_MIN_HOURS} hrs)</span>
+            <strong>
+              {savedRates.outsideCityWagePerHour > 0
+                ? formatRentalFee(savedRates.outsideCityWagePerHour * DRIVER_MIN_HOURS)
+                : 'Not set'}
+            </strong>
           </li>
         </ul>
       ) : (
