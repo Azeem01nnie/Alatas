@@ -17131,11 +17131,80 @@ html[data-theme='dark'] .btn-danger-outline:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.18);
 }
 
+.photo-lightbox-stage {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  touch-action: none;
+  cursor: zoom-in;
+}
+
+.photo-lightbox-stage.is-zoomed {
+  cursor: grab;
+}
+
+.photo-lightbox-stage.is-dragging {
+  cursor: grabbing;
+}
+
 .photo-lightbox-img {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
   border-radius: 6px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  transform-origin: center center;
+  transition: transform 0.12s ease-out;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.photo-lightbox-stage.is-dragging .photo-lightbox-img {
+  transition: none;
+}
+
+.photo-lightbox-zoom {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+  padding: 0.35rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
   cursor: default;
+}
+
+.photo-lightbox-zoom .photo-lightbox-btn {
+  min-width: 2.5rem;
+  border-radius: 999px;
+  font-size: 1rem;
+}
+
+.photo-lightbox-zoom .photo-lightbox-zoom-level {
+  min-width: 4.25rem;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.photo-lightbox-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.photo-lightbox-btn.is-active {
+  border-color: #f5c400;
+  background: rgba(245, 196, 0, 0.18);
+  color: #ffe27a;
+}
+
+.photo-lightbox-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }

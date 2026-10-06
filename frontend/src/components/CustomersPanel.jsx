@@ -42,7 +42,7 @@ async function readAndCompressPhoto(file) {
     reader.onerror = () => reject(new Error('Could not read file'))
     reader.readAsDataURL(file)
   })
-  return compressImageDataUrl(dataUrl, 960, 0.8)
+  return compressImageDataUrl(dataUrl, 1600, 0.88)
 }
 
 function formatWhen(value) {

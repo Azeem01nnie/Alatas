@@ -406,10 +406,10 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
         return
       }
 
-      const compressedPhoto = await compressImageDataUrl(photo || '')
-      const compressedLicense = await compressImageDataUrl(licensePhoto || '')
+      const compressedPhoto = await compressImageDataUrl(photo || '', 1600, 0.88)
+      const compressedLicense = await compressImageDataUrl(licensePhoto || '', 1600, 0.88)
       const compressedOptional = optionalPhoto
-        ? (await compressImageDataUrl(optionalPhoto)) || optionalPhoto
+        ? (await compressImageDataUrl(optionalPhoto, 1600, 0.88)) || optionalPhoto
         : ''
       const compressedSignature = signature
         ? (await compressSignatureDataUrl(signature, 640, 0.92)) || signature
@@ -419,14 +419,14 @@ export default function RentCarForm({ onDirtyChange, encodedByName = '', autoApp
       for (const slot of CAR_PHOTO_SLOTS) {
         const raw = carPhotos[slot.key]
         if (!raw) continue
-        const compressed = await compressImageDataUrl(raw)
+        const compressed = await compressImageDataUrl(raw, 1600, 0.85)
         if (compressed) compressedCarPhotos[slot.key] = compressed
       }
       if (Array.isArray(carPhotos.extras) && carPhotos.extras.length) {
         const extras = []
         for (const [index, item] of carPhotos.extras.entries()) {
           if (!item?.uri) continue
-          const compressed = await compressImageDataUrl(item.uri)
+          const compressed = await compressImageDataUrl(item.uri, 1600, 0.85)
           if (!compressed) continue
           extras.push({
             id: item.id || `extra-${index}`,

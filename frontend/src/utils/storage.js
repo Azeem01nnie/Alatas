@@ -23,11 +23,31 @@ export function compressImageDataUrl(dataUrl, maxEdge = MAX_EDGE, quality = JPEG
       const scale = Math.min(1, maxEdge / Math.max(img.width, img.height))
       const width = Math.max(1, Math.round(img.width * scale))
       const height = Math.max(1, Math.round(img.height * scale))
+
+      // Halve in steps: a single big downscale aliases fine text (ID cards) into mush.
+      let source = img
+      let sw = img.width
+      let sh = img.height
+      while (sw / 2 >= width && sh / 2 >= height) {
+        const step = document.createElement('canvas')
+        step.width = Math.round(sw / 2)
+        step.height = Math.round(sh / 2)
+        const sctx = step.getContext('2d')
+        sctx.imageSmoothingEnabled = true
+        sctx.imageSmoothingQuality = 'high'
+        sctx.drawImage(source, 0, 0, step.width, step.height)
+        source = step
+        sw = step.width
+        sh = step.height
+      }
+
       const canvas = document.createElement('canvas')
       canvas.width = width
       canvas.height = height
       const ctx = canvas.getContext('2d')
-      ctx.drawImage(img, 0, 0, width, height)
+      ctx.imageSmoothingEnabled = true
+      ctx.imageSmoothingQuality = 'high'
+      ctx.drawImage(source, 0, 0, width, height)
       try {
         resolve(canvas.toDataURL('image/jpeg', quality))
       } catch {

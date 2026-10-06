@@ -38,7 +38,7 @@ async function readAndCompress(file) {
     reader.onerror = () => reject(new Error('Could not read file'))
     reader.readAsDataURL(file)
   })
-  return compressImageDataUrl(dataUrl, 720, 0.72)
+  return compressImageDataUrl(dataUrl, 1600, 0.85)
 }
 
 function formatDateTime(value) {

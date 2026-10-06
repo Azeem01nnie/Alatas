@@ -15,7 +15,7 @@ async function readAndCompress(file) {
     reader.onerror = () => reject(new Error('Could not read file'))
     reader.readAsDataURL(file)
   })
-  return compressImageDataUrl(dataUrl, 960, 0.8)
+  return compressImageDataUrl(dataUrl, 1600, 0.85)
 }
 
 /** Phones/tablets: use the native camera app for reliable rear-camera access. */
@@ -203,7 +203,7 @@ export default function StepCarCondition({ photos, onChange }) {
       const ctx = canvas.getContext('2d')
       ctx.drawImage(video, 0, 0)
       const raw = canvas.toDataURL('image/jpeg', 0.92)
-      const compressed = await compressImageDataUrl(raw, 960, 0.8)
+      const compressed = await compressImageDataUrl(raw, 1600, 0.85)
       if (!compressed) {
         const msg = 'Could not process the captured photo.'
         if (slotKey === 'extra') setExtraError(msg)

@@ -30,7 +30,7 @@ async function readAndCompress(file) {
     reader.onerror = () => reject(new Error('Could not read file'))
     reader.readAsDataURL(file)
   })
-  return compressImageDataUrl(dataUrl, 1400, 0.85)
+  return compressImageDataUrl(dataUrl, 1600, 0.88)
 }
 
 /** Phones/tablets: hand off to the native camera app (better focus, flash, full screen). */
@@ -314,7 +314,7 @@ export default function StepPhoto({
       }
       ctx.drawImage(video, 0, 0)
       const raw = canvas.toDataURL('image/jpeg', 0.92)
-      const compressed = await compressImageDataUrl(raw, 1400, 0.85)
+      const compressed = await compressImageDataUrl(raw, 1600, 0.88)
       if (!compressed) {
         setLocalError((prev) => ({
           ...prev,
