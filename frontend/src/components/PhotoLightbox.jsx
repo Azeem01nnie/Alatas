@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { enhancePhoto } from '../utils/photoEnhance'
 
 const MIN_ZOOM = 1
 const MAX_ZOOM = 6
 const STEP = 0.5
+const MODES = [
+  { id: 'original', label: 'Original' },
+  { id: 'enhance', label: 'Enhance' },
+  { id: 'text', label: 'Text' },
+]
 
 function clampZoom(value) {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value))
@@ -13,7 +19,10 @@ export default function PhotoLightbox({ photo, onClose }) {
   const [zoom, setZoom] = useState(1)
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const [dragging, setDragging] = useState(false)
-  const [enhanced, setEnhanced] = useState(false)
+  const [mode, setMode] = useState('original')
+  const [processed, setProcessed] = useState({})
+  const [processing, setProcessing] = useState(false)
+  const [enhanceFailed, setEnhanceFailed] = useState(false)
   const stageRef = useRef(null)
   const pointers = useRef(new Map())
   const dragStart = useRef(null)
@@ -28,8 +37,34 @@ export default function PhotoLightbox({ photo, onClose }) {
 
   useEffect(() => {
     reset()
-    setEnhanced(false)
+    setMode('original')
+    setProcessed({})
+    setEnhanceFailed(false)
   }, [photo?.src, reset])
+
+  useEffect(() => {
+    if (!photo?.src || mode === 'original' || processed[mode]) return undefined
+    let alive = true
+    setProcessing(true)
+    setEnhanceFailed(false)
+    // Let the spinner paint before the heavy pixel work blocks the thread.
+    const timer = setTimeout(() => {
+      enhancePhoto(photo.src, mode)
+        .then((url) => {
+          if (alive) setProcessed((prev) => ({ ...prev, [mode]: url }))
+        })
+        .catch(() => {
+          if (alive) setEnhanceFailed(true)
+        })
+        .finally(() => {
+          if (alive) setProcessing(false)
+        })
+    }, 30)
+    return () => {
+      alive = false
+      clearTimeout(timer)
+    }
+  }, [photo?.src, mode, processed])
 
   const applyZoom = useCallback((next) => {
     const z = clampZoom(next)
@@ -149,15 +184,26 @@ export default function PhotoLightbox({ photo, onClose }) {
       <div className="photo-lightbox-bar" onClick={(e) => e.stopPropagation()}>
         <span className="photo-lightbox-title">{photo.label || 'Photo'}</span>
         <div className="photo-lightbox-actions">
-          <button
-            type="button"
-            className={`photo-lightbox-btn${enhanced ? ' is-active' : ''}`}
-            aria-pressed={enhanced}
-            onClick={() => setEnhanced((v) => !v)}
-            title="Sharpen and boost contrast for easier reading"
-          >
-            {enhanced ? 'Enhanced' : 'Enhance'}
-          </button>
+          <div className="photo-lightbox-modes" role="group" aria-label="Photo clarity">
+            {MODES.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                className={`photo-lightbox-btn${mode === m.id ? ' is-active' : ''}`}
+                aria-pressed={mode === m.id}
+                onClick={() => setMode(m.id)}
+                title={
+                  m.id === 'enhance'
+                    ? 'Upscale, sharpen and boost contrast'
+                    : m.id === 'text'
+                      ? 'Black & white with strong contrast for reading small print'
+                      : 'Show the photo as saved'
+                }
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
           <a
             className="photo-lightbox-btn"
             href={photo.src}
@@ -184,14 +230,20 @@ export default function PhotoLightbox({ photo, onClose }) {
       >
         <img
           className="photo-lightbox-img"
-          src={photo.src}
+          src={(mode !== 'original' && processed[mode]) || photo.src}
           alt={photo.label || 'Photo'}
           draggable={false}
           style={{
             transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
-            filter: enhanced ? 'url(#photo-lightbox-sharpen) contrast(1.12) brightness(1.03) saturate(1.05)' : 'none',
+            filter:
+              mode !== 'original' && enhanceFailed
+                ? mode === 'text'
+                  ? 'url(#photo-lightbox-sharpen) grayscale(1) contrast(1.6)'
+                  : 'url(#photo-lightbox-sharpen) contrast(1.15) brightness(1.03)'
+                : 'none',
           }}
         />
+        {processing ? <span className="photo-lightbox-processing">Enhancing…</span> : null}
       </div>
 
       <div className="photo-lightbox-zoom" onClick={(e) => e.stopPropagation()}>
