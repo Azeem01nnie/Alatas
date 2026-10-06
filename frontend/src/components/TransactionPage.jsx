@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { resolveVehicleDisplayImage } from '../utils/vehicleImages'
 import { CONTRACT_TERMS, LIABILITY_CLAUSE, getContractClauseNumber } from '../data/contract'
 import { formatEmergencyContact } from '../utils/phone'
@@ -14,6 +14,7 @@ import {
   resolveRentalChargeBreakdown,
 } from '../utils/rentalFee'
 import ConfirmModal from './ConfirmModal'
+import PhotoLightbox from './PhotoLightbox'
 
 const CAR_SLOTS = [
   { key: 'front', label: 'Front' },
@@ -157,6 +158,8 @@ export default function TransactionPage({
   const [photoDirty, setPhotoDirty] = useState(false)
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false)
   const [customerPhotosOpen, setCustomerPhotosOpen] = useState(true)
+  const [viewPhoto, setViewPhoto] = useState(null)
+  const zoom = (src, label) => () => setViewPhoto({ src, label })
   const [carPhotosOpen, setCarPhotosOpen] = useState(true)
   const slotInputRefs = useRef({})
   const extraInputRef = useRef(null)
@@ -390,6 +393,8 @@ export default function TransactionPage({
         </div>
       </div>
 
+      <PhotoLightbox photo={viewPhoto} onClose={() => setViewPhoto(null)} />
+
       <section className={`transaction-collapse${customerPhotosOpen ? ' is-open' : ''}`}>
         <button
           type="button"
@@ -413,7 +418,7 @@ export default function TransactionPage({
           <div className="transaction-photos">
             <figure className="transaction-photo-card">
               {photo ? (
-                <img src={photo} alt="Customer holding license" />
+                <img src={photo} alt="Customer holding license" className="is-zoomable" onClick={zoom(photo, 'Holding license')} />
               ) : (
                 <div className="transaction-photo-empty">No holding-license photo</div>
               )}
@@ -421,7 +426,7 @@ export default function TransactionPage({
             </figure>
             <figure className="transaction-photo-card">
               {licensePhoto ? (
-                <img src={licensePhoto} alt="Customer" />
+                <img src={licensePhoto} alt="Customer" className="is-zoomable" onClick={zoom(licensePhoto, 'Customer photo')} />
               ) : (
                 <div className="transaction-photo-empty">No customer photo</div>
               )}
@@ -429,13 +434,15 @@ export default function TransactionPage({
             </figure>
             {optionalPhoto ? (
               <figure className="transaction-photo-card">
-                <img src={optionalPhoto} alt="Optional customer" />
+                <img src={optionalPhoto} alt="Optional customer" className="is-zoomable" onClick={zoom(optionalPhoto, 'Optional photo')} />
                 <figcaption>Optional Photo</figcaption>
               </figure>
             ) : null}
             <figure className="transaction-photo-card">
               <img
                 src={resolveVehicleDisplayImage(vehicle)}
+                className="is-zoomable"
+                onClick={zoom(resolveVehicleDisplayImage(vehicle), 'Vehicle photo')}
                 alt={`${vehicle.make || 'Vehicle'}`}
               />
               <figcaption>Vehicle Photo</figcaption>
@@ -521,7 +528,7 @@ export default function TransactionPage({
               return (
                 <figure key={slot.key} className="transaction-photo-card">
                   {preview ? (
-                    <img src={preview} alt={`Car ${slot.label}`} />
+                    <img src={preview} alt={`Car ${slot.label}`} className="is-zoomable" onClick={zoom(preview, `Car — ${slot.label}`)} />
                   ) : canEditCarPhotos ? (
                     <button
                       type="button"
@@ -563,7 +570,7 @@ export default function TransactionPage({
             })}
             {extraPhotos.map((item, index) => (
               <figure key={item.id || `extra-${index}`} className="transaction-photo-card">
-                <img src={item.uri} alt={item.label || `Extra ${index + 1}`} />
+                <img src={item.uri} alt={item.label || `Extra ${index + 1}`} className="is-zoomable" onClick={zoom(item.uri, item.label || `Extra ${index + 1}`)} />
                 <figcaption>
                   {item.label || `Extra ${index + 1}`}
                   {item.addedBy ? ` · ${item.addedBy}` : ''}

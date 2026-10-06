@@ -877,6 +877,73 @@ export function VehicleProvider({ children }) {
     }
   }, [])
 
+  const forceStartRental = useCallback(async (rentalId, startedBy = '') => {
+    const key = String(rentalId || '').trim()
+    const current = rentalsRef.current.find((r) => String(r.id) === key)
+    if (!current) throw new Error('Rental not found')
+    const life = String(current.rentalLifecycle || '').toLowerCase()
+    if (life !== 'scheduled' && life !== 'active') {
+      throw new Error('Only an upcoming rental can be started')
+    }
+    const mode = String(current.deskMode || current.rental?.deskMode || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, '_')
+    if (mode === 'booking' && (!current.signature || !current.termsAccepted)) {
+      throw new Error('The customer must sign before the rental can start')
+    }
+
+    const now = new Date()
+    const nowIso = now.toISOString()
+    const h24 = now.getHours()
+    const fromDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    const fromHour = String(h24 % 12 || 12)
+    const fromMinute = String(now.getMinutes()).padStart(2, '0')
+    const fromMeridiem = h24 >= 12 ? 'PM' : 'AM'
+    const fromTime = `${fromHour}:${fromMinute}`
+
+    const updated = {
+      ...current,
+      rentalLifecycle: 'active',
+      startedAt: nowIso,
+      autoStarted: false,
+      updatedAt: nowIso,
+      rental: {
+        ...current.rental,
+        originalPeriodFrom: current.rental?.originalPeriodFrom || current.rental?.periodFrom || '',
+        originalPeriodFromLabel:
+          current.rental?.originalPeriodFromLabel || current.rental?.periodFromLabel || '',
+        forceStartedAt: nowIso,
+        forceStartedBy: String(startedBy || '').trim(),
+        fromDate,
+        fromHour,
+        fromMinute,
+        fromTime,
+        fromMeridiem,
+        periodFrom: nowIso,
+        periodFromLabel: `${fromDate} ${fromTime} ${fromMeridiem}`,
+      },
+    }
+
+    const next = rentalsRef.current.map((r) => (String(r.id) === key ? updated : r))
+    rentalsRef.current = next
+    skipRentalAutosave.current = true
+    rentalSaveGen.current += 1
+    setRentals(next)
+
+    const vehicleId = String(updated.vehicleId || updated.vehicle?.id || '')
+    if (vehicleId) {
+      setVehicles((prev) =>
+        prev.map((v) =>
+          String(v.id) === vehicleId ? { ...v, status: 'Rented', updatedAt: nowIso } : v,
+        ),
+      )
+    }
+
+    await saveRentals(next)
+    return updated
+  }, [])
+
   const addVehicle = (vehicle) => {
     const now = new Date().toISOString()
     const id = String(vehicle?.id || '').trim() || `v-${Date.now()}`
@@ -1052,6 +1119,7 @@ export function VehicleProvider({ children }) {
         completeRentalForVehicle,
         cancelScheduledRental,
         startBookedRental,
+        forceStartRental,
         changeRentalVehicle,
         recordRentalPayment,
         updateRentalCarPhotos,

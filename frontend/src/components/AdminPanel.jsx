@@ -741,6 +741,7 @@ export default function AdminPanel() {
     completeRentalForVehicle,
     cancelScheduledRental,
     startBookedRental,
+    forceStartRental,
     changeRentalVehicle,
     recordRentalPayment,
     updateRentalCarPhotos,
@@ -1375,6 +1376,7 @@ export default function AdminPanel() {
         wipeLocalRentals()
         localStorage.removeItem('alatas-xz-readings')
         localStorage.removeItem('alatas-customers')
+        localStorage.removeItem('alatas-customers-deleted')
         try {
           const raw = localStorage.getItem('alatas-offline-queue')
           if (raw) {
@@ -1516,6 +1518,7 @@ export default function AdminPanel() {
       wipeLocalRentals()
       localStorage.removeItem('alatas-xz-readings')
       localStorage.removeItem('alatas-customers')
+      localStorage.removeItem('alatas-customers-deleted')
       // Drop rental rows from offline queue only — keep vehicle ops.
       try {
         const raw = localStorage.getItem('alatas-offline-queue')
@@ -1577,6 +1580,7 @@ export default function AdminPanel() {
       localStorage.removeItem('alatas-desk-expenses-v1')
       localStorage.removeItem('alatas-xz-readings')
       localStorage.removeItem('alatas-customers')
+      localStorage.removeItem('alatas-customers-deleted')
       localStorage.removeItem('alatas-outside-city-destinations')
       localStorage.removeItem('alatas-driver-wage')
       localStorage.removeItem('alatas-vehicles-v6')
@@ -1896,6 +1900,19 @@ export default function AdminPanel() {
     [rentals],
   )
 
+  const { startedRentals, earlyReleasedRentals } = useMemo(() => {
+    const now = Date.now()
+    const started = []
+    const early = []
+    for (const r of activeRentals) {
+      const startMs = new Date(r.rental?.periodFrom || 0).getTime()
+      if (Number.isFinite(startMs) && startMs > now) early.push(r)
+      else started.push(r)
+    }
+    return { startedRentals: started, earlyReleasedRentals: early }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRentals, alertTick])
+
   const utilization = useMemo(() => {
     if (!fleetVehicles.length) return 0
     return Math.round((counts.Rented / fleetVehicles.length) * 100)
@@ -1912,7 +1929,7 @@ export default function AdminPanel() {
 
   const upcomingScheduled = useMemo(() => {
     const now = Date.now()
-    return scheduledRentals
+    return [...scheduledRentals, ...earlyReleasedRentals]
       .map((r) => {
         const startMs = r.rental?.periodFrom ? new Date(r.rental.periodFrom).getTime() : NaN
         const isPastDue = !Number.isNaN(startMs) && startMs <= now
@@ -1920,6 +1937,7 @@ export default function AdminPanel() {
           rental: r,
           vehicle: vehicles.find((v) => v.id === r.vehicle?.id) || r.vehicle,
           isPastDue,
+          isReleased: r.rentalLifecycle === 'active',
         }
       })
       .sort((a, b) => {
@@ -1927,10 +1945,10 @@ export default function AdminPanel() {
         const tb = new Date(b.rental.rental?.periodFrom || 0).getTime()
         return ta - tb
       })
-  }, [scheduledRentals, vehicles, alertTick])
+  }, [scheduledRentals, earlyReleasedRentals, vehicles, alertTick])
 
   const onRentQueue = useMemo(() => {
-    const rows = activeRentals.map((r) => ({
+    const rows = startedRentals.map((r) => ({
       rental: r,
       vehicle:
         vehicles.find((v) => String(v.id) === String(r.vehicleId || r.vehicle?.id)) ||
@@ -1960,7 +1978,7 @@ export default function AdminPanel() {
       if (nextTo < prevTo) byKey.set(key, row)
     }
     return [...byKey.values()]
-  }, [activeRentals, vehicles])
+  }, [startedRentals, vehicles])
 
   const maintenanceVehicles = useMemo(
     () => fleetVehicles.filter((v) => getDisplayStatus(v, rentals) === 'Under Maintenance'),
@@ -3396,6 +3414,17 @@ export default function AdminPanel() {
                         setTimeout(() => setMessage(''), 3000)
                       } catch (err) {
                         setMessage(err?.message || 'Could not process this booking pickup.')
+                        setTimeout(() => setMessage(''), 4500)
+                        throw err
+                      }
+                    }}
+                    onForceStart={async (rental) => {
+                      try {
+                        await forceStartRental(rental.id, sessionDisplayName)
+                        setMessage('Rental force started. It is now on the On rent tab.')
+                        setTimeout(() => setMessage(''), 3000)
+                      } catch (err) {
+                        setMessage(err?.message || 'Could not start this rental.')
                         setTimeout(() => setMessage(''), 4500)
                         throw err
                       }

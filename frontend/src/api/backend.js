@@ -1530,6 +1530,34 @@ export async function saveVehicleReportsRemote(store) {
   return next
 }
 
+export async function fetchCustomerDeletionsRemote() {
+  const sb = requireSupabase()
+  const { data, error } = await sb
+    .from('app_settings')
+    .select('value')
+    .eq('key', 'customer_deletions')
+    .maybeSingle()
+  if (error) throwSb(error)
+  const keys = data?.value?.keys
+  return Array.isArray(keys) ? keys.map(String) : []
+}
+
+/** Read-modify-write so concurrent desks don't drop each other's deletions. */
+export async function updateCustomerDeletionsRemote({ add = [], remove = [] } = {}) {
+  const sb = requireSupabase()
+  const current = new Set(await fetchCustomerDeletionsRemote())
+  add.forEach((k) => current.add(String(k)))
+  remove.forEach((k) => current.delete(String(k)))
+  const keys = Array.from(current)
+  const { error } = await sb.from('app_settings').upsert({
+    key: 'customer_deletions',
+    value: { keys },
+    updated_at: new Date().toISOString(),
+  })
+  if (error) throwSb(error)
+  return keys
+}
+
 /** Fleet owners list (Manage Vehicle + Vehicle Reports). */
 export async function fetchOwnersRemote() {
   const sb = requireSupabase()

@@ -38,6 +38,66 @@ function saveCustomers(list) {
   return list
 }
 
+const DELETED_KEY = 'alatas-customers-deleted'
+
+function loadDeletedKeys() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(DELETED_KEY) || '[]')
+    return new Set(Array.isArray(parsed) ? parsed.map(String) : [])
+  } catch {
+    return new Set()
+  }
+}
+
+function saveDeletedKeys(set) {
+  safeSetItem(DELETED_KEY, JSON.stringify(Array.from(set)))
+}
+
+function pushDeletionsRemote(change) {
+  import('../api/supabaseClient')
+    .then(({ isSupabaseConfigured }) => {
+      if (!isSupabaseConfigured) return null
+      return import('../api/backend').then(({ updateCustomerDeletionsRemote }) =>
+        updateCustomerDeletionsRemote(change),
+      )
+    })
+    .catch((err) => console.warn('Could not sync customer deletions', err))
+}
+
+/** Pull deletions saved by any device so deleted customers stay gone everywhere. */
+export async function pullCustomerDeletions() {
+  try {
+    const { isSupabaseConfigured } = await import('../api/supabaseClient')
+    if (!isSupabaseConfigured) return false
+    const { fetchCustomerDeletionsRemote } = await import('../api/backend')
+    const remote = await fetchCustomerDeletionsRemote()
+    const local = loadDeletedKeys()
+    const localOnly = [...local].filter((k) => !remote.includes(k))
+    remote.forEach((k) => local.add(k))
+    saveDeletedKeys(local)
+    if (localOnly.length) pushDeletionsRemote({ add: localOnly })
+
+    const prev = loadCustomers()
+    const next = prev.filter((c) => ![...ownerKeysFor(c)].some((k) => local.has(k)))
+    if (next.length !== prev.length) saveCustomers(next)
+    return true
+  } catch (err) {
+    console.warn('Could not load customer deletions', err)
+    return false
+  }
+}
+
+function ownerKeysFor(person = {}) {
+  const keys = new Set()
+  const tel = customerContactKey(formatPhMobile(person.contactNo || ''))
+  if (isCompleteContactKey(tel)) keys.add(`tel:${tel}`)
+  const full = normalizePersonName(person)
+  if (full) keys.add(`name:${full}`)
+  const short = normalizeShortName(person)
+  if (short) keys.add(`name:${short}`)
+  return keys
+}
+
 export function customerContactKey(contactNo = '') {
   return String(contactNo || '').replace(/\D/g, '')
 }
@@ -147,6 +207,14 @@ export function upsertCustomerFromPersonal(personal = {}, photos = {}) {
   if (!ownerKey) return null
   if (ownerKey.startsWith('tel:') && !isCompleteContactKey(key)) return null
 
+  const deleted = loadDeletedKeys()
+  const revived = ownerKeysFor({ ...personal, contactNo })
+  if ([...revived].some((k) => deleted.has(k))) {
+    revived.forEach((k) => deleted.delete(k))
+    saveDeletedKeys(deleted)
+    pushDeletionsRemote({ remove: [...revived] })
+  }
+
   const prev = loadCustomers()
   const existing =
     prev.find((c) => customerOwnerKey(c) === ownerKey) ||
@@ -228,7 +296,16 @@ export function updateCustomer(id, patch) {
 }
 
 export function deleteCustomer(id) {
-  const next = loadCustomers().filter((c) => String(c.id) !== String(id))
+  const prev = loadCustomers()
+  const target = prev.find((c) => String(c.id) === String(id))
+  if (target) {
+    const deleted = loadDeletedKeys()
+    const keys = [...ownerKeysFor(target)]
+    keys.forEach((key) => deleted.add(key))
+    saveDeletedKeys(deleted)
+    pushDeletionsRemote({ add: keys })
+  }
+  const next = prev.filter((c) => String(c.id) !== String(id))
   saveCustomers(next)
   return next
 }
@@ -286,12 +363,14 @@ export function syncCustomersFromRentals(rentals = []) {
   }
 
   const counts = new Map()
+  const deleted = loadDeletedKeys()
 
   for (const r of Array.isArray(rentals) ? rentals : []) {
     if (!isCountableCustomerRental(r)) continue
     const p = r?.personal || {}
     const key = resolveRentalOwnerKey(r, byKey)
     if (!key) continue
+    if (!byKey.has(key) && [...ownerKeysFor(p)].some((k) => deleted.has(k))) continue
 
     counts.set(key, (counts.get(key) || 0) + 1)
 

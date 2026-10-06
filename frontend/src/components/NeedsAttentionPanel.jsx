@@ -626,6 +626,7 @@ export default function NeedsAttentionPanel({
   onProcessPickup,
   onChangeVehicle,
   onRecordPayment,
+  onForceStart,
   onManage,
 }) {
   const [detail, setDetail] = useState(null)
@@ -637,6 +638,8 @@ export default function NeedsAttentionPanel({
   const [paymentTarget, setPaymentTarget] = useState(null)
   const [paymentBusy, setPaymentBusy] = useState(false)
   const [paymentError, setPaymentError] = useState('')
+  const [forceTarget, setForceTarget] = useState(null)
+  const [forceBusy, setForceBusy] = useState(false)
 
   useEffect(() => {
     setDetail(null)
@@ -644,6 +647,7 @@ export default function NeedsAttentionPanel({
     setPickupTarget(null)
     setPickupError('')
     setPaymentTarget(null)
+    setForceTarget(null)
   }, [attentionFilter])
 
   const openDetail = (rental, vehicle) => setDetail({ rental, vehicle })
@@ -677,6 +681,19 @@ export default function NeedsAttentionPanel({
       setPickupError(err?.message || 'Could not process this booking pickup.')
     } finally {
       setPickupBusy(false)
+    }
+  }
+
+  const handleForceStart = async () => {
+    if (!forceTarget || !onForceStart) return
+    setForceBusy(true)
+    try {
+      await onForceStart(forceTarget.rental)
+      setForceTarget(null)
+    } catch {
+      // message shown by parent
+    } finally {
+      setForceBusy(false)
     }
   }
 
@@ -749,7 +766,7 @@ export default function NeedsAttentionPanel({
                   </tr>
                 </thead>
                 <tbody>
-                  {upcomingScheduled.map(({ rental, vehicle, isPastDue }) => {
+                  {upcomingScheduled.map(({ rental, vehicle, isPastDue, isReleased }) => {
                     const isUnsignedBooking =
                       String(rental?.deskMode || rental?.rental?.deskMode || '')
                         .trim()
@@ -765,6 +782,7 @@ export default function NeedsAttentionPanel({
                         })
                     const bal = resolveBalanceDue(rental)
                     const firstPaid = resolveInitialPayment(rental)
+                    const canForceStart = Boolean(onForceStart) && !isPastDue && !isUnsignedBooking
                     return (
                       <tr
                         key={rental.id}
@@ -807,6 +825,9 @@ export default function NeedsAttentionPanel({
                             ) : remaining ? (
                               <span className="dash-attn-remaining">{remaining}</span>
                             ) : null}
+                            {isReleased ? (
+                              <span className="dash-attn-released">Signed · car released early</span>
+                            ) : null}
                           </div>
                         </td>
                         <td data-label="First paid">
@@ -818,8 +839,17 @@ export default function NeedsAttentionPanel({
                           </span>
                         </td>
                         <td className="dash-attn-actions-col" onClick={stop}>
-                          {isAdminUser || (bal > 0 && onRecordPayment) || (isUnsignedBooking && onProcessPickup) ? (
+                          {isAdminUser || (bal > 0 && onRecordPayment) || (isUnsignedBooking && onProcessPickup) || canForceStart ? (
                             <div className="dash-attn-actions">
+                              {canForceStart ? (
+                                <button
+                                  type="button"
+                                  className="btn-primary btn-sm dash-attn-action-wide"
+                                  onClick={() => setForceTarget({ rental, vehicle })}
+                                >
+                                  Force start
+                                </button>
+                              ) : null}
                               {isUnsignedBooking && onProcessPickup ? (
                                 <button
                                   type="button"
@@ -1056,6 +1086,37 @@ export default function NeedsAttentionPanel({
           }}
           onConfirm={handlePickupConfirm}
         />
+      ) : null}
+
+      {forceTarget ? (
+        <ConfirmModal
+          title="Force start this rental?"
+          message={`Force start the rental for ${forceTarget.vehicle?.make || 'Vehicle'} — ${forceTarget.vehicle?.series || ''} (${forceTarget.vehicle?.plateNo || '—'}) with ${customerName(forceTarget.rental)} now, before its booked start time? It moves to On rent immediately and cannot be undone.`}
+          confirmLabel={forceBusy ? 'Starting…' : 'Yes, force start'}
+          cancelLabel="Not yet"
+          confirmDisabled={forceBusy}
+          onCancel={() => !forceBusy && setForceTarget(null)}
+          onConfirm={handleForceStart}
+        >
+          <dl className="dash-change-confirm-summary">
+            <div>
+              <dt>Booked start</dt>
+              <dd>{forceTarget.rental.rental?.periodFromLabel || formatDateTime(forceTarget.rental.rental?.periodFrom)}</dd>
+            </div>
+            <div>
+              <dt>New start</dt>
+              <dd>Now</dd>
+            </div>
+            <div>
+              <dt>Due back (unchanged)</dt>
+              <dd>{forceTarget.rental.rental?.periodToLabel || formatDateTime(forceTarget.rental.rental?.periodTo)}</dd>
+            </div>
+            <div>
+              <dt>Fee</dt>
+              <dd>Unchanged — extra hours are not charged</dd>
+            </div>
+          </dl>
+        </ConfirmModal>
       ) : null}
 
       {changeTarget ? (

@@ -8,11 +8,13 @@ import {
   rentalBelongsToCustomer,
   setCustomerBlacklisted,
   syncCustomersFromRentals,
+  pullCustomerDeletions,
   updateCustomer,
 } from '../utils/customers'
 import { formatPhMobile } from '../utils/phone'
 import { formatRentalFee, parseRentalFeeAmount } from '../utils/rentalFee'
 import { compressImageDataUrl } from '../utils/storage'
+import PhotoLightbox from './PhotoLightbox'
 
 const EDIT_PHOTO_SLOTS = [
   { key: 'holdingPhoto', label: 'Holding license' },
@@ -86,6 +88,7 @@ export default function CustomersPanel({ rentals = [] }) {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all') // all | active | blacklisted
   const [viewRow, setViewRow] = useState(null)
+  const [viewPhoto, setViewPhoto] = useState(null)
   const [editRow, setEditRow] = useState(null)
   const [editOriginal, setEditOriginal] = useState(null)
   const [clearPhotoSlot, setClearPhotoSlot] = useState(null)
@@ -94,10 +97,22 @@ export default function CustomersPanel({ rentals = [] }) {
   const [blacklistRow, setBlacklistRow] = useState(null)
   const [blacklistReason, setBlacklistReason] = useState('')
 
+  const [deletionsPulled, setDeletionsPulled] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    pullCustomerDeletions().finally(() => {
+      if (alive) setDeletionsPulled(true)
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
+
   useEffect(() => {
     syncCustomersFromRentals(rentals)
     setVersion((n) => n + 1)
-  }, [rentals])
+  }, [rentals, deletionsPulled])
 
   const customers = useMemo(() => {
     const list = loadCustomers()
@@ -408,23 +423,24 @@ export default function CustomersPanel({ rentals = [] }) {
 
               <section className="customers-detail-section">
                 <h4 className="customers-detail-section-title">ID photos</h4>
+                <PhotoLightbox photo={viewPhoto} onClose={() => setViewPhoto(null)} />
                 {viewRow.holdingPhoto || viewRow.licensePhoto || viewRow.optionalPhoto ? (
                   <div className="customers-detail-photos">
                     {viewRow.holdingPhoto ? (
                       <figure>
-                        <img src={viewRow.holdingPhoto} alt="Holding license" />
+                        <img src={viewRow.holdingPhoto} alt="Holding license" className="is-zoomable" onClick={() => setViewPhoto({ src: viewRow.holdingPhoto, label: 'Holding license' })} />
                         <figcaption>Holding license</figcaption>
                       </figure>
                     ) : null}
                     {viewRow.licensePhoto ? (
                       <figure>
-                        <img src={viewRow.licensePhoto} alt="Customer photo" />
+                        <img src={viewRow.licensePhoto} alt="Customer photo" className="is-zoomable" onClick={() => setViewPhoto({ src: viewRow.licensePhoto, label: 'Customer photo' })} />
                         <figcaption>Customer photo</figcaption>
                       </figure>
                     ) : null}
                     {viewRow.optionalPhoto ? (
                       <figure>
-                        <img src={viewRow.optionalPhoto} alt="Optional photo" />
+                        <img src={viewRow.optionalPhoto} alt="Optional photo" className="is-zoomable" onClick={() => setViewPhoto({ src: viewRow.optionalPhoto, label: 'Optional photo' })} />
                         <figcaption>Optional</figcaption>
                       </figure>
                     ) : null}
