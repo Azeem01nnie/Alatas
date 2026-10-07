@@ -1083,7 +1083,7 @@ export default function RentCarScreen() {
           <>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Customer photos</Text>
             <Text style={[styles.sectionHint, { color: colors.textSecondary }]}>
-              Holding license and customer photo are required.
+              Holding license and front of the driver's license are required.
             </Text>
 
             <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>
@@ -1102,10 +1102,10 @@ export default function RentCarScreen() {
             <FieldError message={errors.photo} />
 
             <Text style={[styles.fieldLabel, { color: colors.textSecondary, marginTop: 16 }]}>
-              Customer photo *
+              Front driver's license *
             </Text>
             <Text style={[styles.slotHint, { color: colors.textMuted }]}>
-              Clear photo of the customer (face), or license front.
+              Clear close-up of the front of the driver's license.
             </Text>
             <Pressable
               style={[styles.photoBtn, { borderColor: colors.border }]}
@@ -1119,13 +1119,13 @@ export default function RentCarScreen() {
             <FieldError message={errors.licensePhoto} />
 
             <Text style={[styles.fieldLabel, { color: colors.textSecondary, marginTop: 16 }]}>
-              Optional photo
+              Back driver's license (optional)
             </Text>
             <Pressable
               style={[styles.photoBtn, { borderColor: colors.border }]}
               onPress={() => void pickImage('optional')}
             >
-              <Text style={[styles.photoBtnText, { color: colors.text }]}>Choose optional photo</Text>
+              <Text style={[styles.photoBtnText, { color: colors.text }]}>Choose photo</Text>
             </Pressable>
             {optionalPhoto ? (
               <Image source={{ uri: optionalPhoto }} style={styles.preview} resizeMode="cover" />

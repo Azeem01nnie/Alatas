@@ -1004,7 +1004,7 @@ export async function startBookedRental(rentalId, pickup = {}) {
   const id = String(rentalId || '').trim()
   if (!id) throw new Error('Booking id is required')
   if (!pickup.photo) throw new Error('Customer holding-license photo is required')
-  if (!pickup.licensePhoto) throw new Error('Customer photo is required')
+  if (!pickup.licensePhoto) throw new Error("Front driver's license photo is required")
   if (!pickup.signature) throw new Error('Customer signature is required')
   if (!pickup.termsAccepted) throw new Error('Customer must accept the rental agreement')
 

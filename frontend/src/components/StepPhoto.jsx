@@ -11,14 +11,14 @@ const SLOTS = [
   },
   {
     key: 'license',
-    title: 'Customer photo',
-    hint: 'Clear photo of the customer (face), or a close-up of the license front.',
+    title: "Front driver's license",
+    hint: 'Clear close-up of the front of the driver’s license.',
     required: true,
   },
   {
     key: 'optional',
-    title: 'Optional photo',
-    hint: 'Extra ID, second license side, or any other optional customer photo.',
+    title: "Back driver's license",
+    hint: 'Clear close-up of the back of the driver’s license (restrictions, conditions, serial no.).',
     required: false,
   },
 ]
@@ -371,8 +371,8 @@ export default function StepPhoto({
         <>
           <h2 className="step-title">Customer Photos</h2>
           <p className="step-subtitle">
-            Upload or take the two required photos — holding license and customer photo. You can also
-            add one optional photo.
+            Upload or take the two required photos — holding license and front of the driver’s license. You can also
+            add the back of the license.
           </p>
         </>
       ) : null}

@@ -78,11 +78,11 @@ function collectPhotoEntries(rental) {
   const push = (uri, label) => {
     if (isPhotoUri(uri)) out.push({ uri: uri.trim(), label })
   }
-  push(rental?.photo, 'Customer photo')
-  push(rental?.licensePhoto, 'License')
+  push(rental?.photo, 'Holding license')
+  push(rental?.licensePhoto, "Front driver's license")
   push(rental?.signature, 'Signature')
   const personal = rental?.personal || {}
-  push(personal.optionalPhoto, 'Optional photo')
+  push(personal.optionalPhoto, "Back driver's license")
 
   const carPhotos = rental?.carPhotos
   if (carPhotos && typeof carPhotos === 'object' && !Array.isArray(carPhotos)) {

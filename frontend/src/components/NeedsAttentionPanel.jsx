@@ -211,7 +211,7 @@ function ProcessPickupModal({ rental, vehicle, onClose, onConfirm, busy, submitE
   const submit = () => {
     const next = {}
     if (!photo) next.photo = 'Add a photo of the customer holding their license'
-    if (!licensePhoto) next.licensePhoto = 'Add a clear customer photo'
+    if (!licensePhoto) next.licensePhoto = "Add a clear photo of the front of the driver's license"
     if (!signature) next.signature = 'Customer signature is required'
     if (!termsAccepted) next.terms = 'Customer must accept the agreement'
     setErrors(next)

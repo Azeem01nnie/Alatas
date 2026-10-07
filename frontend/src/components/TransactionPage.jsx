@@ -426,16 +426,16 @@ export default function TransactionPage({
             </figure>
             <figure className="transaction-photo-card">
               {licensePhoto ? (
-                <img src={licensePhoto} alt="Customer" className="is-zoomable" onClick={zoom(licensePhoto, 'Customer photo')} />
+                <img src={licensePhoto} alt="Front driver's license" className="is-zoomable" onClick={zoom(licensePhoto, "Front driver's license")} />
               ) : (
-                <div className="transaction-photo-empty">No customer photo</div>
+                <div className="transaction-photo-empty">No front license photo</div>
               )}
-              <figcaption>Customer Photo</figcaption>
+              <figcaption>Front driver's license</figcaption>
             </figure>
             {optionalPhoto ? (
               <figure className="transaction-photo-card">
-                <img src={optionalPhoto} alt="Optional customer" className="is-zoomable" onClick={zoom(optionalPhoto, 'Optional photo')} />
-                <figcaption>Optional Photo</figcaption>
+                <img src={optionalPhoto} alt="Back driver's license" className="is-zoomable" onClick={zoom(optionalPhoto, "Back driver's license")} />
+                <figcaption>Back driver's license</figcaption>
               </figure>
             ) : null}
             <figure className="transaction-photo-card">

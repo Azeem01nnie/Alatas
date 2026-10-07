@@ -603,10 +603,10 @@ export async function downloadRentalAgreementPdf(transaction = {}, options = {})
   const customerCandidates = []
   if (isUsableImageSrc(photo)) customerCandidates.push({ src: photo, label: 'Holding license' })
   if (isUsableImageSrc(licensePhoto)) {
-    customerCandidates.push({ src: licensePhoto, label: 'Customer photo' })
+    customerCandidates.push({ src: licensePhoto, label: "Front driver's license" })
   }
   if (isUsableImageSrc(personal?.optionalPhoto)) {
-    customerCandidates.push({ src: personal.optionalPhoto, label: 'Optional photo' })
+    customerCandidates.push({ src: personal.optionalPhoto, label: "Back driver's license" })
   }
   const customerImages = await resolveImageItems(customerCandidates)
 

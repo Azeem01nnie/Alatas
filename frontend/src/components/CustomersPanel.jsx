@@ -18,8 +18,8 @@ import PhotoLightbox from './PhotoLightbox'
 
 const EDIT_PHOTO_SLOTS = [
   { key: 'holdingPhoto', label: 'Holding license' },
-  { key: 'licensePhoto', label: 'Customer / license photo' },
-  { key: 'optionalPhoto', label: 'Optional photo' },
+  { key: 'licensePhoto', label: "Front driver's license" },
+  { key: 'optionalPhoto', label: "Back driver's license" },
 ]
 
 const EDIT_TRACKED_FIELDS = [
@@ -434,13 +434,13 @@ export default function CustomersPanel({ rentals = [] }) {
                     ) : null}
                     {viewRow.licensePhoto ? (
                       <figure>
-                        <img src={viewRow.licensePhoto} alt="Customer photo" className="is-zoomable" onClick={() => setViewPhoto({ src: viewRow.licensePhoto, label: 'Customer photo' })} />
-                        <figcaption>Customer photo</figcaption>
+                        <img src={viewRow.licensePhoto} alt="Front driver's license" className="is-zoomable" onClick={() => setViewPhoto({ src: viewRow.licensePhoto, label: "Front driver's license" })} />
+                        <figcaption>Front driver's license</figcaption>
                       </figure>
                     ) : null}
                     {viewRow.optionalPhoto ? (
                       <figure>
-                        <img src={viewRow.optionalPhoto} alt="Optional photo" className="is-zoomable" onClick={() => setViewPhoto({ src: viewRow.optionalPhoto, label: 'Optional photo' })} />
+                        <img src={viewRow.optionalPhoto} alt="Back driver's license" className="is-zoomable" onClick={() => setViewPhoto({ src: viewRow.optionalPhoto, label: "Back driver's license" })} />
                         <figcaption>Optional</figcaption>
                       </figure>
                     ) : null}
