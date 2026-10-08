@@ -21,6 +21,7 @@ import {
   completeVehicleRental as completeVehicleRentalApi,
   changeRentalVehicle as changeRentalVehicleApi,
   addRentalPaymentEntry as addRentalPaymentEntryApi,
+  setRentalOverdueCharge as setRentalOverdueChargeApi,
   reconcileDuplicateOpenRentals as reconcileDuplicateOpenRentalsApi,
 } from '../api/backend'
 import { isSupabaseConfigured, requireSupabase } from '../api/supabaseClient'
@@ -493,7 +494,8 @@ export function VehicleProvider({ children }) {
           if (overduePay && typeof overduePay === 'object') {
             const paid = Math.max(0, Number(overduePay.paidAmount) || 0)
             const hours = Math.max(0, Number(overduePay.hours) || 0)
-            const charged = Math.max(0, Number(overduePay.chargedAmount) || paid)
+            const computed = Math.max(0, Number(overduePay.chargedAmount) || 0)
+            const charged = paid
             const rate = Math.max(0, Number(overduePay.exceedRate) || 0)
             const peso = (n) =>
               `₱${Number(n || 0).toLocaleString('en-PH', {
@@ -504,6 +506,8 @@ export function VehicleProvider({ children }) {
             rentalJson.overdueRate = rate
             rentalJson.overdueChargedValue = charged
             rentalJson.overdueCharged = peso(charged)
+            rentalJson.overdueComputedValue = computed
+            rentalJson.overdueAdjusted = computed !== paid
             rentalJson.overdueFeeValue = paid
             rentalJson.overdueFee = peso(paid)
             rentalJson.overduePaidAt = now
@@ -797,6 +801,17 @@ export function VehicleProvider({ children }) {
 
   const recordRentalPayment = useCallback(async (rentalId, input) => {
     const saved = await addRentalPaymentEntryApi(rentalId, input)
+    const normalized = normalizeRental(saved)
+    skipRentalAutosave.current = true
+    rentalSaveGen.current += 1
+    setRentals((prev) => prev.map((row) =>
+      String(row.id) === String(normalized.id) ? normalized : row,
+    ))
+    return normalized
+  }, [])
+
+  const adjustRentalOverdue = useCallback(async (rentalId, amount, options = {}) => {
+    const saved = await setRentalOverdueChargeApi(rentalId, amount, options)
     const normalized = normalizeRental(saved)
     skipRentalAutosave.current = true
     rentalSaveGen.current += 1
@@ -1122,6 +1137,7 @@ export function VehicleProvider({ children }) {
         forceStartRental,
         changeRentalVehicle,
         recordRentalPayment,
+        adjustRentalOverdue,
         updateRentalCarPhotos,
         reloadData,
         syncOfflineNow,

@@ -58,7 +58,7 @@ export default function OverduePaymentModal({
   const submit = () => {
     const paid = parseRentalFeeAmount(amountInput)
     if (amountInput.trim() === '') {
-      setError('Enter the amount the customer paid for the overdue hours')
+      setError('Enter the overdue amount collected (enter 0 to waive)')
       return
     }
     if (paid < 0) {
@@ -106,21 +106,27 @@ export default function OverduePaymentModal({
             <dt>Excess hour rate</dt>
             <dd>{exceedRate > 0 ? `${formatPeso(exceedRate)} / hr` : '—'}</dd>
           </div>
-          <div className="is-total">
-            <dt>Overdue charge</dt>
+          <div>
+            <dt>Computed charge</dt>
             <dd>
               {exceedRate > 0 ? (
                 <span className="overdue-breakdown-sub">
                   {hourCount} × {formatPeso(exceedRate)} =
                 </span>
               ) : null}
-              <strong>{formatRentalFee(chargedAmount)}</strong>
+              <span>{formatRentalFee(chargedAmount)}</span>
+            </dd>
+          </div>
+          <div className="is-total">
+            <dt>Overdue charge to record</dt>
+            <dd>
+              <strong>{formatRentalFee(paidPreview ?? 0)}</strong>
             </dd>
           </div>
         </dl>
 
         <label className="field">
-          <span className="field-label">Amount paid by customer</span>
+          <span className="field-label">Overdue amount collected</span>
           <input
             type="text"
             inputMode="decimal"
@@ -140,12 +146,14 @@ export default function OverduePaymentModal({
           />
           <span className="field-hint">
             {paidPreview == null
-              ? 'Every started hour counts as a full hour.'
-              : diff < 0
-                ? `Short by ${formatRentalFee(-diff)}`
-                : diff > 0
-                  ? `${formatRentalFee(diff)} more than the charge`
-                  : 'Matches the overdue charge'}
+              ? 'This amount becomes the final overdue charge on the rental, receipt and reports.'
+              : paidPreview === 0
+                ? 'Overdue waived — ₱0 will be recorded.'
+                : diff < 0
+                  ? `Discounted by ${formatRentalFee(-diff)} — ${formatRentalFee(paidPreview)} will be recorded.`
+                  : diff > 0
+                    ? `${formatRentalFee(diff)} above the computed charge — ${formatRentalFee(paidPreview)} will be recorded.`
+                    : 'Matches the computed charge.'}
           </span>
         </label>
 
@@ -156,7 +164,11 @@ export default function OverduePaymentModal({
             Cancel
           </button>
           <button type="button" className="btn-primary" onClick={submit} disabled={busy}>
-            {busy ? 'Saving…' : 'Record payment & return'}
+            {busy
+              ? 'Saving…'
+              : paidPreview == null
+                ? 'Record payment & return'
+                : `Record ${formatRentalFee(paidPreview)} & return`}
           </button>
         </div>
       </div>

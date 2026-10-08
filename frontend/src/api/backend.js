@@ -443,7 +443,8 @@ export async function completeVehicleRental(
       if (overduePay && typeof overduePay === 'object') {
         const paid = Math.max(0, Number(overduePay.paidAmount) || 0)
         const hours = Math.max(0, Number(overduePay.hours) || 0)
-        const charged = Math.max(0, Number(overduePay.chargedAmount) || paid)
+        const computed = Math.max(0, Number(overduePay.chargedAmount) || 0)
+        const charged = paid
         const rate = Math.max(0, Number(overduePay.exceedRate) || 0)
         const peso = (n) =>
           `₱${Number(n || 0).toLocaleString('en-PH', {
@@ -454,6 +455,8 @@ export async function completeVehicleRental(
         rentalJson.overdueRate = rate
         rentalJson.overdueChargedValue = charged
         rentalJson.overdueCharged = peso(charged)
+        rentalJson.overdueComputedValue = computed
+        rentalJson.overdueAdjusted = computed !== paid
         rentalJson.overdueFeeValue = paid
         rentalJson.overdueFee = peso(paid)
         rentalJson.overduePaidAt = now
@@ -1245,7 +1248,7 @@ export async function addRentalPaymentEntry(rentalId, input = {}) {
   }
   const nextPaid = type === 'refund' ? paid - amount : paid + amount
   const balance = Math.max(0, total - nextPaid)
-  const peso = (value) => `â‚±${Number(value || 0).toLocaleString('en-PH', { maximumFractionDigits: 2 })}`
+  const peso = (value) => `₱${Number(value || 0).toLocaleString('en-PH', { maximumFractionDigits: 2 })}`
   const now = new Date().toISOString()
   rentalJson.amountPaidValue = nextPaid
   rentalJson.amountPaid = peso(nextPaid)
@@ -1261,6 +1264,49 @@ export async function addRentalPaymentEntry(rentalId, input = {}) {
       occurredAt: now,
     }),
   )
+
+  const { data, error } = await sb
+    .from('rentals')
+    .update({ rental: rentalJson, updated_at: now })
+    .eq('id', id)
+    .select('*')
+    .single()
+  if (error) throwSb(error)
+  return hydrateRentalMedia(mapRental(data))
+}
+
+/** Set the final overdue charge (discount, waive or correct) for one rental. */
+export async function setRentalOverdueCharge(rentalId, amount, { adjustedBy = '', computed = 0 } = {}) {
+  const sb = requireSupabase()
+  const id = String(rentalId || '').trim()
+  if (!id) throw new Error('Rental id is required')
+  const value = Math.max(0, Number(amount) || 0)
+
+  const { data: existing, error: fetchErr } = await sb
+    .from('rentals')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle()
+  if (fetchErr) throwSb(fetchErr)
+  if (!existing) throw new Error('Rental not found')
+
+  const rentalJson =
+    existing.rental && typeof existing.rental === 'object' ? { ...existing.rental } : {}
+  const peso = (n) => `₱${Number(n || 0).toLocaleString('en-PH', { maximumFractionDigits: 2 })}`
+  const now = new Date().toISOString()
+  const computedValue = Math.max(
+    0,
+    Number(rentalJson.overdueComputedValue) || Number(computed) || 0,
+  )
+  rentalJson.overdueFeeValue = value
+  rentalJson.overdueFee = peso(value)
+  rentalJson.overdueChargedValue = value
+  rentalJson.overdueCharged = peso(value)
+  rentalJson.overdueComputedValue = computedValue
+  rentalJson.overdueAdjusted = computedValue !== value
+  rentalJson.overdueAdjustedBy = String(adjustedBy || '').trim()
+  rentalJson.overdueAdjustedAt = now
+  rentalJson.overduePaidAt = rentalJson.overduePaidAt || now
 
   const { data, error } = await sb
     .from('rentals')

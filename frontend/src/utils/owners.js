@@ -7,11 +7,19 @@ function autoCapitalizeWords(value) {
   return String(value ?? '').toUpperCase()
 }
 
-/** Investor cut of net earnings (0–100). Used for third-party owners only. */
+/** Investor cut of net earnings (0–100). Third-party defaults to 50%, company to 0%. */
 export function normalizeInvestorSharePercent(value, { fallback = 50 } = {}) {
+  if (value === null || value === undefined || value === '') return fallback
   const n = Number(value)
   if (!Number.isFinite(n)) return fallback
   return Math.min(100, Math.max(0, Math.round(n * 100) / 100))
+}
+
+/** Share to store for an owner type; company owners only keep an explicitly set share. */
+export function resolveOwnerInvestorShare(ownershipType, value) {
+  if (ownershipType === 'thirdParty') return normalizeInvestorSharePercent(value)
+  if (value === null || value === undefined || value === '') return undefined
+  return normalizeInvestorSharePercent(value, { fallback: 0 })
 }
 
 function withOwnerFields(o) {
@@ -23,9 +31,8 @@ function withOwnerFields(o) {
     createdAt: o?.createdAt || new Date().toISOString(),
     archivedAt: o?.archivedAt || null,
   }
-  if (ownershipType === 'thirdParty') {
-    next.investorSharePercent = normalizeInvestorSharePercent(o?.investorSharePercent)
-  }
+  const share = resolveOwnerInvestorShare(ownershipType, o?.investorSharePercent)
+  if (share !== undefined) next.investorSharePercent = share
   return next
 }
 
@@ -73,9 +80,7 @@ export function mergeOwnerLists(localList = [], remoteList = []) {
         ...existingByName,
         name,
         ownershipType: next.ownershipType,
-        ...(next.ownershipType === 'thirdParty'
-          ? { investorSharePercent: next.investorSharePercent }
-          : { investorSharePercent: undefined }),
+        investorSharePercent: next.investorSharePercent,
       })
       return
     }
@@ -129,9 +134,8 @@ export function addOwner({ name, ownershipType = 'company', investorSharePercent
     ownershipType: type,
     createdAt: new Date().toISOString(),
   }
-  if (type === 'thirdParty') {
-    owner.investorSharePercent = normalizeInvestorSharePercent(investorSharePercent)
-  }
+  const share = resolveOwnerInvestorShare(type, investorSharePercent)
+  if (share !== undefined) owner.investorSharePercent = share
   const next = [...owners, owner]
   saveOwners(next)
   return owner
@@ -153,15 +157,15 @@ export function updateOwner(id, patch) {
       name: patch.name != null ? autoCapitalizeWords(String(patch.name).trim()) : o.name,
       ownershipType,
     }
-    if (ownershipType === 'thirdParty') {
-      merged.investorSharePercent = normalizeInvestorSharePercent(
-        patch.investorSharePercent != null
-          ? patch.investorSharePercent
-          : o.investorSharePercent,
-      )
-    } else {
-      delete merged.investorSharePercent
-    }
+    const rawShare =
+      patch.investorSharePercent != null
+        ? patch.investorSharePercent
+        : ownershipType === o.ownershipType
+          ? o.investorSharePercent
+          : undefined
+    const share = resolveOwnerInvestorShare(ownershipType, rawShare)
+    if (share !== undefined) merged.investorSharePercent = share
+    else delete merged.investorSharePercent
     return merged
   })
   saveOwners(next)

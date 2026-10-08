@@ -303,10 +303,13 @@ function OwnerEditModal({ owner, onSave, onClose }) {
   )
 }
 
-// ── Manage investor share (third-party owners) ────────────────────
+// ── Manage investor share ─────────────────────────────────────────
 function InvestorManageModal({ owner, onSave, onClose }) {
+  const isThird = owner?.ownershipType === 'thirdParty'
   const [percent, setPercent] = useState(() =>
-    String(normalizeInvestorSharePercent(owner?.investorSharePercent)),
+    String(
+      normalizeInvestorSharePercent(owner?.investorSharePercent, { fallback: isThird ? 50 : 0 }),
+    ),
   )
   const [error, setError] = useState('')
 
@@ -338,7 +341,9 @@ function InvestorManageModal({ owner, onSave, onClose }) {
       >
         <header className="reports-owner-edit-header">
           <div>
-            <p className="reports-owner-edit-eyebrow">Third-party investor</p>
+            <p className="reports-owner-edit-eyebrow">
+              {isThird ? 'Third-party investor' : 'Company investor'}
+            </p>
             <h3 id="investor-manage-title" className="modal-title">Manage Investor</h3>
           </div>
           <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
@@ -672,10 +677,9 @@ export default function VehicleReports({
         id,
         name: o.name || 'Unknown owner',
         ownershipType: o.ownershipType === 'thirdParty' ? 'thirdParty' : 'company',
-        investorSharePercent:
-          o.ownershipType === 'thirdParty'
-            ? normalizeInvestorSharePercent(o.investorSharePercent)
-            : undefined,
+        investorSharePercent: normalizeInvestorSharePercent(o.investorSharePercent, {
+          fallback: o.ownershipType === 'thirdParty' ? 50 : 0,
+        }),
         vehicleCount: 0,
       })
     })
@@ -696,10 +700,9 @@ export default function VehicleReports({
           id: v.ownerId || ownerKey,
           name: fromStore?.name || v.ownerName || 'Unknown owner',
           ownershipType: ownershipType === 'thirdParty' ? 'thirdParty' : 'company',
-          investorSharePercent:
-            ownershipType === 'thirdParty'
-              ? normalizeInvestorSharePercent(fromStore?.investorSharePercent)
-              : undefined,
+          investorSharePercent: normalizeInvestorSharePercent(fromStore?.investorSharePercent, {
+            fallback: ownershipType === 'thirdParty' ? 50 : 0,
+          }),
           vehicleCount: 0,
         })
       }
@@ -787,10 +790,12 @@ export default function VehicleReports({
   }, [store.entries, rentals, selectedVehicleId, selectedVehicle, dateBounds])
 
   const totals = useMemo(() => summarizeReportAmounts(entries), [entries])
-  const isThirdPartyOwner = selectedOwner?.ownershipType === 'thirdParty'
-  const investorSharePercent = isThirdPartyOwner
-    ? normalizeInvestorSharePercent(selectedOwner?.investorSharePercent)
-    : 0
+  const ownerSharePercent = normalizeInvestorSharePercent(selectedOwner?.investorSharePercent, {
+    fallback: selectedOwner?.ownershipType === 'thirdParty' ? 50 : 0,
+  })
+  const isThirdPartyOwner =
+    selectedOwner?.ownershipType === 'thirdParty' || ownerSharePercent > 0
+  const investorSharePercent = isThirdPartyOwner ? ownerSharePercent : 0
   const investorEarning = isThirdPartyOwner
     ? Math.round(totals.net * (investorSharePercent / 100) * 100) / 100
     : 0
@@ -900,7 +905,8 @@ export default function VehicleReports({
   }
 
   const handleInvestorSave = (sharePercent) => {
-    if (!selectedOwner || selectedOwner.ownershipType !== 'thirdParty') return
+    if (!selectedOwner) return
+    const ownershipType = selectedOwner.ownershipType === 'thirdParty' ? 'thirdParty' : 'company'
     let ownerId = String(selectedOwner.id || '').trim()
     if (!ownerId || ownerId.startsWith('name:')) {
       const byName = loadOwners().find(
@@ -913,7 +919,7 @@ export default function VehicleReports({
       } else {
         const created = addOwner({
           name: selectedOwner.name,
-          ownershipType: 'thirdParty',
+          ownershipType,
           investorSharePercent: sharePercent,
         })
         setOwners(loadOwners({ includeArchived: true }))
@@ -923,7 +929,7 @@ export default function VehicleReports({
       }
     }
     onOwnerUpdate?.(ownerId, {
-      ownershipType: 'thirdParty',
+      ownershipType,
       investorSharePercent: sharePercent,
     })
     setOwners(loadOwners({ includeArchived: true }))
@@ -1227,7 +1233,7 @@ export default function VehicleReports({
                 Add Entry
               </button>
 
-              {isThirdPartyOwner && (
+              {selectedOwner && (
                 <button
                   type="button"
                   className="btn-outline"

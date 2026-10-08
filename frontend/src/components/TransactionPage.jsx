@@ -147,6 +147,11 @@ export default function TransactionPage({
             (charges.driver || 0) +
             overdueAmount,
         )
+  const exceedRate = Number(vehicle?.rates?.exceedHour) || 0
+  const computedOverdue =
+    Number(rental.overdueComputedValue) > 0
+      ? Number(rental.overdueComputedValue)
+      : overdueHours * exceedRate
   const amountPaid = resolveAmountPaid(transaction)
   const balanceDue = resolveBalanceDue(transaction)
   const paymentLedger = Array.isArray(rental.paymentLedger) ? rental.paymentLedger : []
@@ -732,14 +737,22 @@ export default function TransactionPage({
             ) : null}
             <div>
               <dt>Overdue</dt>
-              <dd>
-                {overdueAmount > 0
-                  ? `${formatRentalFee(overdueAmount)}${
-                      overdueHours > 0
-                        ? ` · ${overdueHours} hr${overdueHours === 1 ? '' : 's'}`
-                        : ''
-                    }`
-                  : formatRentalFee(0)}
+              <dd className="transaction-overdue-cell">
+                <span>
+                  {overdueAmount > 0
+                    ? `${formatRentalFee(overdueAmount)}${
+                        overdueHours > 0
+                          ? ` · ${overdueHours} hr${overdueHours === 1 ? '' : 's'}`
+                          : ''
+                      }`
+                    : formatRentalFee(0)}
+                  {rental.overdueAdjusted && computedOverdue > 0 ? (
+                    <small className="transaction-overdue-note">
+                      Adjusted from {formatRentalFee(computedOverdue)}
+                      {rental.overdueAdjustedBy ? ` by ${rental.overdueAdjustedBy}` : ''}
+                    </small>
+                  ) : null}
+                </span>
               </dd>
             </div>
             <div>

@@ -499,6 +499,30 @@ function resolveHistoryDeskMode(rental) {
   return ''
 }
 
+const HISTORY_STATUS_LABELS = {
+  pending: 'Pending approval',
+  scheduled: 'Scheduled',
+  on_rent: 'On rent',
+  overdue: 'Overdue',
+  completed: 'Completed',
+  cancelled: 'Cancelled',
+}
+
+function resolveHistoryStatus(rental, now = Date.now()) {
+  const life = String(rental?.rentalLifecycle || '').toLowerCase()
+  const approval = String(rental?.approvalStatus || '').toLowerCase()
+  if (life === 'cancelled' || approval === 'rejected') return 'cancelled'
+  if (life === 'pending_approval' || approval === 'pending') return 'pending'
+  if (life === 'scheduled') return 'scheduled'
+  if (life === 'active') {
+    const startMs = new Date(rental?.rental?.periodFrom || 0).getTime()
+    if (Number.isFinite(startMs) && startMs > now) return 'scheduled'
+    const due = new Date(rental?.rental?.periodTo || 0).getTime()
+    return Number.isFinite(due) && due > 0 && now - due >= 60_000 ? 'overdue' : 'on_rent'
+  }
+  return 'completed'
+}
+
 function historyDeskModeLabel(mode) {
   if (mode === 'booking') return 'Booking'
   if (mode === 'check_in') return 'Check-in'
@@ -768,6 +792,8 @@ export default function AdminPanel() {
   const [historyDateFrom, setHistoryDateFrom] = useState('')
   const [historyDateTo, setHistoryDateTo] = useState('')
   const [historyDeskFilter, setHistoryDeskFilter] = useState('all') // all | check_in | booking
+  const [historyStatusFilter, setHistoryStatusFilter] = useState('all')
+  const [historySort, setHistorySort] = useState('newest') // newest | oldest | start_soon | start_late | total_high | total_low | name
   const [revenuePreset, setRevenuePreset] = useState('week')
   const [revenueDateFrom, setRevenueDateFrom] = useState('')
   const [revenueDateTo, setRevenueDateTo] = useState('')
@@ -2051,7 +2077,11 @@ export default function AdminPanel() {
     const fromMs = historyDateFrom ? new Date(`${historyDateFrom}T00:00:00`).getTime() : null
     const toMs = historyDateTo ? new Date(`${historyDateTo}T23:59:59.999`).getTime() : null
 
+    const now = Date.now()
     const rows = rentals.filter((r) => {
+      if (historyStatusFilter !== 'all' && resolveHistoryStatus(r, now) !== historyStatusFilter) {
+        return false
+      }
       if (historyDeskFilter !== 'all') {
         const mode = resolveHistoryDeskMode(r)
         if (mode !== historyDeskFilter) return false
@@ -2081,16 +2111,44 @@ export default function AdminPanel() {
       return true
     })
 
-    // Sort: Check-in first, then Booking, then unknown — newest encoded within each group.
-    const rank = (mode) => (mode === 'check_in' ? 0 : mode === 'booking' ? 1 : 2)
-    return [...rows].sort((a, b) => {
-      const modeDiff = rank(resolveHistoryDeskMode(a)) - rank(resolveHistoryDeskMode(b))
-      if (modeDiff) return modeDiff
-      const ta = new Date(a.encodedAt || a.rental?.periodFrom || 0).getTime() || 0
-      const tb = new Date(b.encodedAt || b.rental?.periodFrom || 0).getTime() || 0
-      return tb - ta
-    })
-  }, [rentals, historySearch, historyDateFrom, historyDateTo, historyDeskFilter])
+    const encoded = (r) => new Date(r.encodedAt || r.rental?.periodFrom || 0).getTime() || 0
+    const start = (r) => new Date(r.rental?.periodFrom || 0).getTime() || 0
+    const total = (r) => {
+      const fleet = vehicles.find((v) => String(v.id) === String(r.vehicleId || r.vehicle?.id || ''))
+      return resolveRentalChargeBreakdown(r, fleet || null).total || 0
+    }
+    const name = (r) =>
+      [r.personal?.firstName, r.personal?.lastName].filter(Boolean).join(' ').toUpperCase()
+    const comparators = {
+      newest: (a, b) => encoded(b) - encoded(a),
+      oldest: (a, b) => encoded(a) - encoded(b),
+      start_soon: (a, b) => start(a) - start(b),
+      start_late: (a, b) => start(b) - start(a),
+      total_high: (a, b) => total(b) - total(a),
+      total_low: (a, b) => total(a) - total(b),
+      name: (a, b) => name(a).localeCompare(name(b)),
+    }
+    return [...rows].sort(comparators[historySort] || comparators.newest)
+  }, [
+    rentals,
+    vehicles,
+    historySearch,
+    historyDateFrom,
+    historyDateTo,
+    historyDeskFilter,
+    historyStatusFilter,
+    historySort,
+  ])
+
+  const historyStatusCounts = useMemo(() => {
+    const now = Date.now()
+    const counts = { all: rentals.length }
+    for (const r of rentals) {
+      const key = resolveHistoryStatus(r, now)
+      counts[key] = (counts[key] || 0) + 1
+    }
+    return counts
+  }, [rentals])
 
   const historyWithImages = useMemo(() => {
     return filteredHistory.map((r) => {
@@ -4082,7 +4140,50 @@ export default function AdminPanel() {
                   />
                 </div>
 
-                {(historySearch || historyDateFrom || historyDateTo || historyDeskFilter !== 'all') && (
+                <div className="field history-desk-field">
+                  <span className="field-label">Status</span>
+                  <SelectMenu
+                    id="history-status-filter"
+                    value={historyStatusFilter}
+                    onChange={setHistoryStatusFilter}
+                    ariaLabel="Status"
+                    options={[
+                      { value: 'all', label: `All (${historyStatusCounts.all || 0})` },
+                      ...['scheduled', 'on_rent', 'overdue', 'completed', 'cancelled', 'pending'].map(
+                        (key) => ({
+                          value: key,
+                          label: `${HISTORY_STATUS_LABELS[key]} (${historyStatusCounts[key] || 0})`,
+                        }),
+                      ),
+                    ]}
+                  />
+                </div>
+
+                <div className="field history-desk-field">
+                  <span className="field-label">Sort by</span>
+                  <SelectMenu
+                    id="history-sort"
+                    value={historySort}
+                    onChange={setHistorySort}
+                    ariaLabel="Sort by"
+                    options={[
+                      { value: 'newest', label: 'Newest encoded' },
+                      { value: 'oldest', label: 'Oldest encoded' },
+                      { value: 'start_soon', label: 'Start date (earliest)' },
+                      { value: 'start_late', label: 'Start date (latest)' },
+                      { value: 'total_high', label: 'Total (highest)' },
+                      { value: 'total_low', label: 'Total (lowest)' },
+                      { value: 'name', label: 'Customer name (A–Z)' },
+                    ]}
+                  />
+                </div>
+
+                {(historySearch ||
+                  historyDateFrom ||
+                  historyDateTo ||
+                  historyDeskFilter !== 'all' ||
+                  historyStatusFilter !== 'all' ||
+                  historySort !== 'newest') && (
                   <button
                     type="button"
                     className="btn-ghost history-clear-filters"
@@ -4091,6 +4192,8 @@ export default function AdminPanel() {
                       setHistoryDateFrom('')
                       setHistoryDateTo('')
                       setHistoryDeskFilter('all')
+                      setHistoryStatusFilter('all')
+                      setHistorySort('newest')
                     }}
                   >
                     Clear
@@ -4103,19 +4206,29 @@ export default function AdminPanel() {
                 {(historyDateFrom || historyDateTo) && ' · filtered by encoded date'}
                 {historyDeskFilter !== 'all' &&
                   ` · ${historyDeskFilter === 'booking' ? 'Booking' : 'Check-in'} only`}
+                {historyStatusFilter !== 'all' && ` · ${HISTORY_STATUS_LABELS[historyStatusFilter]}`}
               </p>
 
-              <div className="history-list">
+              <div className="history-list history-list-compact">
                 {historyWithImages.length === 0 && (
                   <p className="empty-state">No rental history matches your filters.</p>
                 )}
+                {historyWithImages.length > 0 && (
+                  <div className="history-compact-head" aria-hidden="true">
+                    <span />
+                    <span>Customer / vehicle</span>
+                    <span>Rental period</span>
+                    <span>Details</span>
+                    <span className="is-right">Total</span>
+                    <span>Status</span>
+                  </div>
+                )}
                 {historyWithImages.map((r) => {
                   const fullName =
-                    `${r.personal?.firstName || ''} ${r.personal?.middleName || ''} ${r.personal?.lastName || ''}`.replace(
-                      /\s+/g,
-                      ' ',
-                    ).trim() || 'Customer'
-                  const life = r.rentalLifecycle || 'completed'
+                    `${r.personal?.firstName || ''} ${r.personal?.middleName || ''} ${r.personal?.lastName || ''}`
+                      .replace(/\s+/g, ' ')
+                      .trim() || 'Customer'
+                  const status = resolveHistoryStatus(r)
                   const overdue = formatOverdueDuration(r)
                   const deskMode = resolveHistoryDeskMode(r)
                   const deskLabel = historyDeskModeLabel(deskMode)
@@ -4123,153 +4236,77 @@ export default function AdminPanel() {
                     vehicles.find((v) => String(v.id) === String(r.vehicleId || r.vehicle?.id || '')) ||
                     null
                   const charges = resolveRentalChargeBreakdown(r, fleet)
-                  const cityFee =
-                    charges.base > 0
-                      ? formatRentalFee(charges.base)
-                      : r.rental?.rentalFee || ''
-                  const outsideFee =
-                    charges.outsideCity > 0
-                      ? formatRentalFee(charges.outsideCity)
-                      : r.rental?.outsideCityFee || ''
-                  const driverFee =
-                    charges.driver > 0
-                      ? formatRentalFee(charges.driver)
-                      : r.rental?.driverFee || ''
                   const totalFee =
-                    charges.total > 0
-                      ? formatRentalFee(charges.total)
-                      : cityFee || ''
+                    charges.total > 0 ? formatRentalFee(charges.total) : r.rental?.rentalFee || '—'
+                  const extras = [
+                    charges.driver > 0 ? `Driver ${formatRentalFee(charges.driver)}` : '',
+                    charges.outsideCity > 0 ? `Outside ${formatRentalFee(charges.outsideCity)}` : '',
+                    charges.overdue > 0 ? `Overdue ${formatRentalFee(charges.overdue)}` : '',
+                    charges.damage > 0 ? `Damage ${formatRentalFee(charges.damage)}` : '',
+                  ].filter(Boolean)
                   return (
-                  <button
-                    key={r.id}
-                    type="button"
-                    className="history-row history-row-btn"
-                    onClick={() => openTransaction(r, 'history')}
-                  >
-                    <div className="history-thumb" aria-hidden="true">
-                      <img src={resolveVehicleDisplayImage(r.vehicle)} alt="" />
-                    </div>
+                    <button
+                      key={r.id}
+                      type="button"
+                      className="history-compact-row"
+                      onClick={() => openTransaction(r, 'history')}
+                    >
+                      <span className="history-compact-thumb" aria-hidden="true">
+                        <img src={resolveVehicleDisplayImage(r.vehicle)} alt="" />
+                      </span>
 
-                    <div className="history-body">
-                    <div className="history-main">
+                      <span className="history-compact-who">
                         <strong>{fullName}</strong>
-                        <span className="history-vehicle">
+                        <small>
                           {r.vehicle?.make} {r.vehicle?.series}
                           {r.vehicle?.plateNo ? ` · ${r.vehicle.plateNo}` : ''}
+                        </small>
                       </span>
-                    </div>
 
-                    <div className="history-meta">
+                      <span className="history-compact-period">
+                        <span>{r.rental?.periodFromLabel || formatDateTime(r.rental?.periodFrom)}</span>
+                        <small>→ {r.rental?.periodToLabel || formatDateTime(r.rental?.periodTo)}</small>
+                      </span>
+
+                      <span className="history-compact-chips">
                         {deskLabel ? (
-                          <span
-                            className={`history-chip history-chip-desk history-chip-desk-${deskMode}`}
-                          >
+                          <span className={`history-chip history-chip-desk history-chip-desk-${deskMode}`}>
                             {deskLabel}
                           </span>
                         ) : null}
-                        {r.rental?.rentalType && (
+                        {r.rental?.duration ? <span className="history-chip">{r.rental.duration}</span> : null}
+                        {r.rental?.rentalType ? (
                           <span className="history-chip">{r.rental.rentalType}</span>
-                        )}
-                        {r.rental?.duration && (
-                          <span className="history-chip">{r.rental.duration}</span>
-                        )}
+                        ) : null}
                         {r.rental?.coverage === 'outside_city' ? (
-                          <span className="history-chip">
-                            Outside city
-                            {r.rental?.outsideCityDestinationName
-                              ? ` · ${r.rental.outsideCityDestinationName}`
-                              : ''}
-                          </span>
-                        ) : (
-                          <span className="history-chip">Within city</span>
-                        )}
+                          <span className="history-chip">Outside city</span>
+                        ) : null}
                         {overdue ? (
                           <span
                             className="history-chip history-chip-overdue"
-                            title={
-                              life === 'active'
-                                ? `Currently overdue by ${overdue.detail}`
-                                : `Returned ${overdue.detail} late`
-                            }
+                            title={status === 'overdue' ? `Currently overdue by ${overdue.detail}` : `Returned ${overdue.detail} late`}
                           >
                             {overdue.label}
                           </span>
                         ) : null}
-                      </div>
-
-                      <div className="history-fee-breakdown">
-                        {cityFee ? (
-                      <span>
-                            Rent <strong>{cityFee}</strong>
-                          </span>
-                        ) : null}
-                        {driverFee ? (
-                          <span>
-                            Driver <strong>{driverFee}</strong>
-                            {r.rental?.driverBillableHours
-                              ? ` · ${r.rental.driverBillableHours}h`
-                              : ''}
-                          </span>
-                        ) : null}
-                        {outsideFee ? (
-                          <span>
-                            Outside <strong>{outsideFee}</strong>
-                          </span>
-                        ) : null}
-                        {charges.overdue > 0 ? (
-                          <span>
-                            Overdue <strong>{formatRentalFee(charges.overdue)}</strong>
-                          </span>
-                        ) : null}
-                        {charges.damage > 0 ? (
-                          <span>
-                            Damage <strong>{formatRentalFee(charges.damage)}</strong>
-                          </span>
-                        ) : null}
-                        {totalFee ? (
-                          <span className="history-fee-total">
-                            Total <strong>{totalFee}</strong>
-                          </span>
-                        ) : null}
-                      </div>
-
-                      <div className="history-period">
-                      <span>
-                          {r.rental?.periodFromLabel || formatDateTime(r.rental?.periodFrom)}
-                          {' → '}
-                          {r.rental?.periodToLabel || formatDateTime(r.rental?.periodTo)}
                       </span>
-                      <span className="history-encoded">
-                        Encoded {formatDateTime(r.encodedAt)}
-                        {encoderName(r) ? ` · by ${encoderName(r)}` : ''}
-                      </span>
-                    </div>
-                    </div>
 
-                    <div className="history-aside">
-                      <span
-                        className={`history-life history-life-${life}${
-                          life === 'active' && overdue ? ' history-life-overdue' : ''
-                        }`}
-                      >
-                        {life === 'active'
-                          ? overdue
-                            ? 'Overdue'
-                            : 'On rent'
-                          : life === 'scheduled'
-                            ? 'Scheduled'
-                            : life === 'cancelled'
-                              ? 'Cancelled'
-                              : 'Completed'}
+                      <span className="history-compact-total" title={extras.join(' · ') || undefined}>
+                        <strong>{totalFee}</strong>
+                        {extras.map((line) => (
+                          <small key={line}>{line}</small>
+                        ))}
                       </span>
-                      <span className="history-open-hint" aria-hidden="true">
-                        View
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+
+                      <span className="history-compact-status">
+                        <span className={`history-status-pill is-${status}`}>
+                          {HISTORY_STATUS_LABELS[status]}
+                        </span>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                           <path d="M9 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" />
                         </svg>
                       </span>
-                    </div>
-                  </button>
+                    </button>
                   )
                 })}
               </div>

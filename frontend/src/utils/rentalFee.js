@@ -137,6 +137,8 @@ export function resolveOverdueCharge(rental, fleetVehicle = null, now = Date.now
   const recorded = parseRentalFeeAmount(
     rental?.rental?.overdueFeeValue ?? rental?.rental?.overdueFee ?? '',
   )
+  // Once staff recorded the collection, that amount is final — even ₱0 (waived).
+  if (rental?.rental?.overduePaidAt) return Math.max(0, recorded)
   if (recorded > 0) return recorded
 
   const rates = fleetVehicle?.rates || rental?.vehicle?.rates || null
