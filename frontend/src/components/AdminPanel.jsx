@@ -3687,44 +3687,47 @@ export default function AdminPanel() {
                       <p className="empty-state dash-empty">No rentals yet.</p>
                     )}
                     <ul className="dash-recent-list">
-                      {recentRentals.map((r) => (
-                        <li key={r.id}>
-                          <button
-                            type="button"
-                            className="dash-recent-btn"
-                            onClick={() => openTransaction(r, 'dashboard')}
-                          >
-                            <span className="dash-recent-main">
-                              <strong>{customerName(r)}</strong>
-                      <span>
-                                {r.vehicle?.make} {r.vehicle?.series}
-                      </span>
-                        </span>
-                            <span className="dash-recent-meta">
-                              <span>{r.rental?.rentalFee || '—'}</span>
-                    <span
-                      className={`status-badge ${
-                                  r.rentalLifecycle === 'active'
-                                    ? 'status-rented'
-                                    : r.rentalLifecycle === 'scheduled'
-                                      ? 'cal-chip-scheduled'
-                                      : r.rentalLifecycle === 'cancelled'
-                                        ? 'status-cancelled'
-                                        : 'status-completed'
-                                }`}
-                              >
-                                {r.rentalLifecycle === 'active'
-                                  ? 'On Rent'
-                                  : r.rentalLifecycle === 'scheduled'
-                                    ? 'Scheduled'
-                                    : r.rentalLifecycle === 'cancelled'
-                                      ? 'Cancelled'
-                                      : 'Done'}
-                    </span>
-                            </span>
-                          </button>
-                        </li>
-                      ))}
+                      {recentRentals.map((r) => {
+                        const status = resolveHistoryStatus(r)
+                        const fleet =
+                          vehicles.find(
+                            (v) => String(v.id) === String(r.vehicleId || r.vehicle?.id || ''),
+                          ) || null
+                        const charges = resolveRentalChargeBreakdown(r, fleet)
+                        const amount =
+                          charges.total > 0
+                            ? formatRentalFee(charges.total)
+                            : r.rental?.rentalFee || '—'
+                        const when = r.rental?.periodFromLabel || formatDateTime(r.rental?.periodFrom)
+                        return (
+                          <li key={r.id}>
+                            <button
+                              type="button"
+                              className="dash-recent-btn"
+                              onClick={() => openTransaction(r, 'dashboard')}
+                            >
+                              <span className="dash-recent-thumb" aria-hidden="true">
+                                <img src={resolveVehicleDisplayImage(r.vehicle)} alt="" />
+                              </span>
+                              <span className="dash-recent-main">
+                                <strong>{customerName(r)}</strong>
+                                <span className="dash-recent-car">
+                                  {[r.vehicle?.make, r.vehicle?.series].filter(Boolean).join(' ')}
+                                </span>
+                                {when && when !== '—' ? (
+                                  <span className="dash-recent-when">{when}</span>
+                                ) : null}
+                              </span>
+                              <span className="dash-recent-meta">
+                                <strong className="dash-recent-amount">{amount}</strong>
+                                <span className={`history-status-pill is-${status}`}>
+                                  {HISTORY_STATUS_LABELS[status] || 'Done'}
+                                </span>
+                              </span>
+                            </button>
+                          </li>
+                        )
+                      })}
                     </ul>
                   </section>
                 </div>

@@ -7517,35 +7517,90 @@ html[data-theme='dark'] .dash-attn-balance.is-due {
   background: var(--surface-muted);
 }
 
+.dash-recent-btn {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.65rem 0.5rem;
+  margin: 0 -0.5rem;
+  width: calc(100% + 1rem);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.dash-recent-list li:first-child .dash-recent-btn {
+  padding-top: 0.65rem;
+}
+
+.dash-recent-thumb {
+  width: 44px;
+  height: 32px;
+  border-radius: 7px;
+  overflow: hidden;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+}
+
+.dash-recent-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
 .dash-recent-main {
   display: flex;
   flex-direction: column;
-  gap: 0.1rem;
+  gap: 0.08rem;
   min-width: 0;
 }
 
-.dash-recent-main strong {
-  font-size: 0.85rem;
-  color: var(--text);
+.dash-recent-main strong,
+.dash-recent-main span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.dash-recent-main span {
-  font-size: 0.74rem;
+.dash-recent-main strong {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.01em;
+}
+
+.dash-recent-car {
+  font-size: 0.68rem;
   color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+.dash-recent-when {
+  font-size: 0.66rem;
+  color: var(--muted);
+  opacity: 0.85;
 }
 
 .dash-recent-meta {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 0.35rem;
+  gap: 0.3rem;
   flex-shrink: 0;
 }
 
-.dash-recent-meta > span:first-child {
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--metal);
+.dash-recent-amount {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.dash-recent-meta .history-status-pill {
+  font-size: 0.6rem;
+  padding: 0.14rem 0.5rem;
 }
 
 /* Rental calendar */

@@ -45,6 +45,44 @@ async function readAndCompressPhoto(file) {
   return compressImageDataUrl(dataUrl, 1600, 0.88)
 }
 
+/** Re-sign stored ID photo URLs — saved signed links expire after 24 hours. */
+function useFreshPhotos(row) {
+  const [fresh, setFresh] = useState({})
+  const holding = row?.holdingPhoto || ''
+  const license = row?.licensePhoto || ''
+  const optional = row?.optionalPhoto || ''
+
+  useEffect(() => {
+    let alive = true
+    const values = { holdingPhoto: holding, licensePhoto: license, optionalPhoto: optional }
+    setFresh(values)
+    const needsSign = Object.values(values).some((v) => v && !v.startsWith('data:'))
+    if (!needsSign) return undefined
+    import('../api/backend')
+      .then(({ signRentalMediaUrl }) =>
+        Promise.all(
+          Object.entries(values).map(async ([key, value]) => {
+            if (!value || value.startsWith('data:')) return [key, value]
+            try {
+              return [key, (await signRentalMediaUrl(value)) || value]
+            } catch {
+              return [key, value]
+            }
+          }),
+        ),
+      )
+      .then((entries) => {
+        if (alive && entries) setFresh(Object.fromEntries(entries))
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [holding, license, optional])
+
+  return fresh
+}
+
 function formatWhen(value) {
   if (!value) return '—'
   const d = new Date(value)
@@ -98,6 +136,8 @@ export default function CustomersPanel({ rentals = [] }) {
   const [blacklistReason, setBlacklistReason] = useState('')
 
   const [deletionsPulled, setDeletionsPulled] = useState(false)
+  const viewPhotos = useFreshPhotos(viewRow)
+  const editPhotos = useFreshPhotos(editRow)
 
   useEffect(() => {
     let alive = true
@@ -424,26 +464,21 @@ export default function CustomersPanel({ rentals = [] }) {
               <section className="customers-detail-section">
                 <h4 className="customers-detail-section-title">ID photos</h4>
                 <PhotoLightbox photo={viewPhoto} onClose={() => setViewPhoto(null)} />
-                {viewRow.holdingPhoto || viewRow.licensePhoto || viewRow.optionalPhoto ? (
+                {viewPhotos.holdingPhoto || viewPhotos.licensePhoto || viewPhotos.optionalPhoto ? (
                   <div className="customers-detail-photos">
-                    {viewRow.holdingPhoto ? (
-                      <figure>
-                        <img src={viewRow.holdingPhoto} alt="Holding license" className="is-zoomable" onClick={() => setViewPhoto({ src: viewRow.holdingPhoto, label: 'Holding license' })} />
-                        <figcaption>Holding license</figcaption>
-                      </figure>
-                    ) : null}
-                    {viewRow.licensePhoto ? (
-                      <figure>
-                        <img src={viewRow.licensePhoto} alt="Front driver's license" className="is-zoomable" onClick={() => setViewPhoto({ src: viewRow.licensePhoto, label: "Front driver's license" })} />
-                        <figcaption>Front driver's license</figcaption>
-                      </figure>
-                    ) : null}
-                    {viewRow.optionalPhoto ? (
-                      <figure>
-                        <img src={viewRow.optionalPhoto} alt="Back driver's license" className="is-zoomable" onClick={() => setViewPhoto({ src: viewRow.optionalPhoto, label: "Back driver's license" })} />
-                        <figcaption>Optional</figcaption>
-                      </figure>
-                    ) : null}
+                    {EDIT_PHOTO_SLOTS.map((slot) =>
+                      viewPhotos[slot.key] ? (
+                        <figure key={slot.key}>
+                          <img
+                            src={viewPhotos[slot.key]}
+                            alt={slot.label}
+                            className="is-zoomable"
+                            onClick={() => setViewPhoto({ src: viewPhotos[slot.key], label: slot.label })}
+                          />
+                          <figcaption>{slot.label}</figcaption>
+                        </figure>
+                      ) : null,
+                    )}
                   </div>
                 ) : (
                   <p className="customers-detail-empty">No ID photos saved yet.</p>
@@ -643,7 +678,9 @@ export default function CustomersPanel({ rentals = [] }) {
                 <span className="field-label">ID photos</span>
                 <div className="customers-edit-photo-grid">
                   {EDIT_PHOTO_SLOTS.map((slot) => {
-                    const preview = editRow[slot.key] || ''
+                    const raw = editRow[slot.key] || ''
+                    const preview =
+                      raw && !raw.startsWith('data:') && editPhotos[slot.key] ? editPhotos[slot.key] : raw
                     return (
                       <div key={slot.key} className="customers-edit-photo-slot">
                         <div className="customers-edit-photo-stage">

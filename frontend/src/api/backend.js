@@ -54,6 +54,22 @@ function transformRentalMedia(rental, transform) {
   return next
 }
 
+/** Fresh signed URL for a stored rental/customer photo (expired signed URLs included). */
+export async function signRentalMediaUrl(value) {
+  const path = rentalMediaPath(value)
+  if (!path) return value || ''
+  const cached = signedRentalMediaCache.get(path)
+  if (cached && cached.expiresAt > Date.now() + 60_000) return cached.url
+  const sb = requireSupabase()
+  const { data, error } = await sb.storage
+    .from(RENTAL_MEDIA_BUCKET)
+    .createSignedUrl(path, 60 * 60 * 24)
+  if (error) throwSb(error, 'Could not authorize customer media')
+  const url = data?.signedUrl || ''
+  if (url) signedRentalMediaCache.set(path, { url, expiresAt: Date.now() + 23 * 60 * 60 * 1000 })
+  return url
+}
+
 async function hydrateRentalMedia(rental) {
   const sb = requireSupabase()
   const cache = new Map()
